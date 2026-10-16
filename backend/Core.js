@@ -259,14 +259,55 @@ var SOCore = (function () {
   }
 
   /** @returns 'admin' | 'editor' | 'viewer' | null  (admins can also edit) */
-  function roleFor(email, editorsCsv, viewersCsv, adminsCsv) {
+  var ROLE_RANK = { viewer: 1, editor: 2, admin: 3 };
+  var ROLES = ['viewer', 'editor', 'admin'];
+
+  /**
+   * Highest role the person has from either source: the Script Properties lists
+   * (bootstrap/emergency access) or an ACTIVE row in the APP_USERS table.
+   */
+  function roleFor(email, editorsCsv, viewersCsv, adminsCsv, users) {
     if (!email) return null;
     var e = String(email).toLowerCase();
-    if (parseEmailList(adminsCsv).indexOf(e) >= 0) return 'admin';
-    if (parseEmailList(editorsCsv).indexOf(e) >= 0) return 'editor';
-    if (parseEmailList(viewersCsv).indexOf(e) >= 0) return 'viewer';
-    return null;
+    var best = null;
+    function consider(r) { if (r && (!best || ROLE_RANK[r] > ROLE_RANK[best])) best = r; }
+    if (parseEmailList(adminsCsv).indexOf(e) >= 0) consider('admin');
+    if (parseEmailList(editorsCsv).indexOf(e) >= 0) consider('editor');
+    if (parseEmailList(viewersCsv).indexOf(e) >= 0) consider('viewer');
+    (users || []).forEach(function (u) {
+      if (u && String(u.email).toLowerCase() === e && u.active && ROLE_RANK[u.role]) consider(u.role);
+    });
+    return best;
   }
+
+  var MAX_USERS = 1000;
+
+  /** Validate one user entered by an admin. Returns {ok, user} or {ok:false, error}. */
+  function validateUser(u) {
+    if (!u || typeof u !== 'object') return { ok: false, error: 'Invalid user.' };
+    var email = String(u.email === undefined || u.email === null ? '' : u.email).trim().toLowerCase();
+    if (!/^[^@\s,;]+@[^@\s,;]+\.[^@\s,;]+$/.test(email) || email.length > 200) return { ok: false, error: 'Enter a valid email address.' };
+    var name = safeCellText(u.name, 100), eid = safeCellText(u.employeeId, 50);
+    if (name === null) return { ok: false, error: 'Name is invalid or too long (' + email + ').' };
+    if (eid === null) return { ok: false, error: 'Employee ID is invalid or too long (' + email + ').' };
+    var role = String(u.role === undefined || u.role === null ? 'viewer' : u.role).trim().toLowerCase();
+    if (ROLES.indexOf(role) < 0) return { ok: false, error: 'Role must be viewer, editor or admin (' + email + ').' };
+    var active = !(u.active === false || String(u.active).toLowerCase() === 'false' || String(u.active).toLowerCase() === 'no' || u.active === 0);
+    var user = { email: email, role: role, active: active };
+    if (u.name !== undefined) user.name = name;            // omitted fields are left unchanged on update
+    if (u.employeeId !== undefined) user.employeeId = eid;
+    return { ok: true, user: user };
+  }
+
+  /** Merge validated users into the existing table by email (case-insensitive). */
+  function mergeUsers(existing, incoming) {
+    var byEmail = {}, order = [];
+    (existing || []).forEach(function (u) { var k = String(u.email).toLowerCase(); if (!byEmail[k]) order.push(k); byEmail[k] = u; });
+    incoming.forEach(function (u) { var k = u.email; if (!byEmail[k]) order.push(k); byEmail[k] = Object.assign({}, byEmail[k] || {}, u); });
+    return order.map(function (k) { return byEmail[k]; });
+  }
+
+
 
   // ---- stockroom price check ----
   var PRICE_TOLERANCE = 0.005;
@@ -463,6 +504,7 @@ var SOCore = (function () {
     normalizePart: normalizePart, parsePrice: parsePrice, buildStockIndex: buildStockIndex,
     priceCheck: priceCheck, validateStockUpload: validateStockUpload,
     lookupChecks: lookupChecks, validateSteelUpload: validateSteelUpload, safeCellText: safeCellText,
+    ROLES: ROLES, ROLE_RANK: ROLE_RANK, MAX_USERS: MAX_USERS, validateUser: validateUser, mergeUsers: mergeUsers,
     INTAKE_KEYS: INTAKE_KEYS, INTAKE_REQUIRED: INTAKE_REQUIRED, intakeInfo: intakeInfo, planCreate: planCreate, normSo: normSo,
     dashboardRow: dashboardRow, pctNum: pctNum, validateScanUpload: validateScanUpload, MAX_SCAN_BYTES: MAX_SCAN_BYTES
   };

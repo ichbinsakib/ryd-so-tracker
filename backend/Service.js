@@ -55,7 +55,8 @@ var SOService = (function () {
       var auth = adapter.verifyToken(req.idToken);
       if (!auth || !auth.ok) return fail('UNAUTHENTICATED', (auth && auth.error) || 'Please sign in.');
       var cfg = adapter.config();
-      var role = Core.roleFor(auth.email, cfg.editors, cfg.viewers, cfg.admins);
+      var users = adapter.readUsers ? adapter.readUsers() : [];
+      var role = Core.roleFor(auth.email, cfg.editors, cfg.viewers, cfg.admins, users);
       if (!role) return fail('FORBIDDEN', 'Your Google account (' + auth.email + ') is not authorised for this application.');
 
       switch (req.action) {
@@ -73,6 +74,18 @@ var SOService = (function () {
             stock: { has: stock.has, count: stock.count, meta: stock.meta }
           };
         }
+
+        case 'listUsers':
+          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can manage users.');
+          return listUsers(adapter, cfg, users);
+
+        case 'saveUsers':
+          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can manage users.');
+          return saveUsers(adapter, auth.email, cfg, req);
+
+        case 'deleteUser':
+          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can manage users.');
+          return deleteUser(adapter, auth.email, cfg, req);
 
         case 'dashboard':
           if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can see the dashboard.');
@@ -165,7 +178,67 @@ var SOService = (function () {
     });
   }
 
+  function bootstrapList(cfg) {
+    var out = [];
+    Core.parseEmailList(cfg.admins).forEach(function (e) { out.push({ email: e, role: 'admin' }); });
+    Core.parseEmailList(cfg.editors).forEach(function (e) { out.push({ email: e, role: 'editor' }); });
+    Core.parseEmailList(cfg.viewers).forEach(function (e) { out.push({ email: e, role: 'viewer' }); });
+    return out;
+  }
+
+  function listUsers(adapter, cfg, users) {
+    return { ok: true, users: users, bootstrap: bootstrapList(cfg) };
+  }
+
+  // An admin who is not also a bootstrap (Script Properties) admin must not be able to lock themselves out.
+  function isBootstrapAdmin(cfg, email) { return Core.parseEmailList(cfg.admins).indexOf(String(email).toLowerCase()) >= 0; }
+
+  function saveUsers(adapter, actor, cfg, req) {
+    var list = req.users;
+    if (!Array.isArray(list) || !list.length) return fail('BAD_REQUEST', 'No users to save.');
+    if (list.length > 500) return fail('BAD_REQUEST', 'Too many users in one request (limit 500).');
+    var clean = [], errors = [];
+    list.forEach(function (u, i) {
+      var r = Core.validateUser(u);
+      if (r.ok) clean.push(r.user); else errors.push('Row ' + (i + 1) + ': ' + r.error);
+    });
+    if (errors.length) return fail('INVALID', errors.slice(0, 5).join(' '), { errors: errors.slice(0, 20) });
+    var me = String(actor).toLowerCase();
+    var self = clean.filter(function (u) { return u.email === me; })[0];
+    if (self && (self.role !== 'admin' || !self.active) && !isBootstrapAdmin(cfg, actor)) {
+      return fail('INVALID', 'You cannot remove your own admin access or disable yourself. Ask another admin.');
+    }
+    return adapter.withLock(function () {
+      var existing = adapter.readUsers();
+      var merged = Core.mergeUsers(existing, clean);
+      if (merged.length > Core.MAX_USERS) return fail('INVALID', 'Too many users (limit ' + Core.MAX_USERS + ').');
+      var stamp = adapter.now();
+      merged.forEach(function (u) {
+        if (clean.some(function (c) { return c.email === String(u.email).toLowerCase(); })) { u.addedBy = u.addedBy || actor; u.addedAt = u.addedAt || stamp; u.updatedBy = actor; u.updatedAt = stamp; }
+      });
+      adapter.writeUsers(merged);
+      adapter.audit({ at: stamp, user: actor, recordId: '', row: '', field: 'USERS CHANGED', oldValue: '', newValue: clean.length + ' user(s): ' + clean.slice(0, 5).map(function (u) { return u.email + '=' + (u.active ? u.role : 'disabled'); }).join(', ') + (clean.length > 5 ? ', ...' : '') });
+      return { ok: true, saved: clean.length, users: merged, bootstrap: bootstrapList(cfg) };
+    });
+  }
+
+  function deleteUser(adapter, actor, cfg, req) {
+    var email = String(req.email || '').trim().toLowerCase();
+    if (!email) return fail('BAD_REQUEST', 'Missing email.');
+    if (email === String(actor).toLowerCase() && !isBootstrapAdmin(cfg, actor)) return fail('INVALID', 'You cannot delete yourself. Ask another admin.');
+    return adapter.withLock(function () {
+      var existing = adapter.readUsers();
+      var rest = existing.filter(function (u) { return String(u.email).toLowerCase() !== email; });
+      if (rest.length === existing.length) return fail('NOT_FOUND', 'User not found.');
+      adapter.writeUsers(rest);
+      adapter.audit({ at: adapter.now(), user: actor, recordId: '', row: '', field: 'USER DELETED', oldValue: email, newValue: '' });
+      return { ok: true, users: rest, bootstrap: bootstrapList(cfg) };
+    });
+  }
+
   function readSteelMeta(adapter) { return adapter.readSteelMeta ? adapter.readSteelMeta() : null; }
+
+  function span(a, b) { var o = []; for (var i = Math.min(a, b); i <= Math.max(a, b); i++) o.push(i); return o; }
 
   function blank(v) { return String(v === undefined || v === null ? '' : v).trim() === ''; }
 
@@ -201,7 +274,7 @@ var SOService = (function () {
     if (!want) return fail('BAD_REQUEST', 'Enter an SO number.');
     var K = Core.BY_KEY;
     var idIndex = adapter.getIdIndex();
-    var hits = adapter.readColumns([K.so_no.index, K.part_no.index], false).filter(function (r) {
+    var hits = adapter.readColumns(span(K.part_no.index, K.so_no.index), false).filter(function (r) {
       var v = r.values;
       if (blank(v[K.part_no.index]) && blank(v[K.so_no.index])) return false;
       return Core.normSo(v[K.so_no.index]) === want;
@@ -218,7 +291,7 @@ var SOService = (function () {
       var K = Core.BY_KEY;
       var idIndex = adapter.getIdIndex();
       if (idIndex < 0) return fail('NOT_READY', 'Editing is not set up yet (no RECORD ID column).');
-      var rows = adapter.readColumns([K.part_no.index, K.so_no.index], false);
+      var rows = adapter.readColumns(span(K.part_no.index, K.so_no.index), false);
       var isRec = function (r) { return !(blank(r.values[K.part_no.index]) && blank(r.values[K.so_no.index])); };
       var existing = [], lastRecordRow = 0;
       rows.forEach(function (r) {

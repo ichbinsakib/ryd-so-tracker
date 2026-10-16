@@ -53,6 +53,8 @@ class FakeSheet {
   writeStock(rows, meta) { this.stock = rows.map(r => r.slice()); this.stockMeta = meta; }
   now() { return '2026-10-16T12:00:00.000Z'; }
   readAll() { return { idIndex: this.idIndex, rows: this.rows.map(r => JSON.parse(JSON.stringify(r))) }; }
+  readUsers() { return (this.users || []).map((u) => Object.assign({}, u)); }
+  writeUsers(list) { this.users = list.map((u) => Object.assign({}, u)); }
   getIdIndex() { return this.idIndex; }
   readColumns(indexes, display) {
     return this.rows.map((r) => {

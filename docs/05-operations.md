@@ -41,3 +41,11 @@ The form writes the SO into the first free, pre-formatted row after the last rec
 
 ## Print and scans
 **Print details** prints a clean one-page summary (all non-empty fields, bars, price/steel checks, signature lines). **Upload scan** (PDF/JPG/PNG, max 7 MB) stores the file in a private Drive folder `RYD-SO Scans` (owner's Drive; its ID is in the `SCAN_FOLDER_ID` script property), logs it in the `SO_SCANS` tab and in `APP_AUDIT`. Team members download scans through the app; they do not need Drive access.
+
+## Managing users (admin screen)
+Admins have a **Manage users** button on the dashboard. Each user is a row in the `APP_USERS` tab: email, name, employee ID, role (viewer / editor / admin), active (yes/no). Admins can add one user, import many from a CSV (columns: email, name, employee id, role), change a role, disable or delete a user. A bad row in an import blocks the whole import with a message; nothing is half-written.
+- Sign-in is still **Google**: the person must use the Google account whose email the admin entered. A person not in the table (and not in the Script Properties lists) is refused with "ask an admin".
+- Role = the highest of: the Script Properties lists (`ADMINS`, `EDITORS`, `VIEWERS`) and an active `APP_USERS` row. The `ADMINS` property is the emergency/bootstrap access: those accounts cannot be demoted or locked out from the screen.
+- An admin who exists only in the table cannot demote, disable or delete themselves (another admin must).
+- Edits typed straight into the `APP_USERS` tab take up to 5 minutes to apply (the list is cached). Changes made through the screen apply immediately. All changes are logged in `APP_AUDIT`.
+- **No passwords are stored anywhere in this app.** Connecting the HR app (sign in with the HR password, employee list from HR) needs a small addition to the HR app itself and is not built yet; see docs/STATUS.md.

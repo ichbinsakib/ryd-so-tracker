@@ -16,6 +16,7 @@ var AUDIT_SHEET_NAME = 'APP_AUDIT';
 var STOCK_SHEET_NAME = 'STOCKROOM_PRICES';
 var STEEL_SHEET_NAME = 'STEEL USAGE';
 var SCANS_SHEET_NAME = 'SO_SCANS';
+var USERS_SHEET_NAME = 'APP_USERS';
 var STEEL_PREVIOUS_NAME = 'STEEL USAGE (previous)';
 var BACKUP_KEEP = 14;
 
@@ -63,6 +64,18 @@ function sheetAdapter_() {
     }
     return { lastCol: lastCol, idIndex: idIndex };
   }
+
+  // The header row never changes after setup, so remember where RECORD ID is (saves a sheet read per request).
+  function cachedIdIndex() {
+    var cache = CacheService.getScriptCache();
+    var hit = cache.get('idIndex');
+    if (hit !== null && hit !== undefined) return Number(hit);
+    var idx = headerInfo().idIndex;
+    if (idx >= 0) cache.put('idIndex', String(idx), 600);
+    return idx;
+  }
+
+  function rowWidth() { return Math.max(cachedIdIndex() + 1, SOCore.FIELDS.length); }
 
   function normalise(v) {
     if (Object.prototype.toString.call(v) === '[object Date]') {
@@ -124,6 +137,39 @@ function sheetAdapter_() {
       return { mime: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) };
     },
 
+    readUsers: function () {
+      var cache = CacheService.getScriptCache();
+      var hit = cache.get('users');
+      if (hit) { try { return JSON.parse(hit); } catch (e) { /* fall through to the sheet */ } }
+      var tab = ss.getSheetByName(USERS_SHEET_NAME);
+      var users = [];
+      if (tab && tab.getLastRow() >= 2) {
+        tab.getRange(2, 1, tab.getLastRow() - 1, 9).getValues().forEach(function (r) {
+          if (!String(r[0]).trim()) return;
+          users.push({
+            email: String(r[0]).trim().toLowerCase(), name: String(r[1]), employeeId: String(r[2]), role: String(r[3]).trim().toLowerCase(),
+            active: String(r[4]).trim().toUpperCase() !== 'NO', addedBy: String(r[5]), addedAt: String(r[6]), updatedBy: String(r[7]), updatedAt: String(r[8])
+          });
+        });
+      }
+      try { cache.put('users', JSON.stringify(users), 300); } catch (e) { /* too big to cache: fine */ }
+      return users;
+    },
+
+    writeUsers: function (list) {
+      var tab = ss.getSheetByName(USERS_SHEET_NAME) || createUsersSheet_(ss);
+      var last = tab.getLastRow();
+      if (last >= 2) tab.getRange(2, 1, last - 1, 9).clearContent();
+      if (list.length) {
+        tab.getRange(2, 3, list.length, 1).setNumberFormat('@');
+        tab.getRange(2, 1, list.length, 9).setValues(list.map(function (u) {
+          return [u.email, u.name || '', u.employeeId || '', u.role, u.active ? 'YES' : 'NO', u.addedBy || '', u.addedAt || '', u.updatedBy || '', u.updatedAt || ''];
+        }));
+      }
+      CacheService.getScriptCache().remove('users');
+      SpreadsheetApp.flush();
+    },
+
     writeSteelUsage: function (rows, meta) {
       var su = ss.getSheetByName(STEEL_SHEET_NAME);
       if (!su) throw new Error('Sheet "' + STEEL_SHEET_NAME + '" not found.');
@@ -164,7 +210,7 @@ function sheetAdapter_() {
       return { idIndex: h.idIndex, rows: toRows(range, SOCore.FIRST_DATA_ROW) };
     },
 
-    getIdIndex: function () { return headerInfo().idIndex; },
+    getIdIndex: cachedIdIndex,
 
     // Reads only the requested columns (contiguous ones in one call). display=true returns the text as shown in the sheet.
     readColumns: function (indexes, display) {
@@ -188,8 +234,7 @@ function sheetAdapter_() {
     },
 
     readRow: function (rowNumber) {
-      var h = headerInfo();
-      return toRows(sheet.getRange(rowNumber, 1, 1, h.lastCol), rowNumber)[0];
+      return toRows(sheet.getRange(rowNumber, 1, 1, rowWidth()), rowNumber)[0];
     },
 
     writeCells: function (rowNumber, cells) {
@@ -223,6 +268,13 @@ function sheetAdapter_() {
       try { return fn(); } finally { lock.releaseLock(); }
     }
   };
+}
+
+function createUsersSheet_(ss) {
+  var t = ss.insertSheet(USERS_SHEET_NAME);
+  t.appendRow(['EMAIL', 'NAME', 'EMPLOYEE ID', 'ROLE (viewer/editor/admin)', 'ACTIVE (YES/NO)', 'ADDED BY', 'ADDED AT', 'UPDATED BY', 'UPDATED AT']);
+  t.setFrozenRows(1);
+  return t;
 }
 
 function createScansSheet_(ss) {

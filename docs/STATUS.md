@@ -35,3 +35,6 @@ The app uses the user-made copy `1ZEtC2-bTDshaKqWN3MNC0CQE7u3OkJxCTchxUy37aPg` (
 ## Known issues
 - Hidden sheet rows (15) are shown in the app.
 - Large text fields are not diffed word by word in conflicts.
+
+## HR integration (not built)
+Requested: employees sign in with their HR password and the employee list comes from the HR app (https://hr-amana.vercel.app, a Next.js/Vercel app with its own email+password login; no SSO endpoint or public API was found from the outside). Planned design once the HR app's code is available: the HR app issues a short-lived signed token after its own login and exposes a key-protected read-only employee list (id, name, work email, department, active); this app verifies the token and syncs users into `APP_USERS` (viewer by default, admins promote). Until then users are managed by an admin on the Users screen and sign in with Google.

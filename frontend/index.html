@@ -23,6 +23,7 @@
     <p>Use your authorised Google account.</p>
     <div id="g-signin"></div>
     <p id="login-msg" class="error" role="alert"></p>
+    <p class="muted small">Sign in with the Google account your admin registered for you. If you cannot get in, ask an admin to add your email.</p>
   </div>
 </main>
 
@@ -55,6 +56,7 @@
       <button id="admin-new" class="btn btn-primary">＋ Open an SO</button>
       <form id="admin-find" class="findrow" autocomplete="off"><input id="admin-find-input" type="text" placeholder="Find SO#"><button class="btn" type="submit">Find</button></form>
       <button id="btn-upload" class="btn">Upload stockroom sheet</button>
+      <button id="admin-users" class="btn">Manage users</button>
       <button id="btn-upload-steel" class="btn">Replace STEEL USAGE data</button>
     </div>
   </section>
@@ -71,6 +73,36 @@
     <button id="pg-next" class="btn">Next ›</button>
     <label>Rows <select id="pg-size"><option>25</option><option selected>50</option><option>100</option></select></label>
   </nav>
+</main>
+
+<!-- Admin: who can sign in -->
+<main id="view-users" hidden>
+  <div class="detail-head">
+    <button id="users-back" class="btn" type="button">← Back</button>
+    <h2>Users</h2>
+    <span class="spacer"></span>
+    <span id="users-count" class="muted"></span>
+  </div>
+  <div id="users-banner" role="alert"></div>
+  <section class="card userbox">
+    <h3>Add a user</h3>
+    <form id="user-add" class="userform" autocomplete="off">
+      <input id="ua-email" type="email" placeholder="Email (Google account)" required>
+      <input id="ua-name" type="text" placeholder="Name">
+      <input id="ua-eid" type="text" placeholder="Employee ID">
+      <select id="ua-role"><option value="viewer">viewer</option><option value="editor">editor</option><option value="admin">admin</option></select>
+      <button class="btn btn-primary" type="submit">Add user</button>
+    </form>
+    <h3>Import from a CSV file</h3>
+    <div class="scanrow">
+      <input id="ua-file" type="file" accept=".csv,text/csv">
+      <button id="ua-import" class="btn" disabled>Import</button>
+      <span id="ua-import-msg" class="muted"></span>
+    </div>
+    <div class="muted small">Columns: email, name, employee id, role (viewer/editor/admin; blank = viewer). Existing emails are updated.</div>
+  </section>
+  <div class="tablewrap"><table id="users-grid"><thead></thead><tbody></tbody></table></div>
+  <p id="users-bootstrap" class="muted pad small"></p>
 </main>
 
 <!-- Open a new SO -->

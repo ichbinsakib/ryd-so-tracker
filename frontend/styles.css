@@ -125,3 +125,12 @@ td .bar { min-width:100px; }
   .ps-foot { margin-top: 16px; font-size: 10px; color: #444; }
 }
 
+
+.userbox { margin: 10px 16px; }
+.userbox h3 { margin: 12px 0 8px; font-size: 14px; }
+.userbox h3:first-child { margin-top: 0; }
+.userform { display: flex; flex-wrap: wrap; gap: 8px; }
+.userform input[type=email] { flex: 1 1 240px; }
+.userform input[type=text] { flex: 1 1 160px; }
+tr.inactive td { color: var(--muted); text-decoration: line-through; }
+#users-grid td { max-width: none; }

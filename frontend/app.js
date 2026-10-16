@@ -18,7 +18,7 @@
     ['Receiving & invoice', 'po_no_2', 'note'],
     ['Close', 'so_close_date', 'so_close_date']
   ];
-  const VIEWS = ['view-loading', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail'];
+  const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail'];
 
   // ---------- helpers
   function el(tag, attrs, ...kids) {
@@ -593,11 +593,77 @@
     await loadList();
   });
 
+  // ---------- admin: users
+  const ROLE_OPTIONS = ['viewer', 'editor', 'admin'];
+  async function openUsers() {
+    show('view-users'); banner('users-banner', '', ''); $('users-grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 6, class: 'muted', text: 'Loading users…' })));
+    const r = await api('listUsers');
+    if (!r.ok) { if (r.code === 'UNAUTHENTICATED') return showLogin(r.error); banner('users-banner', 'err', r.error); return; }
+    state.users = r.users; state.bootstrap = r.bootstrap; renderUsers();
+  }
+  function usersApplied(r) { state.users = r.users; state.bootstrap = r.bootstrap; renderUsers(); }
+  async function saveUsers(list, okMsg) {
+    banner('users-banner', '', '');
+    const r = await api('saveUsers', { users: list });
+    if (!r.ok) { banner('users-banner', 'err', r.error); renderUsers(); return false; }
+    usersApplied(r); toast(okMsg || 'Saved.'); return true;
+  }
+  function renderUsers() {
+    const users = state.users || [];
+    $('users-count').textContent = users.length + ' user' + (users.length === 1 ? '' : 's');
+    $('users-grid').tHead.replaceChildren(el('tr', {}, ['EMAIL', 'NAME', 'EMPLOYEE ID', 'ROLE', 'ACTIVE', ''].map((t) => el('th', { text: t }))));
+    const me = state.email.toLowerCase();
+    $('users-grid').tBodies[0].replaceChildren(...(users.length ? users.map((u) => {
+      const sel = el('select', { 'aria-label': 'Role for ' + u.email }, ROLE_OPTIONS.map((r) => el('option', { value: r, text: r })));
+      sel.value = u.role;
+      sel.addEventListener('change', () => saveUsers([{ email: u.email, role: sel.value, active: u.active }], 'Role updated.'));
+      const act = el('input', { type: 'checkbox', 'aria-label': 'Active: ' + u.email }); act.checked = u.active;
+      act.addEventListener('change', () => saveUsers([{ email: u.email, role: u.role, active: act.checked }], act.checked ? 'User enabled.' : 'User disabled.'));
+      return el('tr', { class: u.active ? '' : 'inactive' }, el('td', { text: u.email + (u.email === me ? '  (you)' : '') }), el('td', { text: norm(u.name) }), el('td', { text: norm(u.employeeId) }),
+        el('td', {}, sel), el('td', {}, act),
+        el('td', {}, el('button', { class: 'btn btn-ghost', type: 'button', text: 'Delete', onclick: async () => {
+          if (!(await confirmDialog('Delete user?', el('p', { text: u.email + ' will no longer be able to sign in.' }), 'Delete', true))) return;
+          const r = await api('deleteUser', { email: u.email });
+          if (!r.ok) { banner('users-banner', 'err', r.error); return; }
+          usersApplied(r); toast('User deleted.');
+        } })));
+    }) : [el('tr', {}, el('td', { colspan: 6, text: 'No users added yet. Add the first one above.' }))]));
+    const b = state.bootstrap || [];
+    $('users-bootstrap').textContent = b.length ? 'Always-allowed accounts set in the backend settings (emergency access, cannot be removed here): ' + b.map((x) => x.email + ' (' + x.role + ')').join(', ') + '.' : '';
+  }
+  $('user-add').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const ok = await saveUsers([{ email: $('ua-email').value, name: $('ua-name').value, employeeId: $('ua-eid').value, role: $('ua-role').value, active: true }], 'User saved.');
+    if (ok) { $('user-add').reset(); $('ua-email').focus(); }
+  });
+  let importRows = [];
+  $('ua-file').addEventListener('change', async () => {
+    const f = $('ua-file').files[0]; const msg = $('ua-import-msg'); $('ua-import').disabled = true; importRows = []; msg.textContent = '';
+    if (!f) return;
+    try {
+      const rows = parseCsv((await f.text()).replace(/^\uFEFF/, '')).filter((r) => r.some((c) => String(c).trim() !== ''));
+      const head = rows[0].map((c) => String(c).trim().toLowerCase());
+      const col = (re) => head.findIndex((h) => re.test(h));
+      const ie = col(/mail/), inm = col(/name/), ii = col(/employee|emp.?id|^id$/), ir = col(/role/);
+      if (ie < 0) throw new Error('No "email" column found in the first row.');
+      importRows = rows.slice(1).map((r) => ({ email: r[ie], name: inm >= 0 ? r[inm] : undefined, employeeId: ii >= 0 ? r[ii] : undefined, role: ir >= 0 && String(r[ir]).trim() ? r[ir] : 'viewer', active: true }));
+      msg.textContent = importRows.length + ' rows ready.'; $('ua-import').disabled = !importRows.length;
+    } catch (err) { msg.textContent = err.message || 'Could not read the file.'; }
+  });
+  $('ua-import').onclick = async () => {
+    if (!importRows.length) return;
+    if (!(await confirmDialog('Import users?', el('p', { text: importRows.length + ' users will be added or updated. Roles in the file are applied.' }), 'Import'))) return;
+    const ok = await saveUsers(importRows.slice(0, 500), 'Imported ' + Math.min(importRows.length, 500) + ' users.');
+    if (ok) { $('ua-file').value = ''; $('ua-import').disabled = true; importRows = []; $('ua-import-msg').textContent = importRows.length > 500 ? 'Only the first 500 were imported; import the rest separately.' : ''; }
+  };
+
   // ---------- wiring
   window.addEventListener('beforeunload', (e) => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
   $('btn-home').onclick = async (e) => { e.preventDefault(); if (!state.token || !state.role) return; if (!(await leaveGuard())) return; goHome(); };
   $('home-new').onclick = openNewForm;
   $('admin-new').onclick = openNewForm;
+  $('admin-users').onclick = openUsers;
+  $('users-back').onclick = () => goHome();
   $('home-find').addEventListener('submit', (e) => { e.preventDefault(); findSO($('home-find-input').value, $('home-msg')); });
   $('admin-find').addEventListener('submit', (e) => { e.preventDefault(); findSO($('admin-find-input').value, $('list-status')); });
   $('new-back').onclick = () => goHome();
