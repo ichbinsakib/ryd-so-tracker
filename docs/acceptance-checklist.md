@@ -32,3 +32,9 @@ Legend: ✅ executed and passed in this project, ⬜ not yet executed (requires 
 - ⬜ Rollback of a frontend commit and of a backend deployment version.
 - ⬜ CORS: browser fetch from the Pages origin to the `/exec` URL succeeds (not exercised yet).
 - ⬜ Custom domain with HTTPS.
+
+## Admin uploads (all ⬜, run on a copy first)
+- ⬜ Sign in as admin: both upload buttons visible; as editor/viewer: hidden, and a direct API call is refused.
+- ⬜ Upload a small stockroom CSV: STOCKROOM_PRICES tab created, ticks/red marks appear, filter works.
+- ⬜ Replace STEEL USAGE with the full real file: STEEL USAGE (previous) contains the old data, RYD-SO STEEL TYPE / ROUTER BAR SIZE / QTY / BAR update, badges update after refresh.
+- ⬜ Part numbers that are digits only match between the new STEEL USAGE rows and RYD-SO (VLOOKUP is type-sensitive: number vs text).

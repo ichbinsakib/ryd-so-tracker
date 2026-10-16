@@ -17,6 +17,10 @@ The app uses the user-made copy `1ZEtC2-bTDshaKqWN3MNC0CQE7u3OkJxCTchxUy37aPg` (
 - Remaining: OAuth client ID, set `GOOGLE_CLIENT_ID`, GitHub repo + Pages, live read/write test, CORS test from the Pages origin.
 - Note: the repo's `backend/` files were pasted with comments stripped; keep the repo as the source of truth and re-paste after changes.
 
+## Added after first release
+- STATUS required; status bars as progress bars; NOTES hidden in the table.
+- Admin role ( property = ichbinsakib@gmail.com), stockroom price upload + ✓/! check, STEEL USAGE replace upload + ✓/! checks. Backend is Apps Script version 3. Tested with unit tests and the local mock only; **never exercised against the live sheet** (see acceptance checklist).
+
 ## Not done / not verified
 - **Nothing has been deployed or run against your real Google Sheet or Apps Script.** No live read or write has been tested. The Apps Script glue (`Code.js`) has never executed.
 - Unverified assumptions: CORS from Pages to the Apps Script `/exec` URL; `tokeninfo` verification from `UrlFetchApp`; leading-apostrophe handling for leading-zero IDs; date write in the sheet's time zone.
