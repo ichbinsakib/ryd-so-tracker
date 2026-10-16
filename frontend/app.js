@@ -8,7 +8,7 @@
     refreshedAt: null, view: [], sortKey: 'so_no', sortDir: 'desc', page: 0, pageSize: 50,
     visibleCols: null, current: null, dirty: false, saving: false
   };
-  const DEFAULT_COLS = ['status', 'so_no', 'part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_mat_quote', 'quote_received', 'so_close_date', 'notes'];
+  const DEFAULT_COLS = ['status', 'so_no', 'part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_mat_quote', 'quote_received', 'so_close_date'];
   const SECTIONS = [
     ['Order', 'notes', 'so_no'],
     ['Material requirement', 'steel_type', 'email_template'],
