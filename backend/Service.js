@@ -60,9 +60,11 @@ var SOService = (function () {
 
       switch (req.action) {
         case 'whoami':
-          return { ok: true, email: auth.email, role: role, fields: Core.publicFields() };
+          return { ok: true, email: auth.email, role: role, fields: Core.publicFields(), intake: Core.intakeInfo() };
 
         case 'list': {
+          // The full table is admin-only; everyone else works one SO at a time.
+          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can see the full list.');
           var stock = readStockInfo(adapter);
           var l = loadRecords(adapter, stock);
           return {
@@ -71,6 +73,27 @@ var SOService = (function () {
             stock: { has: stock.has, count: stock.count, meta: stock.meta }
           };
         }
+
+        case 'dashboard':
+          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can see the dashboard.');
+          return dashboard(adapter, auth.email, req);
+
+        case 'findSO':
+          return findSO(adapter, req);
+
+        case 'createSO':
+          if (role === 'viewer') return fail('FORBIDDEN', 'You have read-only access.');
+          return createSO(adapter, auth.email, req);
+
+        case 'uploadScan':
+          if (role === 'viewer') return fail('FORBIDDEN', 'You have read-only access.');
+          return uploadScan(adapter, auth.email, req);
+
+        case 'listScans':
+          return listScans(adapter, req);
+
+        case 'downloadScan':
+          return downloadScan(adapter, req);
 
         case 'get': {
           var row = findById(adapter, req.id);
@@ -140,6 +163,101 @@ var SOService = (function () {
     });
   }
 
+  function readSteelMeta(adapter) { return adapter.readSteelMeta ? adapter.readSteelMeta() : null; }
+
+  function dashboard(adapter, email, req) {
+    var stock = readStockInfo(adapter);
+    var data = adapter.readAll();
+    var rows = [];
+    data.rows.forEach(function (row) {
+      if (!Core.isRecordRow(row)) return;
+      var rec = Core.buildRecord(row, data.idIndex);
+      if (!req.includeClosed && String(rec.values.status) === '4.CLOSE') return;
+      rows.push(Core.dashboardRow(rec));
+    });
+    // lowest progress first (unknown bars last)
+    var low = function (r) { var a = [r.soBar, r.matBar].filter(function (x) { return x !== null; }); return a.length ? Math.min.apply(null, a) : 1000; };
+    rows.sort(function (a, b) { return low(a) - low(b); });
+    return {
+      ok: true, role: 'admin', email: email, refreshedAt: adapter.now(), rows: rows,
+      stock: { has: stock.has, count: stock.count, meta: stock.meta },
+      steel: { meta: readSteelMeta(adapter) }, writable: data.idIndex >= 0
+    };
+  }
+
+  function findSO(adapter, req) {
+    var want = Core.normSo(req.so_no);
+    if (!want) return fail('BAD_REQUEST', 'Enter an SO number.');
+    var stock = readStockInfo(adapter);
+    var data = adapter.readAll();
+    var out = [];
+    data.rows.forEach(function (row) {
+      if (!Core.isRecordRow(row)) return;
+      if (Core.normSo(row.values[Core.BY_KEY.so_no.index]) !== want) return;
+      out.push(withCheck(Core.buildRecord(row, data.idIndex), stock));
+    });
+    if (!out.length) return fail('NOT_FOUND', 'No SO found with number ' + req.so_no + '.');
+    return { ok: true, records: out.slice(0, 5), refreshedAt: adapter.now() };
+  }
+
+  function createSO(adapter, email, req) {
+    if (!req.changes || typeof req.changes !== 'object') return fail('BAD_REQUEST', 'Missing form data.');
+    return adapter.withLock(function () {
+      var data = adapter.readAll();
+      if (data.idIndex < 0) return fail('NOT_READY', 'Editing is not set up yet (no RECORD ID column).');
+      var existing = [], lastRecordRow = 0;
+      data.rows.forEach(function (r) {
+        if (!Core.isRecordRow(r)) return;
+        existing.push(r.values[Core.BY_KEY.so_no.index]);
+        if (r.rowNumber > lastRecordRow) lastRecordRow = r.rowNumber;
+      });
+      var plan = Core.planCreate(req.changes, existing);
+      if (!plan.ok) return fail(plan.code, plan.error, { fieldErrors: plan.fieldErrors });
+      var free = null;
+      for (var i = 0; i < data.rows.length; i++) {
+        var r = data.rows[i];
+        if (r.rowNumber > lastRecordRow && !Core.isRecordRow(r)) { free = r; break; }
+      }
+      if (!free) return fail('NO_FREE_ROW', 'There is no free row left in RYD-SO. Ask an admin to extend the sheet.');
+      var id = adapter.newId();
+      var cells = plan.writes.map(function (w) { return { index: w.field.index, value: w.value, type: w.field.type }; });
+      cells.push({ index: data.idIndex, value: id, type: 'text' });
+      adapter.writeCells(free.rowNumber, cells);
+      adapter.audit({
+        at: adapter.now(), user: email, recordId: id, row: free.rowNumber, field: 'SO OPENED',
+        oldValue: '', newValue: 'SO# ' + plan.writes.filter(function (w) { return w.key === 'so_no'; })[0].value
+      });
+      var rec = withCheck(Core.buildRecord(adapter.readRow(free.rowNumber), data.idIndex), readStockInfo(adapter));
+      return { ok: true, record: rec, refreshedAt: adapter.now() };
+    });
+  }
+
+  function uploadScan(adapter, email, req) {
+    var found = findById(adapter, req.id);
+    if (!found) return fail('NOT_FOUND', 'Record not found.');
+    var v = Core.validateScanUpload(req.fileName, req.mime, req.data);
+    if (!v.ok) return fail('INVALID', v.error);
+    var rec = Core.buildRecord(found.row, found.idIndex);
+    var saved = adapter.saveScan({
+      recordId: req.id, soNo: String(rec.values.so_no), name: v.name, mime: v.mime, data: req.data, user: email, at: adapter.now()
+    });
+    adapter.audit({ at: adapter.now(), user: email, recordId: req.id, row: found.row.rowNumber, field: 'SCAN UPLOADED', oldValue: '', newValue: v.name + ' (' + v.bytes + ' bytes)' });
+    return { ok: true, scan: saved, scans: adapter.listScans(req.id) };
+  }
+
+  function listScans(adapter, req) {
+    if (!findById(adapter, req.id)) return fail('NOT_FOUND', 'Record not found.');
+    return { ok: true, scans: adapter.listScans(req.id) };
+  }
+
+  function downloadScan(adapter, req) {
+    if (!req.id || !req.fileId) return fail('BAD_REQUEST', 'Missing id or fileId.');
+    var known = adapter.listScans(req.id).filter(function (s) { return s.fileId === req.fileId; })[0];
+    if (!known) return fail('NOT_FOUND', 'Scan not found for this SO.');
+    var f = adapter.readScan(req.fileId);
+    return { ok: true, name: known.name, mime: f.mime, data: f.data };
+  }
+
   function uploadStock(adapter, email, req) {
     var v = Core.validateStockUpload(req.rows);
     if (!v.ok) return fail('INVALID', v.error);
@@ -162,6 +280,7 @@ var SOService = (function () {
     return adapter.withLock(function () {
       var meta = { at: adapter.now(), by: email, fileName: fileName };
       var replaced = adapter.writeSteelUsage(v.rows, meta);
+      if (adapter.saveSteelMeta) adapter.saveSteelMeta({ at: meta.at, by: meta.by, fileName: meta.fileName, count: v.rows.length });
       adapter.audit({
         at: meta.at, user: email, recordId: '', row: '', field: 'STEEL USAGE REPLACED',
         oldValue: (replaced && replaced.previousRows !== undefined ? replaced.previousRows : '?') + ' old rows (kept in STEEL USAGE (previous))',

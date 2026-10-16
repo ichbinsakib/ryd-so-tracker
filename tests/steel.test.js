@@ -64,7 +64,7 @@ test('list attaches lookupChecks to records', () => {
   const rows = [makeRow(3, 'id-1', { status: '3.OPEN', part_no: 'P1', steel_type: '1 RD', router_bar_size: "12'", qty_per_bar: '40' }),
                 makeRow(4, 'id-2', { status: '3.OPEN', part_no: 'P2', steel_type: '-', router_bar_size: '-', qty_per_bar: '-' })];
   const s = new FakeSheet(rows);
-  const l = call(s, 'tok-editor', { action: 'list' });
+  const l = call(s, 'tok-admin', { action: 'list' });
   assert.equal(l.records[0].lookupChecks.steel_type.state, 'ok');
   assert.equal(l.records[1].lookupChecks.qty_per_bar.state, 'issue');
 });

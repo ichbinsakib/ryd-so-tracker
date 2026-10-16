@@ -8,10 +8,10 @@
 </head>
 <body>
 <header class="topbar">
-  <h1>RYD-SO <span class="sub">Sales order &amp; material tracker</span></h1>
+  <h1><a href="#" id="btn-home" class="homelink">RYD-SO</a> <span class="sub">Sales order &amp; material tracker</span></h1>
   <div class="topbar-right">
     <span id="refreshed" class="muted"></span>
-    <button id="btn-refresh" class="btn" title="Reload records from the sheet">Refresh</button>
+    <button id="btn-refresh" class="btn" title="Reload from the sheet" hidden>Refresh</button>
     <span id="user" class="muted"></span>
     <button id="btn-signout" class="btn btn-ghost" hidden>Sign out</button>
   </div>
@@ -26,44 +26,90 @@
   </div>
 </main>
 
-<main id="view-list" hidden>
+<!-- Regular users: no data table, just two ways in -->
+<main id="view-home" hidden>
+  <section class="homebox">
+    <h2>What would you like to do?</h2>
+    <div class="home-actions">
+      <button id="home-new" class="bigbtn bigbtn-primary">＋ Open an SO</button>
+      <form id="home-find" class="findbox" autocomplete="off">
+        <label for="home-find-input">Find an SO by number</label>
+        <div class="findrow">
+          <input id="home-find-input" type="text" placeholder="SO#" inputmode="text">
+          <button class="btn btn-primary" type="submit">Find</button>
+        </div>
+      </form>
+    </div>
+    <p id="home-msg" class="error" role="alert"></p>
+  </section>
+</main>
+
+<!-- Admin: progress + data freshness, not the worksheet -->
+<main id="view-admin" hidden>
+  <section class="cards">
+    <div class="card stat" id="card-stock"><h3>Stockroom price sheet</h3><div class="statbig" id="stock-when">—</div><div class="muted" id="stock-sub"></div></div>
+    <div class="card stat" id="card-steel"><h3>STEEL USAGE sheet</h3><div class="statbig" id="steel-when">—</div><div class="muted" id="steel-sub"></div></div>
+    <div class="card actions">
+      <button id="admin-new" class="btn btn-primary">＋ Open an SO</button>
+      <form id="admin-find" class="findrow" autocomplete="off"><input id="admin-find-input" type="text" placeholder="Find SO#"><button class="btn" type="submit">Find</button></form>
+      <button id="btn-upload" class="btn">Upload stockroom sheet</button>
+      <button id="btn-upload-steel" class="btn">Replace STEEL USAGE data</button>
+    </div>
+  </section>
   <section class="toolbar">
-    <input id="q" type="search" placeholder="Search SO#, part #, PO #, invoice #, customer, notes…" aria-label="Search">
-    <select id="f-status" aria-label="Status"><option value="">All statuses</option></select>
-    <select id="f-customer" aria-label="Customer"><option value="">All customers</option></select>
-    <select id="f-champion" aria-label="Champion"><option value="">All champions</option></select>
-    <select id="f-sotype" aria-label="SO type"><option value="">All SO types</option></select>
-    <select id="f-kanban" aria-label="Kanban or PO"><option value="">Kanban/PO</option></select>
-    <select id="f-price" aria-label="Stockroom price check"><option value="">Price check: all</option><option value="ok">✓ Matches stockroom</option><option value="issue">✗ Price issue</option></select>
-    <select id="f-steel" aria-label="Steel usage data check"><option value="">Steel data: all</option><option value="ok">✓ Complete</option><option value="issue">✗ Missing</option></select>
-    <button id="btn-clear" class="btn btn-ghost">Clear filters</button>
-    <button id="btn-upload" class="btn" hidden title="Admins only">Upload stockroom sheet</button>
-    <button id="btn-upload-steel" class="btn" hidden title="Admins only">Replace STEEL USAGE data</button>
-    <details class="colpicker"><summary class="btn">Columns</summary><div id="colpicker-list" class="card"></div></details>
+    <h2 class="sectionh">Open SOs — progress</h2>
+    <input id="q" type="search" placeholder="Filter by SO#, part # or customer…" aria-label="Filter">
+    <label class="inline"><input type="checkbox" id="incl-closed"> include closed</label>
   </section>
   <div id="list-status" class="statusline" aria-live="polite"></div>
-  <div id="stock-status" class="statusline"></div>
   <div class="tablewrap"><table id="grid"><thead></thead><tbody></tbody></table></div>
   <nav class="pager">
     <button id="pg-prev" class="btn">‹ Prev</button>
     <span id="pg-info"></span>
     <button id="pg-next" class="btn">Next ›</button>
-    <label>Rows <select id="pg-size"><option>25</option><option selected>50</option><option>100</option><option>200</option></select></label>
+    <label>Rows <select id="pg-size"><option>25</option><option selected>50</option><option>100</option></select></label>
   </nav>
 </main>
 
+<!-- Open a new SO -->
+<main id="view-new" hidden>
+  <div class="detail-head">
+    <button id="new-back" class="btn" type="button">← Cancel</button>
+    <h2>Open a new SO</h2>
+    <span class="spacer"></span>
+    <button id="new-submit" class="btn btn-primary" type="button">Open SO</button>
+  </div>
+  <p class="muted pad">Fields marked <span class="req">*</span> are required. The SO is added to the RYD-SO sheet with status 3.OPEN. Steel type, router bar size, qty/bar and the other calculated values fill in automatically.</p>
+  <div id="new-banner" role="alert"></div>
+  <form id="new-form" autocomplete="off"></form>
+</main>
+
+<!-- One SO: edit, print, scan -->
 <main id="view-detail" hidden>
   <div class="detail-head">
-    <button id="btn-back" class="btn">← Back to records</button>
+    <button id="btn-back" class="btn">← Back</button>
     <h2 id="detail-title"></h2>
     <span id="dirty-flag" class="badge badge-warn" hidden>Unsaved changes</span>
     <span class="spacer"></span>
+    <button id="btn-print" class="btn">Print details</button>
     <button id="btn-discard" class="btn" disabled>Discard changes</button>
     <button id="btn-save" class="btn btn-primary" disabled>Save changes</button>
   </div>
   <div id="detail-banner" role="alert"></div>
+  <section class="card scanbox" id="scanbox">
+    <h3>Scanned document</h3>
+    <div id="scan-list" class="muted">No scan uploaded yet.</div>
+    <div id="scan-upload" class="scanrow">
+      <input id="scan-file" type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png">
+      <button id="scan-go" class="btn btn-primary" disabled>Upload scan</button>
+      <span id="scan-msg" class="muted"></span>
+    </div>
+    <div class="muted small">PDF, JPG or PNG, up to 7 MB. Upload the signed/printed copy once the SO is complete.</div>
+  </section>
   <form id="detail-form" autocomplete="off"></form>
 </main>
+
+<div id="print-sheet" aria-hidden="true"></div>
 
 <dialog id="dlg-upload">
   <form method="dialog" id="upload-form">
@@ -83,7 +129,7 @@
   </form>
 </dialog>
 
-<dialog id="dlg-price"><form method="dialog"><h3 id="dp-title">Price check</h3><div id="dp-body"></div><menu><button value="ok" class="btn btn-primary">Close</button></menu></form></dialog>
+<dialog id="dlg-price"><form method="dialog"><h3 id="dp-title">Details</h3><div id="dp-body"></div><menu><button value="ok" class="btn btn-primary">Close</button></menu></form></dialog>
 
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 

@@ -30,3 +30,14 @@ Admins are listed in the `ADMINS` Script property (comma-separated emails). Admi
 - **Replace STEEL USAGE data** (CSV/Excel): maps 4 columns (PART NUMBER, PS_COMP, PS_QTY PER, MAT'L TYPE) into columns A:D of the `STEEL USAGE` tab. **This deletes all old data in that tab** (A2:K), including the Margin and ID columns. Before deleting, the whole tab is copied to `STEEL USAGE (previous)` (one level of undo: the next upload overwrites that copy). RYD-SO, IR-SO, ITT-SO and the hidden HIGH USAGE PARTS tab look values up from STEEL USAGE, so they change immediately. Green tick / red ! on STEEL TYPE, ROUTER BAR SIZE and QTY / BAR mean the lookup found / did not find a value for that part.
 - Every upload is written to `APP_AUDIT`. Cells that Sheets would read as formulas (starting with = + @) are rejected.
 - To undo a STEEL USAGE replace: copy the contents of `STEEL USAGE (previous)` back into `STEEL USAGE` (or use Version history).
+
+## Who sees what (since the redesign)
+- **Admins** (`ADMINS`): dashboard only — cards for when the stockroom sheet and STEEL USAGE were last updated, plus a slim list of non-closed SOs showing only the SO release and material status bars (lowest progress first). They can also open SOs, find an SO, edit, and run the two uploads. The full worksheet table is gone for everyone.
+- **Editors** (`EDITORS`): home screen with **Open an SO** and **Find an SO by number**. No list of SOs is ever sent to them (the backend refuses `list` and `dashboard` for non-admins).
+- **Viewers** (`VIEWERS`): can find an SO and read it, print it and download scans; cannot create, edit or upload.
+
+## Opening an SO
+The form writes the SO into the first free, pre-formatted row after the last record in RYD-SO (so the sheet's formulas keep working), sets STATUS to `3.OPEN`, adds a RECORD ID and logs `SO OPENED` in `APP_AUDIT`. Required: SO#, PART #, CUSTOMER, CHAMPION, SO QTY#, DUE DATE, SO TYPE, KANBAN/PO, REQ. BY, SO REQ. DATE; NOTES is optional. SO# must be unique. To change which fields are required or offered, edit `INTAKE_KEYS` / `INTAKE_REQUIRED` in `backend/Core.js`. If the sheet runs out of free rows the app says so (extend the formula rows down).
+
+## Print and scans
+**Print details** prints a clean one-page summary (all non-empty fields, bars, price/steel checks, signature lines). **Upload scan** (PDF/JPG/PNG, max 7 MB) stores the file in a private Drive folder `RYD-SO Scans` (owner's Drive; its ID is in the `SCAN_FOLDER_ID` script property), logs it in the `SO_SCANS` tab and in `APP_AUDIT`. Team members download scans through the app; they do not need Drive access.

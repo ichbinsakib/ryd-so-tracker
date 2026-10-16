@@ -60,7 +60,7 @@ test('admin upload stores prices, audits it, and list shows tick/issue per recor
   assert.equal(up.count, 2);
   assert.equal(up.skipped, 1);
   assert.equal(s.auditLog.at(-1).field, 'STOCKROOM UPLOAD');
-  const l = call(s, 'tok-editor', { action: 'list' });
+  const l = call(s, 'tok-admin', { action: 'list' });
   assert.equal(l.stock.has, true);
   assert.equal(l.stock.count, 2);
   assert.equal(l.stock.meta.uploadedBy, 'admin@example.com');

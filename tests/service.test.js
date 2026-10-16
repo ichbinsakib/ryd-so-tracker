@@ -12,7 +12,7 @@ test('unauthenticated, unknown and viewer access is enforced by the backend', ()
   const stranger = call(s, 'tok-stranger', { action: 'list' });
   assert.equal(stranger.code, 'FORBIDDEN');
   assert.equal(stranger.records, undefined, 'no data leaks to unauthorised users');
-  assert.equal(call(s, 'tok-viewer', { action: 'list' }).ok, true);
+  assert.equal(call(s, 'tok-viewer', { action: 'findSO', so_no: '25712' }).ok, true);
   const v = call(s, 'tok-viewer', { action: 'update', id: 'id-1', baseVersion: 'x', changes: { notes: 'hack' } });
   assert.equal(v.code, 'FORBIDDEN');
   assert.equal(s.auditLog.length, 0);
@@ -20,7 +20,7 @@ test('unauthenticated, unknown and viewer access is enforced by the backend', ()
 
 test('list returns record rows with ids, versions and the field catalogue', () => {
   const s = new FakeSheet();
-  const r = call(s, 'tok-editor', { action: 'list' });
+  const r = call(s, 'tok-admin', { action: 'list' });
   assert.equal(r.records.length, 3);
   assert.equal(r.writable, true);
   assert.ok(r.records[0].version);
@@ -104,7 +104,7 @@ test('concurrent save attempt while locked returns BUSY, not a silent overwrite'
 
 test('without a RECORD ID column the app is read-only', () => {
   const s = new FakeSheet(undefined, { noIdColumn: true });
-  const r = call(s, 'tok-editor', { action: 'list' });
+  const r = call(s, 'tok-admin', { action: 'list' });
   assert.equal(r.writable, false);
   const u = call(s, 'tok-editor', { action: 'update', id: 'id-1', baseVersion: 'x', changes: { notes: 'z' } });
   assert.equal(u.code, 'NOT_FOUND');

@@ -372,6 +372,76 @@ var SOCore = (function () {
     return { ok: true, rows: clean, skipped: skipped };
   }
 
+  // ---- Opening a new SO (intake form), dashboard rows, scan uploads ----
+  var INTAKE_KEYS = ['so_no', 'part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_by', 'so_req_date', 'notes'];
+  var INTAKE_REQUIRED = ['so_no', 'part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_by', 'so_req_date'];
+  var NEW_SO_STATUS = '3.OPEN';
+
+  function intakeInfo() { return { keys: INTAKE_KEYS.slice(), required: INTAKE_REQUIRED.slice() }; }
+
+  function normSo(v) { return String(v === undefined || v === null ? '' : v).trim().toUpperCase(); }
+
+  /**
+   * Validate the "Open an SO" form. existingSoNos: array of SO# values already in the sheet.
+   * Returns {ok:true, writes:[{key, field, value}]} or {ok:false, code, error, fieldErrors}.
+   */
+  function planCreate(changes, existingSoNos) {
+    var errors = {}, writes = [];
+    changes = changes || {};
+    Object.keys(changes).forEach(function (k) {
+      if (INTAKE_KEYS.indexOf(k) < 0) errors[k] = 'This field cannot be set when opening an SO.';
+    });
+    INTAKE_KEYS.forEach(function (k) {
+      if (errors[k]) return;
+      var f = BY_KEY[k];
+      var r = validateValue(f, changes[k]);
+      if (!r.ok) { errors[k] = r.error; return; }
+      if (r.value === '') {
+        if (INTAKE_REQUIRED.indexOf(k) >= 0) errors[k] = f.label + ' is required.';
+        return;
+      }
+      writes.push({ key: k, field: f, value: r.value });
+    });
+    var so = writes.filter(function (w) { return w.key === 'so_no'; })[0];
+    if (so && !errors.so_no) {
+      var taken = (existingSoNos || []).some(function (x) { return normSo(x) === normSo(so.value); });
+      if (taken) errors.so_no = 'SO# ' + so.value + ' already exists.';
+    }
+    if (Object.keys(errors).length) return { ok: false, code: 'INVALID', error: 'Please fix the highlighted fields.', fieldErrors: errors };
+    writes.push({ key: 'status', field: BY_KEY.status, value: NEW_SO_STATUS });
+    return { ok: true, writes: writes };
+  }
+
+  function pctNum(t) {
+    var s = String(t === undefined || t === null ? '' : t);
+    if (s.indexOf('%') < 0) return null;
+    var n = parseFloat(s);
+    return isNaN(n) ? null : n;
+  }
+
+  /** The only data the admin dashboard needs per SO. */
+  function dashboardRow(rec) {
+    return {
+      id: rec.id, so_no: rec.values.so_no, part_no: rec.values.part_no, customer: rec.values.customer,
+      status: rec.values.status, soBar: pctNum(rec.display.so_release_status_bar), matBar: pctNum(rec.display.mat_status_bar)
+    };
+  }
+
+  var SCAN_TYPES = { 'application/pdf': 'pdf', 'image/jpeg': 'jpg', 'image/png': 'png' };
+  var MAX_SCAN_BYTES = 7 * 1024 * 1024;
+
+  /** Validate an uploaded scan (base64 body). Returns {ok, name, mime, bytes} or {ok:false, error}. */
+  function validateScanUpload(fileName, mime, b64) {
+    var ext = SCAN_TYPES[mime];
+    if (!ext) return { ok: false, error: 'Only PDF, JPG or PNG scans are accepted.' };
+    if (typeof b64 !== 'string' || !b64.length || !/^[A-Za-z0-9+\/]+={0,2}$/.test(b64)) return { ok: false, error: 'The file data is not valid.' };
+    var bytes = Math.floor(b64.length * 3 / 4) - (b64.slice(-2) === '==' ? 2 : b64.slice(-1) === '=' ? 1 : 0);
+    if (bytes > MAX_SCAN_BYTES) return { ok: false, error: 'The scan is too large (limit 7 MB).' };
+    if (bytes < 100) return { ok: false, error: 'The file looks empty.' };
+    var base = String(fileName || 'scan').replace(/\.[A-Za-z0-9]{1,5}$/, '').replace(/[^A-Za-z0-9._ -]/g, '_').trim().slice(0, 60) || 'scan';
+    return { ok: true, name: base + '.' + ext, mime: mime, bytes: bytes };
+  }
+
   /** Check Google tokeninfo payload. */
   function checkTokenInfo(info, clientId, nowSec) {
     if (!info || !clientId) return { ok: false, error: 'Server is not configured.' };
@@ -392,7 +462,9 @@ var SOCore = (function () {
     parseEmailList: parseEmailList, roleFor: roleFor, checkTokenInfo: checkTokenInfo,
     normalizePart: normalizePart, parsePrice: parsePrice, buildStockIndex: buildStockIndex,
     priceCheck: priceCheck, validateStockUpload: validateStockUpload,
-    lookupChecks: lookupChecks, validateSteelUpload: validateSteelUpload, safeCellText: safeCellText
+    lookupChecks: lookupChecks, validateSteelUpload: validateSteelUpload, safeCellText: safeCellText,
+    INTAKE_KEYS: INTAKE_KEYS, INTAKE_REQUIRED: INTAKE_REQUIRED, intakeInfo: intakeInfo, planCreate: planCreate, normSo: normSo,
+    dashboardRow: dashboardRow, pctNum: pctNum, validateScanUpload: validateScanUpload, MAX_SCAN_BYTES: MAX_SCAN_BYTES
   };
 })();
 

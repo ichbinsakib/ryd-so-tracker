@@ -15,6 +15,7 @@ var SHEET_NAME = 'RYD-SO';
 var AUDIT_SHEET_NAME = 'APP_AUDIT';
 var STOCK_SHEET_NAME = 'STOCKROOM_PRICES';
 var STEEL_SHEET_NAME = 'STEEL USAGE';
+var SCANS_SHEET_NAME = 'SO_SCANS';
 var STEEL_PREVIOUS_NAME = 'STEEL USAGE (previous)';
 var BACKUP_KEEP = 14;
 
@@ -31,9 +32,10 @@ function doPost(e) {
   var req;
   try {
     var body = e && e.postData && e.postData.contents;
-    if (!body || body.length > 2000000) return json_({ ok: false, code: 'BAD_REQUEST', error: 'Bad request size.' });
+    if (!body || body.length > 14000000) return json_({ ok: false, code: 'BAD_REQUEST', error: 'Bad request size.' });
     req = JSON.parse(body);
-    if (body.length > 100000 && (!req || (req.action !== 'uploadStock' && req.action !== 'uploadSteelUsage'))) return json_({ ok: false, code: 'BAD_REQUEST', error: 'Bad request size.' });
+    if (body.length > 2000000 && (!req || req.action !== 'uploadScan')) return json_({ ok: false, code: 'BAD_REQUEST', error: 'Bad request size.' });
+    if (body.length > 100000 && (!req || (req.action !== 'uploadStock' && req.action !== 'uploadSteelUsage' && req.action !== 'uploadScan'))) return json_({ ok: false, code: 'BAD_REQUEST', error: 'Bad request size.' });
   } catch (err) {
     return json_({ ok: false, code: 'BAD_REQUEST', error: 'Request is not valid JSON.' });
   }
@@ -89,6 +91,37 @@ function sheetAdapter_() {
       var rows = st.getRange(2, 1, st.getLastRow() - 1, 2).getValues().filter(function (r) { return String(r[0]).trim() !== ''; });
       var m = st.getRange(1, 4, 3, 2).getValues();
       return { rows: rows, meta: { uploadedAt: String(m[0][1]), uploadedBy: String(m[1][1]), fileName: String(m[2][1]) } };
+    },
+
+    newId: function () { return Utilities.getUuid(); },
+
+    saveSteelMeta: function (meta) { PropertiesService.getScriptProperties().setProperty('STEEL_META', JSON.stringify(meta)); },
+
+    readSteelMeta: function () {
+      var raw = prop_('STEEL_META');
+      if (!raw) return null;
+      try { return JSON.parse(raw); } catch (e) { return null; }
+    },
+
+    saveScan: function (s) {
+      var blob = Utilities.newBlob(Utilities.base64Decode(s.data), s.mime, 'SO-' + String(s.soNo).replace(/[^A-Za-z0-9_-]/g, '_') + '_' + Utilities.formatDate(new Date(), 'UTC', 'yyyyMMdd-HHmmss') + '_' + s.name);
+      var file = scanFolder_().createFile(blob);
+      var tab = ss.getSheetByName(SCANS_SHEET_NAME) || createScansSheet_(ss);
+      tab.appendRow([s.at, s.recordId, s.soNo, file.getId(), file.getName(), s.user]);
+      return { fileId: file.getId(), name: file.getName(), at: s.at, by: s.user };
+    },
+
+    listScans: function (recordId) {
+      var tab = ss.getSheetByName(SCANS_SHEET_NAME);
+      if (!tab || tab.getLastRow() < 2) return [];
+      return tab.getRange(2, 1, tab.getLastRow() - 1, 6).getValues()
+        .filter(function (r) { return String(r[1]) === String(recordId); })
+        .map(function (r) { return { at: String(r[0]), fileId: String(r[3]), name: String(r[4]), by: String(r[5]) }; });
+    },
+
+    readScan: function (fileId) {
+      var blob = DriveApp.getFileById(fileId).getBlob();
+      return { mime: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) };
     },
 
     writeSteelUsage: function (rows, meta) {
@@ -168,6 +201,26 @@ function sheetAdapter_() {
     }
   };
 }
+
+function createScansSheet_(ss) {
+  var t = ss.insertSheet(SCANS_SHEET_NAME);
+  t.appendRow(['AT (UTC)', 'RECORD ID', 'SO#', 'DRIVE FILE ID', 'FILE NAME', 'UPLOADED BY']);
+  t.setFrozenRows(1);
+  return t;
+}
+
+/** Private Drive folder for scans. Created on first use; its ID is kept in Script Properties. */
+function scanFolder_() {
+  var props = PropertiesService.getScriptProperties();
+  var id = props.getProperty('SCAN_FOLDER_ID');
+  if (id) {
+    try { return DriveApp.getFolderById(id); } catch (e) { /* recreate below */ }
+  }
+  var folder = DriveApp.createFolder('RYD-SO Scans');
+  props.setProperty('SCAN_FOLDER_ID', folder.getId());
+  return folder;
+}
+
 
 function verifyIdToken_(idToken) {
   if (!idToken || typeof idToken !== 'string' || idToken.length > 4000) return { ok: false, error: 'Please sign in.' };

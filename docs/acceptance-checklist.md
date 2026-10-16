@@ -38,3 +38,11 @@ Legend: ✅ executed and passed in this project, ⬜ not yet executed (requires 
 - ⬜ Upload a small stockroom CSV: STOCKROOM_PRICES tab created, ticks/red marks appear, filter works.
 - ⬜ Replace STEEL USAGE with the full real file: STEEL USAGE (previous) contains the old data, RYD-SO STEEL TYPE / ROUTER BAR SIZE / QTY / BAR update, badges update after refresh.
 - ⬜ Part numbers that are digits only match between the new STEEL USAGE rows and RYD-SO (VLOOKUP is type-sensitive: number vs text).
+
+## Redesign: open an SO, print, scan (all ⬜, run on a copy first)
+- ⬜ Editor signs in: sees only "Open an SO" and "Find an SO"; no table anywhere; `list` refused.
+- ⬜ Open a new SO with the required fields: it lands in the next free row after the last record, formulas in that row still work (steel type, router bar size, qty/bar, bars fill in), STATUS = 3.OPEN, RECORD ID set.
+- ⬜ Duplicate SO# is refused; missing required fields are flagged.
+- ⬜ Print details produces a correct one-page printout in the browser.
+- ⬜ Upload a PDF scan: file appears in the Drive folder "RYD-SO Scans", row appears in SO_SCANS, a second team member can download it through the app.
+- ⬜ Admin dashboard: shows only the bars, both "last updated" cards update after the uploads.

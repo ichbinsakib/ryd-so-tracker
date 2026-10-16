@@ -21,6 +21,7 @@ for (let i = 0; i < 180; i++) {
     part_price: ' $ ' + ((i % 9) + 1.5).toFixed(2) + ' ', so_release_status_bar: ((i * 7) % 101) + '%', mat_status_bar: [0, 18, 45, 73, 100][i % 5] + '%', steel_type: i % 6 === 0 ? '-' : '.625 OD x .120 WA A513 TP5 RD TUBING', router_bar_size: i % 6 === 0 ? '-' : "12' BAR", qty_per_bar: i % 6 === 0 ? '-' : (i % 4 === 1 ? '0' : String(20 + i)), total_price_quote: i % 7 === 0 ? 398 : ''
   }, i % 7 === 0 ? { total_price_quote: '=275*7.53' } : {}));
 }
+for (let n = 183; n <= 195; n++) rows.push(makeRow(n, '', {}));   // pre-formatted free rows, like the real sheet
 const sheet = new FakeSheet(rows);
 const root = path.join(__dirname, '..', 'frontend');
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
