@@ -18,7 +18,7 @@
     ['Receiving & invoice', 'po_no_2', 'note'],
     ['Close', 'so_close_date', 'so_close_date']
   ];
-  const VIEWS = ['view-login', 'view-home', 'view-admin', 'view-new', 'view-detail'];
+  const VIEWS = ['view-loading', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail'];
 
   // ---------- helpers
   function el(tag, attrs, ...kids) {
@@ -139,6 +139,7 @@
 
   // ---------- start / home
   async function start() {
+    show('view-loading');
     const r = await api('whoami');
     if (!r.ok) {
       if (r.code === 'UNAUTHENTICATED') return showLogin(r.error);
@@ -182,6 +183,7 @@
   // ---------- admin dashboard
   async function loadDashboard() {
     show('view-admin'); $('btn-refresh').hidden = false;
+    $('grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 6, class: 'muted', text: 'Loading from the sheet…' })));
     const ls = $('list-status'); ls.className = 'statusline'; ls.textContent = 'Loading from the sheet…';
     $('btn-refresh').disabled = true;
     const r = await api('dashboard', { includeClosed: $('incl-closed').checked });
@@ -621,6 +623,7 @@
 
   (async function init() {
     const t = store('tok');
+    show('view-loading');
     if (t) { state.token = t; await start(); } else await showLogin('');
   })();
 })();

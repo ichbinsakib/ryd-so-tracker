@@ -30,7 +30,7 @@ test('dashboard: slim rows, closed hidden by default, lowest progress first', ()
   const s = new FakeSheet(rows);
   const d = call(s, 'tok-admin', { action: 'dashboard' });
   assert.equal(d.ok, true);
-  assert.deepEqual(d.rows.map(r => r.so_no), [2, 1, 4], 'closed SO 3 hidden; unknown bars last');
+  assert.deepEqual(d.rows.map(r => r.so_no), ['2', '1', '4'], 'closed SO 3 hidden; unknown bars last');
   assert.deepEqual(Object.keys(d.rows[0]).sort(), ['customer', 'id', 'matBar', 'part_no', 'soBar', 'so_no', 'status']);
   assert.equal(d.rows[0].soBar, 20);
   assert.equal(d.rows[2].soBar, null);

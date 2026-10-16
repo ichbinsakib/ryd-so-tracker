@@ -53,6 +53,14 @@ class FakeSheet {
   writeStock(rows, meta) { this.stock = rows.map(r => r.slice()); this.stockMeta = meta; }
   now() { return '2026-10-16T12:00:00.000Z'; }
   readAll() { return { idIndex: this.idIndex, rows: this.rows.map(r => JSON.parse(JSON.stringify(r))) }; }
+  getIdIndex() { return this.idIndex; }
+  readColumns(indexes, display) {
+    return this.rows.map((r) => {
+      const values = {};
+      indexes.forEach((i) => { values[i] = display ? r.display[i] : r.values[i]; });
+      return { rowNumber: r.rowNumber, values };
+    });
+  }
   readRow(n) { return JSON.parse(JSON.stringify(this.rows.find(r => r.rowNumber === n))); }
   writeCells(n, cells) {
     const row = this.rows.find(r => r.rowNumber === n);

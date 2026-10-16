@@ -164,6 +164,29 @@ function sheetAdapter_() {
       return { idIndex: h.idIndex, rows: toRows(range, SOCore.FIRST_DATA_ROW) };
     },
 
+    getIdIndex: function () { return headerInfo().idIndex; },
+
+    // Reads only the requested columns (contiguous ones in one call). display=true returns the text as shown in the sheet.
+    readColumns: function (indexes, display) {
+      var n = sheet.getLastRow() - SOCore.FIRST_DATA_ROW + 1;
+      if (n < 1) return [];
+      var rows = [];
+      for (var i = 0; i < n; i++) rows.push({ rowNumber: SOCore.FIRST_DATA_ROW + i, values: {} });
+      var sorted = indexes.slice().sort(function (a, b) { return a - b; }).filter(function (v, i, a) { return i === 0 || v !== a[i - 1]; });
+      var g = 0;
+      while (g < sorted.length) {
+        var start = sorted[g], end = start;
+        while (g + 1 < sorted.length && sorted[g + 1] === end + 1) { g++; end = sorted[g]; }
+        var range = sheet.getRange(SOCore.FIRST_DATA_ROW, start + 1, n, end - start + 1);
+        var data = display ? range.getDisplayValues() : range.getValues();
+        for (var r = 0; r < n; r++) {
+          for (var c = 0; c <= end - start; c++) rows[r].values[start + c] = display ? data[r][c] : normalise(data[r][c]);
+        }
+        g++;
+      }
+      return rows;
+    },
+
     readRow: function (rowNumber) {
       var h = headerInfo();
       return toRows(sheet.getRange(rowNumber, 1, 1, h.lastCol), rowNumber)[0];

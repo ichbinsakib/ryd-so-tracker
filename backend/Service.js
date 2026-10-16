@@ -122,13 +122,15 @@ var SOService = (function () {
     }
   }
 
+  // Light-weight lookups read only the few columns they need (reading the whole sheet takes ~10 s),
+  // then the single matching row is read in full.
   function findById(adapter, id) {
     if (!id) return null;
-    var data = adapter.readAll();
-    if (data.idIndex < 0) return null;
-    for (var i = 0; i < data.rows.length; i++) {
-      var r = data.rows[i];
-      if (String(r.values[data.idIndex]) === String(id)) return { row: r, idIndex: data.idIndex };
+    var idIndex = adapter.getIdIndex();
+    if (idIndex < 0) return null;
+    var rows = adapter.readColumns([idIndex], false);
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i].values[idIndex]) === String(id)) return { row: adapter.readRow(rows[i].rowNumber), idIndex: idIndex };
     }
     return null;
   }
@@ -165,15 +167,24 @@ var SOService = (function () {
 
   function readSteelMeta(adapter) { return adapter.readSteelMeta ? adapter.readSteelMeta() : null; }
 
+  function blank(v) { return String(v === undefined || v === null ? '' : v).trim() === ''; }
+
   function dashboard(adapter, email, req) {
+    var K = Core.BY_KEY;
+    var idIndex = adapter.getIdIndex();
     var stock = readStockInfo(adapter);
-    var data = adapter.readAll();
+    var idxs = [K.status.index, K.so_release_status_bar.index, K.mat_status_bar.index, K.customer.index, K.part_no.index, K.so_no.index];
+    if (idIndex >= 0) idxs.push(idIndex);
     var rows = [];
-    data.rows.forEach(function (row) {
-      if (!Core.isRecordRow(row)) return;
-      var rec = Core.buildRecord(row, data.idIndex);
-      if (!req.includeClosed && String(rec.values.status) === '4.CLOSE') return;
-      rows.push(Core.dashboardRow(rec));
+    adapter.readColumns(idxs, true).forEach(function (r) {
+      var v = r.values;
+      if (blank(v[K.part_no.index]) && blank(v[K.so_no.index])) return;
+      var status = String(v[K.status.index] || '').trim();
+      if (!req.includeClosed && status === '4.CLOSE') return;
+      rows.push({
+        id: idIndex >= 0 ? v[idIndex] || null : null, so_no: v[K.so_no.index], part_no: v[K.part_no.index], customer: v[K.customer.index],
+        status: status, soBar: Core.pctNum(v[K.so_release_status_bar.index]), matBar: Core.pctNum(v[K.mat_status_bar.index])
+      });
     });
     // lowest progress first (unknown bars last)
     var low = function (r) { var a = [r.soBar, r.matBar].filter(function (x) { return x !== null; }); return a.length ? Math.min.apply(null, a) : 1000; };
@@ -181,53 +192,56 @@ var SOService = (function () {
     return {
       ok: true, role: 'admin', email: email, refreshedAt: adapter.now(), rows: rows,
       stock: { has: stock.has, count: stock.count, meta: stock.meta },
-      steel: { meta: readSteelMeta(adapter) }, writable: data.idIndex >= 0
+      steel: { meta: readSteelMeta(adapter) }, writable: idIndex >= 0
     };
   }
 
   function findSO(adapter, req) {
     var want = Core.normSo(req.so_no);
     if (!want) return fail('BAD_REQUEST', 'Enter an SO number.');
+    var K = Core.BY_KEY;
+    var idIndex = adapter.getIdIndex();
+    var hits = adapter.readColumns([K.so_no.index, K.part_no.index], false).filter(function (r) {
+      var v = r.values;
+      if (blank(v[K.part_no.index]) && blank(v[K.so_no.index])) return false;
+      return Core.normSo(v[K.so_no.index]) === want;
+    }).slice(0, 5);
+    if (!hits.length) return fail('NOT_FOUND', 'No SO found with number ' + req.so_no + '.');
     var stock = readStockInfo(adapter);
-    var data = adapter.readAll();
-    var out = [];
-    data.rows.forEach(function (row) {
-      if (!Core.isRecordRow(row)) return;
-      if (Core.normSo(row.values[Core.BY_KEY.so_no.index]) !== want) return;
-      out.push(withCheck(Core.buildRecord(row, data.idIndex), stock));
-    });
-    if (!out.length) return fail('NOT_FOUND', 'No SO found with number ' + req.so_no + '.');
-    return { ok: true, records: out.slice(0, 5), refreshedAt: adapter.now() };
+    var out = hits.map(function (h) { return withCheck(Core.buildRecord(adapter.readRow(h.rowNumber), idIndex), stock); });
+    return { ok: true, records: out, refreshedAt: adapter.now() };
   }
 
   function createSO(adapter, email, req) {
     if (!req.changes || typeof req.changes !== 'object') return fail('BAD_REQUEST', 'Missing form data.');
     return adapter.withLock(function () {
-      var data = adapter.readAll();
-      if (data.idIndex < 0) return fail('NOT_READY', 'Editing is not set up yet (no RECORD ID column).');
+      var K = Core.BY_KEY;
+      var idIndex = adapter.getIdIndex();
+      if (idIndex < 0) return fail('NOT_READY', 'Editing is not set up yet (no RECORD ID column).');
+      var rows = adapter.readColumns([K.part_no.index, K.so_no.index], false);
+      var isRec = function (r) { return !(blank(r.values[K.part_no.index]) && blank(r.values[K.so_no.index])); };
       var existing = [], lastRecordRow = 0;
-      data.rows.forEach(function (r) {
-        if (!Core.isRecordRow(r)) return;
-        existing.push(r.values[Core.BY_KEY.so_no.index]);
+      rows.forEach(function (r) {
+        if (!isRec(r)) return;
+        existing.push(r.values[K.so_no.index]);
         if (r.rowNumber > lastRecordRow) lastRecordRow = r.rowNumber;
       });
       var plan = Core.planCreate(req.changes, existing);
       if (!plan.ok) return fail(plan.code, plan.error, { fieldErrors: plan.fieldErrors });
       var free = null;
-      for (var i = 0; i < data.rows.length; i++) {
-        var r = data.rows[i];
-        if (r.rowNumber > lastRecordRow && !Core.isRecordRow(r)) { free = r; break; }
+      for (var i = 0; i < rows.length; i++) {
+        if (rows[i].rowNumber > lastRecordRow && !isRec(rows[i])) { free = rows[i]; break; }
       }
       if (!free) return fail('NO_FREE_ROW', 'There is no free row left in RYD-SO. Ask an admin to extend the sheet.');
       var id = adapter.newId();
       var cells = plan.writes.map(function (w) { return { index: w.field.index, value: w.value, type: w.field.type }; });
-      cells.push({ index: data.idIndex, value: id, type: 'text' });
+      cells.push({ index: idIndex, value: id, type: 'text' });
       adapter.writeCells(free.rowNumber, cells);
       adapter.audit({
         at: adapter.now(), user: email, recordId: id, row: free.rowNumber, field: 'SO OPENED',
         oldValue: '', newValue: 'SO# ' + plan.writes.filter(function (w) { return w.key === 'so_no'; })[0].value
       });
-      var rec = withCheck(Core.buildRecord(adapter.readRow(free.rowNumber), data.idIndex), readStockInfo(adapter));
+      var rec = withCheck(Core.buildRecord(adapter.readRow(free.rowNumber), idIndex), readStockInfo(adapter));
       return { ok: true, record: rec, refreshedAt: adapter.now() };
     });
   }
