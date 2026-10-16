@@ -42,6 +42,7 @@ class FakeSheet {
   verifyToken(t) { const x = this.tokens[t]; return x ? { ok: true, email: x.email } : { ok: false, error: 'Session expired or invalid. Please sign in again.' }; }
   config() { return { editors: 'editor@example.com', viewers: 'viewer@example.com', admins: 'admin@example.com' }; }
   readStock() { return { rows: this.stock.map(r => r.slice()), meta: this.stockMeta }; }
+  writeSteelUsage(rows, meta) { const previousRows = (this.steel || []).length; this.steelPrevious = this.steel || []; this.steel = rows.map(r => r.slice()); this.steelMeta = meta; return { previousRows }; }
   writeStock(rows, meta) { this.stock = rows.map(r => r.slice()); this.stockMeta = meta; }
   now() { return '2026-10-16T12:00:00.000Z'; }
   readAll() { return { idIndex: this.idIndex, rows: this.rows.map(r => JSON.parse(JSON.stringify(r))) }; }

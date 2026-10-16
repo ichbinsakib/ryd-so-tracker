@@ -34,6 +34,7 @@ var SOService = (function () {
 
   function withCheck(rec, stock) {
     rec.priceCheck = Core.priceCheck(rec, stock.index, stock.has);
+    rec.lookupChecks = Core.lookupChecks(rec);
     return rec;
   }
 
@@ -84,6 +85,10 @@ var SOService = (function () {
         case 'uploadStock':
           if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can upload the stockroom sheet.');
           return uploadStock(adapter, auth.email, req);
+
+        case 'uploadSteelUsage':
+          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can upload STEEL USAGE data.');
+          return uploadSteelUsage(adapter, auth.email, req);
 
         default:
           return fail('BAD_REQUEST', 'Unknown action.');
@@ -147,6 +152,22 @@ var SOService = (function () {
         oldValue: '', newValue: v.rows.length + ' rows' + (fileName ? ' from ' + fileName : '') + (v.skipped ? ' (' + v.skipped + ' skipped)' : '')
       });
       return { ok: true, count: v.rows.length, skipped: v.skipped, meta: meta };
+    });
+  }
+
+  function uploadSteelUsage(adapter, email, req) {
+    var v = Core.validateSteelUpload(req.rows);
+    if (!v.ok) return fail('INVALID', v.error);
+    var fileName = String(req.fileName || '').slice(0, 120);
+    return adapter.withLock(function () {
+      var meta = { at: adapter.now(), by: email, fileName: fileName };
+      var replaced = adapter.writeSteelUsage(v.rows, meta);
+      adapter.audit({
+        at: meta.at, user: email, recordId: '', row: '', field: 'STEEL USAGE REPLACED',
+        oldValue: (replaced && replaced.previousRows !== undefined ? replaced.previousRows : '?') + ' old rows (kept in STEEL USAGE (previous))',
+        newValue: v.rows.length + ' rows' + (fileName ? ' from ' + fileName : '') + (v.skipped ? ' (' + v.skipped + ' skipped)' : '')
+      });
+      return { ok: true, count: v.rows.length, skipped: v.skipped, previousRows: replaced ? replaced.previousRows : undefined, meta: meta };
     });
   }
 

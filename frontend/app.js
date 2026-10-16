@@ -8,8 +8,9 @@
     refreshedAt: null, view: [], sortKey: 'so_no', sortDir: 'desc', page: 0, pageSize: 50,
     visibleCols: null, stock: null, current: null, dirty: false, saving: false
   };
+  const LOOKUP_KEYS = ['steel_type', 'router_bar_size', 'qty_per_bar'];
   const BAR_KEYS = ['so_release_status_bar', 'mat_status_bar'];
-  const DEFAULT_COLS = ['status', 'so_release_status_bar', 'mat_status_bar', 'part_price', 'so_no', 'part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_mat_quote', 'quote_received', 'so_close_date'];
+  const DEFAULT_COLS = ['status', 'so_release_status_bar', 'mat_status_bar', 'part_price', 'steel_type', 'router_bar_size', 'qty_per_bar', 'so_no', 'part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_mat_quote', 'quote_received', 'so_close_date'];
   const SECTIONS = [
     ['Order', 'notes', 'so_no'],
     ['Material requirement', 'steel_type', 'email_template'],
@@ -69,6 +70,16 @@
       el('div', { class: 'prow' }, el('span', { text: 'Worksheet PART PRICE' }), el('strong', { text: money(c.appPrice) })),
       el('div', { class: 'prow' }, el('span', { text: 'Stockroom sheet price' }), el('strong', { text: c.stockPrices.length ? c.stockPrices.map(money).join(', ') : 'not listed' })));
     $('dlg-price').showModal();
+  }
+  function lookupBadge(rec, key) {
+    const c = rec.lookupChecks && rec.lookupChecks[key]; if (!c) return '';
+    if (c.state === 'ok') return el('span', { class: 'chk', title: 'Found in STEEL USAGE', text: '✓' });
+    return el('button', { class: 'issue', type: 'button', title: c.reason, text: '!', onclick: (e) => {
+      e.stopPropagation();
+      $('dp-title').textContent = 'Missing data · part ' + norm(rec.values.part_no);
+      $('dp-body').replaceChildren(el('p', { text: c.reason + '.' }), el('p', { class: 'muted', text: 'An admin can fix this by uploading STEEL USAGE data that includes this part number.' }));
+      $('dlg-price').showModal();
+    } });
   }
   function showStockStatus() {
     const st = state.stock, box = $('stock-status');
@@ -144,7 +155,7 @@
       ls.className = 'statusline err'; ls.textContent = r.error + ' (data unavailable)'; return;
     }
     Object.assign(state, { email: r.email, role: r.role, fields: r.fields, records: r.records, writable: r.writable, refreshedAt: r.refreshedAt, stock: r.stock });
-    $('btn-upload').hidden = r.role !== 'admin'; showStockStatus();
+    $('btn-upload').hidden = r.role !== 'admin'; $('btn-upload-steel').hidden = r.role !== 'admin'; showStockStatus();
     state.byKey = Object.fromEntries(r.fields.map((f) => [f.key, f]));
     if (!state.visibleCols) state.visibleCols = DEFAULT_COLS.slice();
     $('user').textContent = state.email + ' · ' + state.role; $('btn-signout').hidden = false;
@@ -173,11 +184,12 @@
   const SEARCH_KEYS = ['so_no', 'part_no', 'po_no_1', 'po_no_2', 'invoice_no', 'customer', 'notes', 'note', 'steel_type', 'material_code', 'champion'];
   function applyView() {
     const q = $('q').value.trim().toLowerCase();
-    const pf = $('f-price').value;
+    const pf = $('f-price').value, sf = $('f-steel').value;
     const fl = { status: $('f-status').value, customer: $('f-customer').value, champion: $('f-champion').value, so_type: $('f-sotype').value, kanban_or_po: $('f-kanban').value };
     state.view = state.records.filter((r) => {
       for (const [k, v] of Object.entries(fl)) if (v && norm(r.values[k]).trim() !== v) return false;
       if (pf && (!r.priceCheck || r.priceCheck.state !== pf)) return false;
+      if (sf) { const bad = r.lookupChecks && Object.values(r.lookupChecks).some((c) => c.state === 'issue'); if (sf === 'issue' ? !bad : (bad || !r.lookupChecks)) return false; }
       if (!q) return true;
       return SEARCH_KEYS.some((k) => norm(r.values[k]).toLowerCase().includes(q) || norm(r.display[k]).toLowerCase().includes(q));
     });
@@ -216,6 +228,7 @@
         const text = norm(r.display[f.key]);
         if (BAR_KEYS.includes(f.key)) return el('td', {}, barNode(text));
         if (f.key === 'part_no' || f.key === 'part_price') return el('td', { title: text }, text, priceBadge(r));
+        if (LOOKUP_KEYS.includes(f.key)) return el('td', { title: text }, text, lookupBadge(r, f.key));
         if (f.key === 'status') return el('td', {}, text ? el('span', { class: 'pill ' + (/OPEN/.test(text) ? 's-open' : /HOLD/.test(text) ? 's-hold' : /CLOSE/.test(text) ? 's-close' : ''), text }) : '');
         return el('td', { title: text, text });
       }))));
@@ -272,6 +285,10 @@
     if (f.key === 'part_price' && rec.priceCheck && rec.priceCheck.state !== 'none') {
       const c = rec.priceCheck;
       wrap.append(el('div', { class: 'pricehint ' + (c.state === 'ok' ? 'ok' : 'bad'), text: c.state === 'ok' ? '✓ Matches stockroom sheet (' + money(c.stockPrices[0]) + ')' : '! ' + c.reason + ' — stockroom: ' + (c.stockPrices.length ? c.stockPrices.map(money).join(', ') : 'not listed') }));
+    }
+    if (LOOKUP_KEYS.includes(f.key) && rec.lookupChecks && rec.lookupChecks[f.key]) {
+      const c = rec.lookupChecks[f.key];
+      wrap.append(el('div', { class: 'pricehint ' + (c.state === 'ok' ? 'ok' : 'bad'), text: c.state === 'ok' ? '✓ Found in STEEL USAGE' : '! ' + c.reason }));
     }
     if (BAR_KEYS.includes(f.key)) { input.hidden = true; wrap.append(barNode(norm(rec.display[f.key]))); }
     if (input.dataset.legacy) wrap.append(el('div', { class: 'hint', text: 'Existing value "' + input.dataset.legacy + '" is kept unless you pick a date.' }));
@@ -352,9 +369,25 @@
     if (await confirmDialog('Discard changes?', el('p', { text: 'Reset this record to the last saved values?' }), 'Discard', true)) { renderDetail(); updateDirty(); banner('', ''); }
   }
 
-  // ---------- admin: stockroom sheet upload
+  // ---------- admin: uploads (stockroom prices, STEEL USAGE data)
   const SHEETJS = { src: 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', integrity: 'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw' };
-  const up = { sheets: [], file: null, rows: [] };
+  const UP_MODES = {
+    stock: {
+      title: 'Upload stockroom price sheet', action: 'uploadStock',
+      note: 'CSV or Excel (.xlsx). Prices in this file are compared with PART PRICE for each part number. Uploading replaces the previous stockroom prices for everyone.',
+      cols: [['part', 'Part number column', /part|item|sku|p\/n|number/i], ['price', 'Price column', /price|cost|unit|amount/i]],
+      build: (r, c) => { const part = String(r[c.part] ?? '').trim(); const price = priceNum(r[c.price]); return part && price !== null && price >= 0 ? { part, price } : null; },
+      show: (x) => x.part + ' → ' + money(x.price)
+    },
+    steel: {
+      title: 'Replace STEEL USAGE data', action: 'uploadSteelUsage', danger: true,
+      note: 'CSV or Excel (.xlsx) with one row per part. This DELETES all existing data in the STEEL USAGE tab and replaces it with this file. RYD-SO, IR-SO and ITT-SO read steel type, router bar size and qty/bar from that tab. A copy of the old data is kept in the tab "STEEL USAGE (previous)".',
+      cols: [['part', 'Part number column (PART NUMBER)', /part/i], ['steel', 'Steel type column (PS_COMP)', /comp|steel/i], ['qty', 'Qty / bar column (PS_QTY PER)', /qty|per/i], ['router', "Router bar size column (MAT'L TYPE)", /mat.?l|router|bar.?size/i]],
+      build: (r, c) => { const t = (i) => String(r[i] ?? '').trim(); const part = t(c.part); return part ? { part, steel: t(c.steel), qty: t(c.qty), router: t(c.router) } : null; },
+      show: (x) => x.part + ' | ' + (x.steel || '—') + ' | ' + (x.qty || '—') + ' | ' + (x.router || '—')
+    }
+  };
+  const up = { mode: null, sheets: [], file: null, rows: [] };
   function loadSheetJs() {
     return new Promise((resolve, reject) => {
       if (window.XLSX) return resolve();
@@ -378,54 +411,60 @@
   }
   async function readUploadFile(file) {
     if (file.size > 15 * 1024 * 1024) throw new Error('File is too large (15 MB limit).');
-    if (/\.csv$/i.test(file.name)) return [{ name: 'CSV', rows: parseCsv((await file.text()).replace(/^\uFEFF/, '')) }];
+    if (/\.csv$/i.test(file.name)) return [{ name: 'CSV', rows: parseCsv((await file.text()).replace(/^﻿/, '')) }];
     await loadSheetJs();
     const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
     return wb.SheetNames.map((n) => ({ name: n, rows: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' }) }));
   }
   const priceNum = (v) => { if (typeof v === 'number') return isFinite(v) ? v : null; const c = String(v ?? '').replace(/[$,\s]/g, ''); return /^-?\d+(\.\d+)?$/.test(c) ? parseFloat(c) : null; };
+  const colSel = (key) => $('upc-' + key);
   function currentSheet() { return up.sheets[+$('up-sheet').value] || { rows: [] }; }
   function fillColumnPickers() {
+    const mode = UP_MODES[up.mode];
     const rows = currentSheet().rows;
     const hi = rows.findIndex((r) => r.filter((c) => String(c).trim() !== '').length >= 2);
     const head = hi >= 0 ? rows[hi] : [];
-    const colName = (i) => (String(head[i] ?? '').trim() || 'Column ' + (i + 1));
     const n = Math.max(0, ...rows.slice(0, 50).map((r) => r.length));
-    const opts = () => Array.from({ length: n }, (_, i) => el('option', { value: String(i), text: colName(i) }));
-    const pSel = $('up-part'), cSel = $('up-price');
-    pSel.replaceChildren(...opts()); cSel.replaceChildren(...opts());
-    const find = (re) => Array.from({ length: n }, (_, i) => i).find((i) => re.test(String(head[i] ?? '')));
-    const pi = find(/part|item|sku|p\/n|number/i), ci = find(/price|cost|unit|amount/i);
-    if (pi !== undefined) pSel.value = String(pi);
-    cSel.value = String(ci !== undefined ? ci : Math.min(1, n - 1));
+    const name = (i) => (String(head[i] ?? '').trim() || 'Column ' + (i + 1));
+    const used = new Set();
+    $('up-cols').replaceChildren(...mode.cols.map(([key, label, re]) => {
+      const sel = el('select', { id: 'upc-' + key }, Array.from({ length: n }, (_, i) => el('option', { value: String(i), text: name(i) })));
+      let guess = Array.from({ length: n }, (_, i) => i).find((i) => !used.has(i) && re.test(String(head[i] ?? '')));
+      if (guess === undefined) guess = Array.from({ length: n }, (_, i) => i).find((i) => !used.has(i));
+      if (guess !== undefined) { sel.value = String(guess); used.add(guess); }
+      sel.addEventListener('change', updateUploadPreview);
+      return el('label', {}, label, sel);
+    }));
     up.headerRow = hi;
     updateUploadPreview();
   }
   function collectUploadRows() {
-    const rows = currentSheet().rows.slice(Math.max(0, up.headerRow + 1));
-    const pc = +$('up-part').value, cc = +$('up-price').value;
+    const mode = UP_MODES[up.mode];
+    const c = Object.fromEntries(mode.cols.map(([key]) => [key, +colSel(key).value]));
     const out = []; let skipped = 0;
-    rows.forEach((r) => {
-      const part = String(r[pc] ?? '').trim(); const price = priceNum(r[cc]);
-      if (!part && (r[cc] === '' || r[cc] === undefined)) return;            // empty line
-      if (!part || price === null || price < 0) { skipped++; return; }
-      out.push({ part, price });
+    currentSheet().rows.slice(Math.max(0, up.headerRow + 1)).forEach((r) => {
+      if (r.every((x) => String(x ?? '').trim() === '')) return;
+      const x = mode.build(r, c); x ? out.push(x) : skipped++;
     });
     return { out, skipped };
   }
   function updateUploadPreview() {
-    const { out, skipped } = collectUploadRows();
+    const mode = UP_MODES[up.mode]; const { out, skipped } = collectUploadRows();
     up.rows = out;
     $('up-preview').textContent = out.length
-      ? out.length + ' valid rows' + (skipped ? ', ' + skipped + ' skipped (blank or non-numeric price)' : '') + '.  First: ' + out.slice(0, 3).map((x) => x.part + ' → ' + money(x.price)).join('   ')
+      ? out.length + ' valid rows' + (skipped ? ', ' + skipped + ' skipped' : '') + '.  First rows:\n' + out.slice(0, 3).map(mode.show).join('\n')
       : 'No valid rows with this column choice.' + (skipped ? ' (' + skipped + ' rows skipped)' : '');
     $('up-go').disabled = !out.length;
   }
-  function openUpload() {
+  function openUpload(modeKey) {
+    up.mode = modeKey; const mode = UP_MODES[modeKey];
+    $('up-title').textContent = mode.title; $('up-note').textContent = mode.note;
+    $('up-go').textContent = mode.danger ? 'Replace data' : 'Upload and compare'; $('up-go').className = 'btn ' + (mode.danger ? 'btn-danger' : 'btn-primary');
     $('upload-file').value = ''; $('upload-map').hidden = true; $('upload-msg').textContent = ''; $('up-go').disabled = true; up.rows = [];
     $('dlg-upload').showModal();
   }
-  $('btn-upload').onclick = openUpload;
+  $('btn-upload').onclick = () => openUpload('stock');
+  $('btn-upload-steel').onclick = () => openUpload('steel');
   $('upload-file').addEventListener('change', async (e) => {
     const file = e.target.files[0]; $('upload-msg').textContent = ''; $('upload-map').hidden = true; $('up-go').disabled = true;
     if (!file) return;
@@ -437,21 +476,26 @@
     } catch (err) { $('upload-msg').textContent = err.message || 'Could not read the file.'; }
   });
   $('up-sheet').addEventListener('change', fillColumnPickers);
-  $('up-part').addEventListener('change', updateUploadPreview); $('up-price').addEventListener('change', updateUploadPreview);
   $('dlg-upload').addEventListener('close', async () => {
     if ($('dlg-upload').returnValue !== 'ok' || !up.rows.length) return;
-    const n = up.rows.length; toast('Uploading ' + n + ' stockroom prices…');
-    const r = await api('uploadStock', { rows: up.rows, fileName: up.file });
+    const mode = UP_MODES[up.mode]; const n = up.rows.length;
+    if (mode.danger) {
+      const body = el('div', {}, el('p', { text: 'This will delete ALL existing data in the STEEL USAGE tab and replace it with ' + n + ' rows from "' + up.file + '".' }),
+        el('p', { text: 'The old data is copied to the tab "STEEL USAGE (previous)" first, so it can be restored. Every tab that looks up steel type, router bar size or qty/bar will change immediately.' }));
+      if (!(await confirmDialog('Replace STEEL USAGE data?', body, 'Delete old data and replace', true))) return;
+    }
+    toast('Uploading ' + n + ' rows…');
+    const r = await api(mode.action, { rows: up.rows, fileName: up.file });
     if (!r.ok) { toast(r.error || 'Upload failed.', true); return; }
-    toast('Stockroom prices uploaded: ' + r.count + ' rows' + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + '.');
+    toast((up.mode === 'steel' ? 'STEEL USAGE replaced: ' : 'Stockroom prices uploaded: ') + r.count + ' rows' + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + '.');
     await loadList();
   });
 
   // ---------- wiring
   window.addEventListener('beforeunload', (e) => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
   $('q').addEventListener('input', () => { clearTimeout(applyView.t); applyView.t = setTimeout(applyView, 150); });
-  ['f-status', 'f-customer', 'f-champion', 'f-sotype', 'f-kanban', 'f-price'].forEach((id) => $(id).addEventListener('change', applyView));
-  $('btn-clear').onclick = () => { $('q').value = ''; ['f-status', 'f-customer', 'f-champion', 'f-sotype', 'f-kanban', 'f-price'].forEach((id) => { $(id).value = ''; }); applyView(); };
+  ['f-status', 'f-customer', 'f-champion', 'f-sotype', 'f-kanban', 'f-price', 'f-steel'].forEach((id) => $(id).addEventListener('change', applyView));
+  $('btn-clear').onclick = () => { $('q').value = ''; ['f-status', 'f-customer', 'f-champion', 'f-sotype', 'f-kanban', 'f-price', 'f-steel'].forEach((id) => { $(id).value = ''; }); applyView(); };
   $('btn-refresh').onclick = async () => {
     if (!$('view-detail').hidden && state.dirty && !(await confirmDialog('Refresh and lose edits?', el('p', { text: 'You have unsaved changes on the open record.' }), 'Refresh anyway', true))) return;
     state.dirty = false; await loadList();

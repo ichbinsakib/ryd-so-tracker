@@ -35,8 +35,10 @@
     <select id="f-sotype" aria-label="SO type"><option value="">All SO types</option></select>
     <select id="f-kanban" aria-label="Kanban or PO"><option value="">Kanban/PO</option></select>
     <select id="f-price" aria-label="Stockroom price check"><option value="">Price check: all</option><option value="ok">✓ Matches stockroom</option><option value="issue">✗ Price issue</option></select>
+    <select id="f-steel" aria-label="Steel usage data check"><option value="">Steel data: all</option><option value="ok">✓ Complete</option><option value="issue">✗ Missing</option></select>
     <button id="btn-clear" class="btn btn-ghost">Clear filters</button>
     <button id="btn-upload" class="btn" hidden title="Admins only">Upload stockroom sheet</button>
+    <button id="btn-upload-steel" class="btn" hidden title="Admins only">Replace STEEL USAGE data</button>
     <details class="colpicker"><summary class="btn">Columns</summary><div id="colpicker-list" class="card"></div></details>
   </section>
   <div id="list-status" class="statusline" aria-live="polite"></div>
@@ -65,13 +67,12 @@
 
 <dialog id="dlg-upload">
   <form method="dialog" id="upload-form">
-    <h3>Upload stockroom price sheet</h3>
-    <p class="muted">CSV or Excel (.xlsx). Prices in this file are compared with PART PRICE for each part number. Uploading replaces the previous stockroom prices for everyone.</p>
+    <h3 id="up-title">Upload</h3>
+    <p class="muted" id="up-note"></p>
     <input id="upload-file" type="file" accept=".csv,.xlsx,.xls">
     <div id="upload-map" hidden>
       <label>Sheet <select id="up-sheet"></select></label>
-      <label>Part number column <select id="up-part"></select></label>
-      <label>Price column <select id="up-price"></select></label>
+      <div id="up-cols"></div>
       <div id="up-preview" class="muted"></div>
     </div>
     <p id="upload-msg" class="error" role="alert"></p>

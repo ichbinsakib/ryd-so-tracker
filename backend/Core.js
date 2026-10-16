@@ -329,6 +329,49 @@ var SOCore = (function () {
     return { ok: true, rows: clean, skipped: skipped };
   }
 
+  // ---- STEEL USAGE lookup check + upload ----
+  var LOOKUP_KEYS = ['steel_type', 'router_bar_size', 'qty_per_bar'];
+
+  /** For records with a part number: is each STEEL USAGE-driven value present? */
+  function lookupChecks(rec) {
+    if (!normalizePart(rec.values.part_no)) return null;
+    var out = {};
+    LOOKUP_KEYS.forEach(function (k) {
+      var raw = rec.display[k];
+      var v = String(raw === undefined || raw === null ? '' : raw).trim();
+      var label = BY_KEY[k].label;
+      if (v === '' || v === '-' || v.charAt(0) === '#') out[k] = { state: 'issue', reason: 'No ' + label + ' found in STEEL USAGE for this part' };
+      else if (k === 'qty_per_bar' && parsePrice(v) === 0) out[k] = { state: 'issue', reason: label + ' is 0 in STEEL USAGE' };
+      else out[k] = { state: 'ok' };
+    });
+    return out;
+  }
+
+  /** Cell text that Sheets would treat as a formula must never be written. */
+  function safeCellText(v, max) {
+    var s = String(v === undefined || v === null ? '' : v).trim();
+    if (s.length > max) return null;
+    var c = s.charAt(0);
+    if (c === '=' || c === '+' || c === '@') return null;
+    if (c === '-' && s.length > 1 && !/^-[0-9.]+$/.test(s)) return null;
+    return s;
+  }
+
+  /** rows: [{part, steel, qty, router}] -> [[part, steel, qty, router]] */
+  function validateSteelUpload(rows) {
+    if (!Array.isArray(rows) || !rows.length) return { ok: false, error: 'The file has no rows to import.' };
+    if (rows.length > MAX_STOCK_ROWS) return { ok: false, error: 'Too many rows (limit ' + MAX_STOCK_ROWS + ').' };
+    var clean = [], skipped = 0;
+    rows.forEach(function (r) {
+      if (!r) { skipped++; return; }
+      var part = safeCellText(r.part, 100), steel = safeCellText(r.steel, 300), qty = safeCellText(r.qty, 50), router = safeCellText(r.router, 50);
+      if (!part || steel === null || qty === null || router === null) { skipped++; return; }
+      clean.push([part, steel, qty, router]);
+    });
+    if (!clean.length) return { ok: false, error: 'No valid rows were found. Check the column choice.' };
+    return { ok: true, rows: clean, skipped: skipped };
+  }
+
   /** Check Google tokeninfo payload. */
   function checkTokenInfo(info, clientId, nowSec) {
     if (!info || !clientId) return { ok: false, error: 'Server is not configured.' };
@@ -348,7 +391,8 @@ var SOCore = (function () {
     planUpdate: planUpdate, sameValue: sameValue,
     parseEmailList: parseEmailList, roleFor: roleFor, checkTokenInfo: checkTokenInfo,
     normalizePart: normalizePart, parsePrice: parsePrice, buildStockIndex: buildStockIndex,
-    priceCheck: priceCheck, validateStockUpload: validateStockUpload
+    priceCheck: priceCheck, validateStockUpload: validateStockUpload,
+    lookupChecks: lookupChecks, validateSteelUpload: validateSteelUpload, safeCellText: safeCellText
   };
 })();
 

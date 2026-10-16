@@ -14,6 +14,8 @@
 var SHEET_NAME = 'RYD-SO';
 var AUDIT_SHEET_NAME = 'APP_AUDIT';
 var STOCK_SHEET_NAME = 'STOCKROOM_PRICES';
+var STEEL_SHEET_NAME = 'STEEL USAGE';
+var STEEL_PREVIOUS_NAME = 'STEEL USAGE (previous)';
 var BACKUP_KEEP = 14;
 
 function prop_(name) {
@@ -31,7 +33,7 @@ function doPost(e) {
     var body = e && e.postData && e.postData.contents;
     if (!body || body.length > 2000000) return json_({ ok: false, code: 'BAD_REQUEST', error: 'Bad request size.' });
     req = JSON.parse(body);
-    if (body.length > 100000 && (!req || req.action !== 'uploadStock')) return json_({ ok: false, code: 'BAD_REQUEST', error: 'Bad request size.' });
+    if (body.length > 100000 && (!req || (req.action !== 'uploadStock' && req.action !== 'uploadSteelUsage'))) return json_({ ok: false, code: 'BAD_REQUEST', error: 'Bad request size.' });
   } catch (err) {
     return json_({ ok: false, code: 'BAD_REQUEST', error: 'Request is not valid JSON.' });
   }
@@ -87,6 +89,25 @@ function sheetAdapter_() {
       var rows = st.getRange(2, 1, st.getLastRow() - 1, 2).getValues().filter(function (r) { return String(r[0]).trim() !== ''; });
       var m = st.getRange(1, 4, 3, 2).getValues();
       return { rows: rows, meta: { uploadedAt: String(m[0][1]), uploadedBy: String(m[1][1]), fileName: String(m[2][1]) } };
+    },
+
+    writeSteelUsage: function (rows, meta) {
+      var su = ss.getSheetByName(STEEL_SHEET_NAME);
+      if (!su) throw new Error('Sheet "' + STEEL_SHEET_NAME + '" not found.');
+      var lastRow = su.getLastRow();
+      var lastCol = Math.max(su.getLastColumn(), 11);
+      var previousRows = Math.max(0, lastRow - 1);
+      // 1) one-level undo: copy the whole current tab (values) before touching it
+      var prev = ss.getSheetByName(STEEL_PREVIOUS_NAME) || ss.insertSheet(STEEL_PREVIOUS_NAME);
+      prev.clear();
+      if (lastRow >= 1) prev.getRange(1, 1, lastRow, lastCol).setValues(su.getRange(1, 1, lastRow, lastCol).getValues());
+      prev.getRange(1, lastCol + 2).setValue('Snapshot of STEEL USAGE taken ' + meta.at + ' by ' + meta.by + ' before uploading ' + meta.fileName);
+      SpreadsheetApp.flush();
+      // 2) delete old data (header row 1 is kept), 3) write the new rows into A:D
+      if (lastRow >= 2) su.getRange(2, 1, lastRow - 1, lastCol).clearContent();
+      su.getRange(2, 1, rows.length, 4).setValues(rows);
+      SpreadsheetApp.flush();
+      return { previousRows: previousRows };
     },
 
     writeStock: function (rows, meta) {
