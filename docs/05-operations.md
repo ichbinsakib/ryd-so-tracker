@@ -16,3 +16,10 @@ Edit `backend/Core.js` (`RAW` table: letter, key, label, type, `calc`). Run `npm
 - Whole table is loaded in one request (~890 rows × 78 columns, a few hundred KB). Fine up to a few thousand rows.
 - Apps Script consumer quotas apply (see 02-architecture).
 - Concurrent edits: second saver gets a conflict message and nothing is overwritten. Direct edits typed into the Google Sheet while a user has the record open are also detected (the version covers all editable cells) but only at save time.
+
+## Backend updates (current manual procedure)
+The Apps Script project was created by pasting the files from `backend/` into the editor (not via clasp). After changing anything in `backend/`:
+1. Paste the changed file's content into the matching file in the Apps Script editor and save.
+2. Deploy → Manage deployments → pencil on the active deployment → Version: *New version* → Deploy. The `/exec` URL stays the same.
+3. Frontend-only changes just need `git push` (GitHub Actions redeploys Pages).
+Note: the editor copy has comments stripped, so the repo is the source of truth. Switch to `clasp` (docs/03) to automate this.
