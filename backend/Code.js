@@ -12,6 +12,7 @@
  *   ADMINS            comma-separated emails who may edit AND upload the stockroom price sheet
  */
 var SHEET_NAME = 'RYD-SO';
+var SHEET_GID = 519433600; // permanent tab id of the order sheet (survives renames; override with Script Property SHEET_GID)
 var AUDIT_SHEET_NAME = 'APP_AUDIT';
 var STOCK_SHEET_NAME = 'STOCKROOM_PRICES';
 var STEEL_SHEET_NAME = 'STEEL USAGE';
@@ -19,6 +20,13 @@ var SCANS_SHEET_NAME = 'SO_SCANS';
 var USERS_SHEET_NAME = 'APP_USERS';
 var STEEL_PREVIOUS_NAME = 'STEEL USAGE (previous)';
 var BACKUP_KEEP = 14;
+
+function getDataSheet_(ss) {
+  var gid = Number(prop_('SHEET_GID')) || SHEET_GID;
+  var sheets = ss.getSheets();
+  for (var i = 0; i < sheets.length; i++) if (sheets[i].getSheetId() === gid) return sheets[i];
+  return ss.getSheetByName(SHEET_NAME) || null;
+}
 
 function prop_(name) {
   return PropertiesService.getScriptProperties().getProperty(name) || '';
@@ -51,8 +59,8 @@ function json_(obj) {
 
 function sheetAdapter_() {
   var ss = SpreadsheetApp.openById(prop_('SHEET_ID'));
-  var sheet = ss.getSheetByName(SHEET_NAME);
-  if (!sheet) throw new Error('Sheet "' + SHEET_NAME + '" not found.');
+  var sheet = getDataSheet_(ss);
+  if (!sheet) throw new Error('Order sheet not found (tab id ' + SHEET_GID + ' / name ' + SHEET_NAME + ').');
   var tz = ss.getSpreadsheetTimeZone();
 
   function headerInfo() {
@@ -219,19 +227,54 @@ function sheetAdapter_() {
       var rows = [];
       for (var i = 0; i < n; i++) rows.push({ rowNumber: SOCore.FIRST_DATA_ROW + i, values: {} });
       var sorted = indexes.slice().sort(function (a, b) { return a - b; }).filter(function (v, i, a) { return i === 0 || v !== a[i - 1]; });
-      var g = 0;
+      var groups = [], g = 0;
       while (g < sorted.length) {
         var start = sorted[g], end = start;
         while (g + 1 < sorted.length && sorted[g + 1] === end + 1) { g++; end = sorted[g]; }
-        var range = sheet.getRange(SOCore.FIRST_DATA_ROW, start + 1, n, end - start + 1);
-        var data = display ? range.getDisplayValues() : range.getValues();
-        for (var r = 0; r < n; r++) {
-          for (var c = 0; c <= end - start; c++) rows[r].values[start + c] = display ? data[r][c] : normalise(data[r][c]);
-        }
-        g++;
+        groups.push([start, end]); g++;
       }
+      var fetched = null;
+      try {
+        // The Sheets API returns ragged arrays (trailing empty cells/rows are left out), so missing = ''.
+        var tab = "'" + sheet.getName().replace(/'/g, "''") + "'!";
+        var res = Sheets.Spreadsheets.Values.batchGet(prop_('SHEET_ID'), {
+          ranges: groups.map(function (r) { return tab + colLetter_(r[0]) + SOCore.FIRST_DATA_ROW + ':' + colLetter_(r[1]) + (SOCore.FIRST_DATA_ROW + n - 1); }),
+          valueRenderOption: display ? 'FORMATTED_VALUE' : 'UNFORMATTED_VALUE'
+        });
+        fetched = res.valueRanges.map(function (vr) { return vr.values || []; });
+      } catch (err) {
+        console.warn('Sheets API read failed, using SpreadsheetApp: ' + err);
+      }
+      groups.forEach(function (r, gi) {
+        var width = r[1] - r[0] + 1, data = null;
+        if (!fetched) {
+          var range = sheet.getRange(SOCore.FIRST_DATA_ROW, r[0] + 1, n, width);
+          data = display ? range.getDisplayValues() : range.getValues();
+        } else data = fetched[gi];
+        for (var i = 0; i < n; i++) {
+          var line = data[i] || [];
+          for (var c = 0; c < width; c++) {
+            var v = line[c];
+            rows[i].values[r[0] + c] = v === undefined || v === null ? '' : (fetched ? v : (display ? v : normalise(v)));
+          }
+        }
+      });
       return rows;
     },
+
+    // small compressed cache (CacheService values are limited to 100 KB)
+    cacheGet: function (key) {
+      var hit = CacheService.getScriptCache().get(key);
+      if (!hit) return null;
+      try { return JSON.parse(Utilities.ungzip(Utilities.newBlob(Utilities.base64Decode(hit), 'application/x-gzip')).getDataAsString()); } catch (e) { return null; }
+    },
+    cachePut: function (key, obj, seconds) {
+      try {
+        var gz = Utilities.base64Encode(Utilities.gzip(Utilities.newBlob(JSON.stringify(obj), 'application/json')).getBytes());
+        CacheService.getScriptCache().put(key, gz, seconds);
+      } catch (e) { /* too big or cache unavailable: just skip caching */ }
+    },
+    cacheClear: function (keys) { CacheService.getScriptCache().removeAll(keys); },
 
     readRow: function (rowNumber) {
       return toRows(sheet.getRange(rowNumber, 1, 1, rowWidth()), rowNumber)[0];
@@ -271,6 +314,12 @@ function sheetAdapter_() {
       try { return fn(); } finally { lock.releaseLock(); }
     }
   };
+}
+
+function colLetter_(idx) {
+  var s = '', n = idx + 1;
+  while (n > 0) { var m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); }
+  return s;
 }
 
 function createUsersSheet_(ss) {
@@ -340,7 +389,7 @@ function verifyIdToken_(idToken) {
 function setupApp() {
   backupNow();
   var ss = SpreadsheetApp.openById(prop_('SHEET_ID'));
-  var sheet = ss.getSheetByName(SHEET_NAME);
+  var sheet = getDataSheet_(ss);
   var lastCol = sheet.getLastColumn();
   var headers = sheet.getRange(SOCore.HEADER_ROW, 1, 1, lastCol).getValues()[0];
   var idCol = -1;

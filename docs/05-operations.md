@@ -49,3 +49,10 @@ Admins have a **Manage users** button on the dashboard. Each user is a row in th
 - An admin who exists only in the table cannot demote, disable or delete themselves (another admin must).
 - Edits typed straight into the `APP_USERS` tab take up to 5 minutes to apply (the list is cached). Changes made through the screen apply immediately. All changes are logged in `APP_AUDIT`.
 - **No passwords are stored anywhere in this app.** Connecting the HR app (sign in with the HR password, employee list from HR) needs a small addition to the HR app itself and is not built yet; see docs/STATUS.md.
+
+## Speed notes (what makes the app fast or slow)
+- **Order sheet is found by its tab id** (`SHEET_GID`, default 519433600, overridable with a Script Property of the same name), not by its name, so renaming the tab (it is now called "SHOP ORDERs") cannot break the app. If the tab is ever deleted and recreated, set the `SHEET_GID` property to the new tab's id (the `gid=` number in the sheet URL).
+- Bulk reads (dashboard, find, open, record lookup) go through the Sheets API ("Sheets" advanced service, enabled in `appsscript.json`): measured about 0.25 s versus 2.7 s with `SpreadsheetApp` for the dashboard columns. If the API call fails the code falls back to `SpreadsheetApp`.
+- Writes are batched: neighbouring cells are written in one call and all audit lines in one write.
+- The admin dashboard is cached for 60 s (compressed in CacheService). Any save, new SO or upload clears it; the Refresh button bypasses it. Signing in as admin returns the dashboard in the same request (`start` action).
+- Remaining floor: roughly 2.5-3 s per request is Apps Script's own overhead, which cannot be removed without moving the API off Apps Script.

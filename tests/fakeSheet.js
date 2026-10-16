@@ -55,6 +55,9 @@ class FakeSheet {
   readAll() { return { idIndex: this.idIndex, rows: this.rows.map(r => JSON.parse(JSON.stringify(r))) }; }
   readUsers() { return (this.users || []).map((u) => Object.assign({}, u)); }
   writeUsers(list) { this.users = list.map((u) => Object.assign({}, u)); }
+  cacheGet(k) { this.cache = this.cache || {}; this.cacheGets = (this.cacheGets || 0) + 1; return this.cache[k] ? JSON.parse(this.cache[k]) : null; }
+  cachePut(k, o) { this.cache = this.cache || {}; this.cache[k] = JSON.stringify(o); }
+  cacheClear(keys) { this.cache = this.cache || {}; keys.forEach((k) => { delete this.cache[k]; }); }
   getIdIndex() { return this.idIndex; }
   readColumns(indexes, display) {
     return this.rows.map((r) => {

@@ -140,3 +140,34 @@ test('scans: editors upload, everyone authorised can list/download, files must b
   assert.equal(call(s, 'tok-editor', { action: 'uploadScan', id: 'nope', fileName: 'a.pdf', mime: 'application/pdf', data: PDF_B64 }).code, 'NOT_FOUND');
   assert.equal(call(s, 'tok-editor', { action: 'uploadScan', id: 'id-1', fileName: 'a.html', mime: 'text/html', data: PDF_B64 }).code, 'INVALID');
 });
+
+test('start: one call returns who-am-I and, for admins only, the dashboard', () => {
+  const s = new FakeSheet();
+  const a = call(s, 'tok-admin', { action: 'start' });
+  assert.equal(a.role, 'admin');
+  assert.ok(a.fields.length > 50 && a.intake);
+  assert.ok(Array.isArray(a.dashboard.rows));
+  const e = call(s, 'tok-editor', { action: 'start' });
+  assert.equal(e.role, 'editor');
+  assert.equal(e.dashboard, undefined, 'editors never receive dashboard data');
+  assert.equal(call(s, 'tok-stranger', { action: 'start' }).code, 'FORBIDDEN');
+});
+
+test('dashboard is cached, fresh=true bypasses the cache, and any write clears it', () => {
+  const s = new FakeSheet();
+  const d1 = call(s, 'tok-admin', { action: 'dashboard' });
+  assert.equal(d1.cached, undefined);
+  const d2 = call(s, 'tok-admin', { action: 'dashboard' });
+  assert.equal(d2.cached, true, 'second call is served from the cache');
+  assert.equal(call(s, 'tok-admin', { action: 'dashboard', fresh: true }).cached, undefined);
+  // a save clears it
+  const rec = call(s, 'tok-editor', { action: 'get', id: 'id-1' }).record;
+  call(s, 'tok-editor', { action: 'update', id: 'id-1', baseVersion: rec.version, changes: { notes: 'x' } });
+  assert.equal(call(s, 'tok-admin', { action: 'dashboard' }).cached, undefined, 'cache was cleared by the save');
+  // creating an SO clears it too
+  call(s, 'tok-admin', { action: 'dashboard' });
+  call(s, 'tok-editor', { action: 'createSO', changes: goodForm() });
+  assert.equal(call(s, 'tok-admin', { action: 'dashboard' }).cached, undefined);
+  // the cache never lets a non-admin in
+  assert.equal(call(s, 'tok-editor', { action: 'dashboard' }).code, 'FORBIDDEN');
+});

@@ -63,6 +63,13 @@ var SOService = (function () {
         case 'whoami':
           return { ok: true, email: auth.email, role: role, fields: Core.publicFields(), intake: Core.intakeInfo() };
 
+        case 'start': {
+          // One round trip at sign-in: who am I + (for admins) the dashboard.
+          var base = { ok: true, email: auth.email, role: role, fields: Core.publicFields(), intake: Core.intakeInfo() };
+          if (role === 'admin') base.dashboard = dashboard(adapter, auth.email, {});
+          return base;
+        }
+
         case 'list': {
           // The full table is admin-only; everyone else works one SO at a time.
           if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can see the full list.');
@@ -166,6 +173,7 @@ var SOService = (function () {
       adapter.writeCells(found.row.rowNumber, plan.writes.map(function (w) {
         return { index: w.field.index, value: w.value, type: w.field.type };
       }));
+      clearDashCache(adapter);
       var after = adapter.readRow(found.row.rowNumber);
       var updated = withCheck(Core.buildRecord(after, found.idIndex), readStockInfo(adapter));
       var stamp = adapter.now();
@@ -246,7 +254,22 @@ var SOService = (function () {
 
   function blank(v) { return String(v === undefined || v === null ? '' : v).trim() === ''; }
 
+  var DASH_TTL = 60; // seconds
+  function dashKey(req) { return req.includeClosed ? 'dash1' : 'dash0'; }
+  function clearDashCache(adapter) { if (adapter.cacheClear) adapter.cacheClear(['dash0', 'dash1']); }
+
   function dashboard(adapter, email, req) {
+    var key = dashKey(req);
+    if (!req.fresh && adapter.cacheGet) {
+      var hit = adapter.cacheGet(key);
+      if (hit) { hit.cached = true; hit.email = email; return hit; }
+    }
+    var out = buildDashboard(adapter, email, req);
+    if (adapter.cachePut) adapter.cachePut(key, out, DASH_TTL);
+    return out;
+  }
+
+  function buildDashboard(adapter, email, req) {
     var K = Core.BY_KEY;
     var idIndex = adapter.getIdIndex();
     var stock = readStockInfo(adapter);
@@ -316,6 +339,7 @@ var SOService = (function () {
       var cells = plan.writes.map(function (w) { return { index: w.field.index, value: w.value, type: w.field.type }; });
       cells.push({ index: idIndex, value: id, type: 'text' });
       adapter.writeCells(free.rowNumber, cells);
+      clearDashCache(adapter);
       adapter.audit({
         at: adapter.now(), user: email, recordId: id, row: free.rowNumber, field: 'SO OPENED',
         oldValue: '', newValue: 'SO# ' + plan.writes.filter(function (w) { return w.key === 'so_no'; })[0].value
@@ -358,6 +382,7 @@ var SOService = (function () {
     return adapter.withLock(function () {
       var meta = { uploadedAt: adapter.now(), uploadedBy: email, fileName: fileName };
       adapter.writeStock(v.rows, meta);
+      clearDashCache(adapter);
       adapter.audit({
         at: meta.uploadedAt, user: email, recordId: '', row: '', field: 'STOCKROOM UPLOAD',
         oldValue: '', newValue: v.rows.length + ' rows' + (fileName ? ' from ' + fileName : '') + (v.skipped ? ' (' + v.skipped + ' skipped)' : '')
@@ -373,6 +398,7 @@ var SOService = (function () {
     return adapter.withLock(function () {
       var meta = { at: adapter.now(), by: email, fileName: fileName };
       var replaced = adapter.writeSteelUsage(v.rows, meta);
+      clearDashCache(adapter);
       if (adapter.saveSteelMeta) adapter.saveSteelMeta({ at: meta.at, by: meta.by, fileName: meta.fileName, count: v.rows.length });
       adapter.audit({
         at: meta.at, user: email, recordId: '', row: '', field: 'STEEL USAGE REPLACED',

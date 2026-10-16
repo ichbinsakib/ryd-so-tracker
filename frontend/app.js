@@ -166,7 +166,7 @@
   // ---------- start / home
   async function start() {
     show('view-loading');
-    const r = await api('whoami');
+    const r = await api('start');
     if (!r.ok) {
       if (r.code === 'UNAUTHENTICATED') return showLogin(r.error);
       if (r.code === 'FORBIDDEN') { signOut(); return showLogin(r.error); }
@@ -176,7 +176,11 @@
     state.byKey = Object.fromEntries(r.fields.map((f) => [f.key, f]));
     $('avatar').textContent = initials(r.email); $('user-name').textContent = niceName(r.email); $('user-role').textContent = r.role;
     $('userchip').hidden = false; $('btn-signout').hidden = false;
-    goHome();
+    if (r.dashboard) {
+      // admins get the dashboard in the same round trip
+      state.dirty = false; state.current = null; updateSaveBar();
+      show('view-admin'); $('btn-refresh').hidden = false; applyDashboard(r.dashboard);
+    } else goHome();
   }
   function goHome() {
     state.dirty = false; state.current = null; updateSaveBar();
@@ -209,17 +213,20 @@
   }
 
   // ---------- admin dashboard
-  async function loadDashboard() {
+  async function loadDashboard(fresh) {
     show('view-admin'); $('btn-refresh').hidden = false;
     $('grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: 'Loading from the sheet…' })));
     const ls = $('list-status'); ls.className = 'statusline'; ls.textContent = '';
     $('btn-refresh').disabled = true;
-    const r = await api('dashboard', { includeClosed: $('incl-closed').checked });
+    const r = await api('dashboard', { includeClosed: $('incl-closed').checked, fresh: !!fresh });
     $('btn-refresh').disabled = false;
     if (!r.ok) {
       if (r.code === 'UNAUTHENTICATED') return showLogin(r.error);
       ls.className = 'statusline err'; ls.textContent = r.error + ' (data unavailable)'; return;
     }
+    applyDashboard(r);
+  }
+  function applyDashboard(r) {
     state.dash = r;
     $('refreshed').textContent = 'Updated ' + new Date(r.refreshedAt).toLocaleTimeString();
     renderKpis(r.rows); renderCards(r); buildChips(); applyView();
@@ -842,7 +849,7 @@
   $('pg-next').onclick = () => { state.page++; renderTable(); };
   $('pg-size').onchange = (e) => { state.pageSize = +e.target.value; state.page = 0; renderTable(); };
   $('btn-refresh').onclick = async () => {
-    if (!$('view-admin').hidden) return loadDashboard();
+    if (!$('view-admin').hidden) return loadDashboard(true);
     if (!$('view-detail').hidden && state.current) {
       if (!(await leaveGuard())) return;
       const r = await api('get', { id: state.current.id });
