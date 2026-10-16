@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RYD-SO Tracker</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <h1>RYD-SO <span class="sub">Sales order &amp; material tracker</span></h1>
+  <div class="topbar-right">
+    <span id="refreshed" class="muted"></span>
+    <button id="btn-refresh" class="btn" title="Reload records from the sheet">Refresh</button>
+    <span id="user" class="muted"></span>
+    <button id="btn-signout" class="btn btn-ghost" hidden>Sign out</button>
+  </div>
+</header>
+
+<main id="view-login" class="center" hidden>
+  <div class="card login">
+    <h2>Sign in</h2>
+    <p>Use your authorised Google account.</p>
+    <div id="g-signin"></div>
+    <p id="login-msg" class="error" role="alert"></p>
+  </div>
+</main>
+
+<main id="view-list" hidden>
+  <section class="toolbar">
+    <input id="q" type="search" placeholder="Search SO#, part #, PO #, invoice #, customer, notes…" aria-label="Search">
+    <select id="f-status" aria-label="Status"><option value="">All statuses</option></select>
+    <select id="f-customer" aria-label="Customer"><option value="">All customers</option></select>
+    <select id="f-champion" aria-label="Champion"><option value="">All champions</option></select>
+    <select id="f-sotype" aria-label="SO type"><option value="">All SO types</option></select>
+    <select id="f-kanban" aria-label="Kanban or PO"><option value="">Kanban/PO</option></select>
+    <button id="btn-clear" class="btn btn-ghost">Clear filters</button>
+    <details class="colpicker"><summary class="btn">Columns</summary><div id="colpicker-list" class="card"></div></details>
+  </section>
+  <div id="list-status" class="statusline" aria-live="polite"></div>
+  <div class="tablewrap"><table id="grid"><thead></thead><tbody></tbody></table></div>
+  <nav class="pager">
+    <button id="pg-prev" class="btn">‹ Prev</button>
+    <span id="pg-info"></span>
+    <button id="pg-next" class="btn">Next ›</button>
+    <label>Rows <select id="pg-size"><option>25</option><option selected>50</option><option>100</option><option>200</option></select></label>
+  </nav>
+</main>
+
+<main id="view-detail" hidden>
+  <div class="detail-head">
+    <button id="btn-back" class="btn">← Back to records</button>
+    <h2 id="detail-title"></h2>
+    <span id="dirty-flag" class="badge badge-warn" hidden>Unsaved changes</span>
+    <span class="spacer"></span>
+    <button id="btn-discard" class="btn" disabled>Discard changes</button>
+    <button id="btn-save" class="btn btn-primary" disabled>Save changes</button>
+  </div>
+  <div id="detail-banner" role="alert"></div>
+  <form id="detail-form" autocomplete="off"></form>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<dialog id="dlg">
+  <form method="dialog">
+    <h3 id="dlg-title"></h3>
+    <div id="dlg-body"></div>
+    <menu>
+      <button value="cancel" class="btn" id="dlg-cancel">Cancel</button>
+      <button value="ok" class="btn btn-primary" id="dlg-ok">OK</button>
+    </menu>
+  </form>
+</dialog>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

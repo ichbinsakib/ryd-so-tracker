@@ -1,0 +1,67 @@
+:root {
+  --bg: #f4f5f7; --panel: #fff; --ink: #1d2733; --muted: #66727f; --line: #d9dee4;
+  --accent: #14538a; --accent-ink: #fff; --warn: #b26a00; --warn-bg: #fff4de;
+  --err: #a61b1b; --err-bg: #fde8e8; --ok: #146c3a; --ok-bg: #e3f5ea; --calc: #eef1f4;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#12171d; --panel:#1b222a; --ink:#e6ebf0; --muted:#96a3b0; --line:#2f3a45; --accent:#5aa9e6; --accent-ink:#0b1620;
+    --warn:#f0b35a; --warn-bg:#3a2d12; --err:#ff8c8c; --err-bg:#3d1c1c; --ok:#6fd49a; --ok-bg:#16301f; --calc:#232c36; }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; font: 14px/1.4 "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--ink); }
+.topbar { display:flex; align-items:center; justify-content:space-between; padding:8px 16px; background:var(--panel); border-bottom:1px solid var(--line); position:sticky; top:0; z-index:5; }
+.topbar h1 { font-size:18px; margin:0; } .sub { font-weight:400; font-size:12px; color:var(--muted); margin-left:8px; }
+.topbar-right { display:flex; gap:10px; align-items:center; }
+.muted { color: var(--muted); font-size:12px; }
+.btn { font: inherit; padding:5px 12px; border:1px solid var(--line); background:var(--panel); color:var(--ink); border-radius:4px; cursor:pointer; }
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { opacity:.5; cursor:not-allowed; }
+.btn-primary { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); }
+.btn-ghost { background:transparent; }
+.btn-danger { background:var(--err); color:#fff; border-color:var(--err); }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:6px; padding:16px; }
+.center { display:flex; justify-content:center; padding-top:15vh; }
+.login { width:340px; text-align:center; }
+.error { color:var(--err); min-height:1.4em; }
+.toolbar { display:flex; flex-wrap:wrap; gap:8px; padding:10px 16px; align-items:center; }
+.toolbar input[type=search] { flex:1 1 320px; min-width:240px; }
+input, select, textarea { font:inherit; padding:5px 8px; border:1px solid var(--line); border-radius:4px; background:var(--panel); color:var(--ink); }
+.statusline { padding:0 16px 6px; color:var(--muted); min-height:20px; }
+.statusline.err { color:var(--err); }
+.tablewrap { margin:0 16px; overflow:auto; max-height:calc(100vh - 220px); border:1px solid var(--line); border-radius:6px; background:var(--panel); }
+table { border-collapse:collapse; width:100%; }
+th, td { padding:5px 10px; border-bottom:1px solid var(--line); text-align:left; white-space:nowrap; max-width:320px; overflow:hidden; text-overflow:ellipsis; }
+th { position:sticky; top:0; background:var(--panel); cursor:pointer; user-select:none; font-size:12px; text-transform:uppercase; letter-spacing:.02em; z-index:1; border-bottom:2px solid var(--line); }
+th.sorted::after { content:" ▲"; font-size:10px; } th.sorted.desc::after { content:" ▼"; }
+tbody tr { cursor:pointer; } tbody tr:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.pill { display:inline-block; padding:1px 8px; border-radius:10px; font-size:12px; background:var(--calc); }
+.pill.s-open { background:var(--ok-bg); color:var(--ok); } .pill.s-hold { background:var(--warn-bg); color:var(--warn); }
+.pill.s-close { background:var(--calc); color:var(--muted); }
+.pager { display:flex; gap:12px; align-items:center; justify-content:center; padding:10px; }
+.colpicker { position:relative; } .colpicker summary { list-style:none; }
+#colpicker-list { position:absolute; right:0; z-index:10; max-height:60vh; overflow:auto; width:320px; display:grid; gap:3px; }
+.detail-head { display:flex; align-items:center; gap:12px; padding:10px 16px; position:sticky; top:41px; background:var(--bg); z-index:4; border-bottom:1px solid var(--line); }
+.detail-head h2 { font-size:16px; margin:0; } .spacer { flex:1; }
+.badge { padding:2px 10px; border-radius:10px; font-size:12px; } .badge-warn { background:var(--warn-bg); color:var(--warn); }
+#detail-banner:not(:empty) { margin:10px 16px 0; padding:10px 14px; border-radius:6px; }
+#detail-banner.err { background:var(--err-bg); color:var(--err); } #detail-banner.warn { background:var(--warn-bg); color:var(--warn); } #detail-banner.ok { background:var(--ok-bg); color:var(--ok); }
+#detail-form { padding:10px 16px 60px; display:grid; gap:14px; }
+fieldset { border:1px solid var(--line); border-radius:6px; background:var(--panel); padding:10px 14px 14px; margin:0; }
+legend { font-weight:600; padding:0 6px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px,1fr)); gap:10px 16px; }
+.field label { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.02em; color:var(--muted); margin-bottom:2px; }
+.field .col { opacity:.6; margin-left:4px; }
+.field input, .field select, .field textarea { width:100%; }
+.field.wide { grid-column:1 / -1; } .field textarea { min-height:70px; resize:vertical; }
+.field.ro input, .field.ro textarea, .field.ro select { background:var(--calc); color:var(--muted); cursor:not-allowed; }
+.field.changed input, .field.changed select, .field.changed textarea { border-color:var(--warn); box-shadow:0 0 0 1px var(--warn); }
+.field.invalid input, .field.invalid select, .field.invalid textarea { border-color:var(--err); }
+.field .hint { font-size:11px; color:var(--muted); } .field .ferr { font-size:12px; color:var(--err); }
+.tag { font-size:10px; border:1px solid var(--line); border-radius:3px; padding:0 4px; margin-left:4px; color:var(--muted); }
+.toast { position:fixed; bottom:20px; right:20px; padding:10px 16px; border-radius:6px; background:var(--ok-bg); color:var(--ok); border:1px solid var(--ok); z-index:50; max-width:420px; }
+.toast.err { background:var(--err-bg); color:var(--err); border-color:var(--err); }
+dialog { border:1px solid var(--line); border-radius:8px; background:var(--panel); color:var(--ink); max-width:560px; }
+dialog::backdrop { background:rgba(0,0,0,.4); } dialog menu { display:flex; justify-content:flex-end; gap:8px; padding:0; margin:16px 0 0; }
+dialog table th { position:static; cursor:default; } dialog td { white-space:normal; }
+@media (max-width: 800px) { .topbar-right .muted { display:none; } }

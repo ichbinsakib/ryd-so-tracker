@@ -1,0 +1,12 @@
+node_modules/
+.clasp.json
+.clasprc.json
+.env
+.env.*
+!.env.example
+*.log
+# Never commit exports of the real sheet
+*.xlsx
+*.csv
+data/
+frontend/config.js.prod

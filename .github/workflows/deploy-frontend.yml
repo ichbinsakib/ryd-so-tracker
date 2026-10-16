@@ -1,0 +1,40 @@
+name: Deploy frontend to GitHub Pages
+on:
+  push:
+    branches: [main]
+    paths: ['frontend/**', '.github/workflows/deploy-frontend.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      # API_URL and GOOGLE_CLIENT_ID are repository *variables* (Settings > Secrets and variables > Actions > Variables).
+      # They are public values by design; no secret is needed or used here.
+      - name: Write production config
+        env:
+          API_URL: ${{ vars.API_URL }}
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
+        run: |
+          test -n "$API_URL" && test -n "$GOOGLE_CLIENT_ID" || { echo "Set repository variables API_URL and GOOGLE_CLIENT_ID"; exit 1; }
+          node -e "require('fs').writeFileSync('frontend/config.js','window.APP_CONFIG='+JSON.stringify({API_URL:process.env.API_URL,GOOGLE_CLIENT_ID:process.env.GOOGLE_CLIENT_ID,DEV_MODE:false})+';')"
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend
+      - id: deployment
+        uses: actions/deploy-pages@v4
