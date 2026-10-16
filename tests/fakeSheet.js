@@ -69,6 +69,7 @@ class FakeSheet {
     for (const c of cells) { row.values[c.index] = c.value; row.display[c.index] = String(c.value); }
   }
   audit(e) { this.auditLog.push(e); }
+  auditAll(list) { this.auditAllCalls = (this.auditAllCalls || 0) + 1; list.forEach((e) => this.auditLog.push(e)); }
   withLock(fn) {
     if (this.locked) throw { code: 'BUSY' };
     this.locked = true;

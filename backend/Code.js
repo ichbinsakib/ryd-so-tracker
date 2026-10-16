@@ -237,23 +237,26 @@ function sheetAdapter_() {
       return toRows(sheet.getRange(rowNumber, 1, 1, rowWidth()), rowNumber)[0];
     },
 
+    // Adjacent columns are written with ONE call; scattered columns need one call per run.
     writeCells: function (rowNumber, cells) {
-      cells.forEach(function (c) {
-        var cell = sheet.getRange(rowNumber, c.index + 1);
-        var v = c.value;
-        if (v === '') {
-          cell.clearContent();
-        } else if (c.type === 'date') {
-          cell.setValue(Utilities.parseDate(v, tz, 'yyyy-MM-dd'));
-        } else if (typeof v === 'number') {
-          cell.setValue(v);
-        } else if (/^0\d+$/.test(v)) {
-          cell.setValue("'" + v); // keep leading zeros as text
-        } else {
-          cell.setValue(v);
-        }
-      });
+      var sorted = cells.slice().sort(function (x, y) { return x.index - y.index; });
+      var i = 0;
+      while (i < sorted.length) {
+        var j = i;
+        while (j + 1 < sorted.length && sorted[j + 1].index === sorted[j].index + 1) j++;
+        var vals = [];
+        for (var k = i; k <= j; k++) vals.push(cellValue_(sorted[k], tz));
+        sheet.getRange(rowNumber, sorted[i].index + 1, 1, j - i + 1).setValues([vals]);
+        i = j + 1;
+      }
       SpreadsheetApp.flush();
+    },
+
+    auditAll: function (entries) {
+      var audit = ss.getSheetByName(AUDIT_SHEET_NAME);
+      if (!audit) { console.warn('AUDIT ' + JSON.stringify(entries)); return; }
+      var rows = entries.map(function (e) { return [e.at, e.user, e.recordId, e.row, e.field, e.oldValue, e.newValue]; });
+      audit.getRange(audit.getLastRow() + 1, 1, rows.length, 7).setValues(rows);
     },
 
     audit: function (entry) {
@@ -296,6 +299,15 @@ function scanFolder_() {
   return folder;
 }
 
+
+function cellValue_(c, tz) {
+  var v = c.value;
+  if (v === '') return '';
+  if (c.type === 'date') return Utilities.parseDate(v, tz, 'yyyy-MM-dd');
+  if (typeof v === 'number') return v;
+  if (/^0\d+$/.test(v)) return "'" + v; // keep leading zeros as text
+  return v;
+}
 
 function verifyIdToken_(idToken) {
   if (!idToken || typeof idToken !== 'string' || idToken.length > 4000) return { ok: false, error: 'Please sign in.' };

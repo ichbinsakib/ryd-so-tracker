@@ -168,12 +168,10 @@ var SOService = (function () {
       }));
       var after = adapter.readRow(found.row.rowNumber);
       var updated = withCheck(Core.buildRecord(after, found.idIndex), readStockInfo(adapter));
-      plan.writes.forEach(function (w) {
-        adapter.audit({
-          at: adapter.now(), user: email, recordId: req.id, row: found.row.rowNumber,
-          field: w.field.label + ' (' + w.field.col + ')', oldValue: String(w.old), newValue: String(w.value)
-        });
-      });
+      var stamp = adapter.now();
+      auditMany(adapter, plan.writes.map(function (w) {
+        return { at: stamp, user: email, recordId: req.id, row: found.row.rowNumber, field: w.field.label + ' (' + w.field.col + ')', oldValue: String(w.old), newValue: String(w.value) };
+      }));
       return { ok: true, record: updated, changed: plan.writes.map(function (w) { return w.key; }), refreshedAt: adapter.now() };
     });
   }
@@ -234,6 +232,12 @@ var SOService = (function () {
       adapter.audit({ at: adapter.now(), user: actor, recordId: '', row: '', field: 'USER DELETED', oldValue: email, newValue: '' });
       return { ok: true, users: rest, bootstrap: bootstrapList(cfg) };
     });
+  }
+
+  // One sheet write for all audit lines (each separate append costs a round trip to Google).
+  function auditMany(adapter, entries) {
+    if (!entries.length) return;
+    if (adapter.auditAll) adapter.auditAll(entries); else entries.forEach(function (e) { adapter.audit(e); });
   }
 
   function readSteelMeta(adapter) { return adapter.readSteelMeta ? adapter.readSteelMeta() : null; }

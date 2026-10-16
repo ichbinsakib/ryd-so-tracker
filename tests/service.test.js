@@ -37,6 +37,7 @@ test('editing saves, bumps version, and writes an audit entry', () => {
   assert.equal(r.record.values.status, '3.OPEN');
   assert.notEqual(r.record.version, rec.version);
   assert.equal(s.auditLog.length, 3);
+  assert.equal(s.auditAllCalls, 1, 'all audit lines are written in a single batch');
   assert.equal(s.auditLog[0].user, 'editor@example.com');
   assert.equal(s.rows[0].values[0], 'new note', 'persisted to the sheet');
 });
