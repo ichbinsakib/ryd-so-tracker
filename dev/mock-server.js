@@ -18,7 +18,7 @@ for (let i = 0; i < 180; i++) {
     due_date: '2026-' + String(1 + (i % 12)).padStart(2, '0') + '-' + String(1 + (i % 28)).padStart(2, '0'),
     so_no: i % 25 === 0 ? '' : 25000 + i, so_type: ['STANDARD', 'REPAIR', 'ROUGH'][i % 3], kanban_or_po: i % 2 ? 'PO' : 'KANBAN',
     notes: i % 5 === 0 ? 'Stock-' + i + ' weeks' : '', req_mat_quote: i % 2 ? 'YES' : 'NO', po_receive_date: i % 13 === 0 ? 'req.form' : '2026-09-' + String(1 + (i % 28)).padStart(2, '0'),
-    so_release_status_bar: (i % 100) + '%', mat_status_bar: '18%', steel_type: '.625 OD x .120 WA A513 TP5 RD TUBING', total_price_quote: i % 7 === 0 ? 398 : ''
+    so_release_status_bar: ((i * 7) % 101) + '%', mat_status_bar: [0, 18, 45, 73, 100][i % 5] + '%', steel_type: '.625 OD x .120 WA A513 TP5 RD TUBING', total_price_quote: i % 7 === 0 ? 398 : ''
   }, i % 7 === 0 ? { total_price_quote: '=275*7.53' } : {}));
 }
 const sheet = new FakeSheet(rows);

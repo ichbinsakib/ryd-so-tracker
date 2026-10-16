@@ -117,3 +117,13 @@ test('unknown record and malformed requests', () => {
   assert.equal(call(s, 'tok-editor', { action: 'drop' }).code, 'BAD_REQUEST');
   assert.equal(Service.handle(s, null).code, 'BAD_REQUEST');
 });
+
+test('clearing STATUS through the API is rejected and nothing is written', () => {
+  const s = new FakeSheet();
+  const rec = call(s, 'tok-editor', { action: 'get', id: 'id-1' }).record;
+  const r = call(s, 'tok-editor', { action: 'update', id: 'id-1', baseVersion: rec.version, changes: { status: '', notes: 'x' } });
+  assert.equal(r.code, 'INVALID');
+  assert.ok(r.fieldErrors.status);
+  assert.equal(s.rows[0].values[1], '1. ANALYSIS');
+  assert.equal(s.auditLog.length, 0);
+});

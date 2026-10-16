@@ -8,7 +8,8 @@
     refreshedAt: null, view: [], sortKey: 'so_no', sortDir: 'desc', page: 0, pageSize: 50,
     visibleCols: null, current: null, dirty: false, saving: false
   };
-  const DEFAULT_COLS = ['status', 'so_no', 'part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_mat_quote', 'quote_received', 'so_close_date'];
+  const BAR_KEYS = ['so_release_status_bar', 'mat_status_bar'];
+  const DEFAULT_COLS = ['status', 'so_release_status_bar', 'mat_status_bar', 'so_no', 'part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_mat_quote', 'quote_received', 'so_close_date'];
   const SECTIONS = [
     ['Order', 'notes', 'so_no'],
     ['Material requirement', 'steel_type', 'email_template'],
@@ -43,6 +44,15 @@
       d.addEventListener('close', () => resolve(d.returnValue === 'ok'), { once: true });
       d.showModal();
     });
+  }
+  // Progress bar: 100% = solid green; below that the colour progresses red -> orange -> yellow -> green.
+  function pctOf(text) { const n = parseFloat(String(text).replace('%', '')); return isNaN(n) || !/%/.test(String(text)) ? null : Math.max(0, Math.min(100, n)); }
+  function barNode(text) {
+    const p = pctOf(text);
+    if (p === null) return el('span', { text: norm(text) });
+    const color = p >= 100 ? 'hsl(135 65% 38%)' : 'hsl(' + Math.round(p * 1.1) + ' 80% 45%)';
+    return el('div', { class: 'bar' + (p >= 100 ? ' bar-done' : ''), title: text, role: 'progressbar', 'aria-valuenow': String(p), 'aria-valuemin': '0', 'aria-valuemax': '100' },
+      el('i', { style: 'width:' + p + '%;background:' + color }), el('span', { text: p % 1 ? p.toFixed(1) + '%' : p + '%' }));
   }
   const isIso = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
   const norm = (v) => (v === null || v === undefined ? '' : String(v));
@@ -148,6 +158,7 @@
   }
   function sortVal(r, f) {
     const v = r.values[f.key];
+    if (BAR_KEYS.includes(f.key)) return pctOf(r.display[f.key]);
     if (f.type === 'date') return isIso(norm(v)) ? norm(v) : '';
     if (f.type === 'number' || f.type === 'currency') { const n = parseFloat(String(r.display[f.key]).replace(/[$,]/g, '')); return isNaN(n) ? null : n; }
     return norm(v).toLowerCase();
@@ -176,6 +187,7 @@
     else body.replaceChildren(...slice.map((r) => el('tr', { tabindex: 0, onclick: () => openRecord(r.id || ('row-' + r.row)), onkeydown: (e) => { if (e.key === 'Enter') openRecord(r.id || ('row-' + r.row)); } },
       cols.map((f) => {
         const text = norm(r.display[f.key]);
+        if (BAR_KEYS.includes(f.key)) return el('td', {}, barNode(text));
         if (f.key === 'status') return el('td', {}, text ? el('span', { class: 'pill ' + (/OPEN/.test(text) ? 's-open' : /HOLD/.test(text) ? 's-hold' : /CLOSE/.test(text) ? 's-close' : ''), text }) : '');
         return el('td', { title: text, text });
       }))));
@@ -226,9 +238,10 @@
     if (!editable) input.disabled = true;
     if (f.type === 'longtext' || f.key === 'email_template') { /* wide below */ }
     const wrap = el('div', { class: 'field' + (editable ? '' : ' ro') + (f.type === 'longtext' ? ' wide' : '') },
-      el('label', { for: id }, f.label, el('span', { class: 'col', text: '(' + f.col + ')' }),
+      el('label', { for: id }, f.label, f.required ? el('span', { class: 'req', title: 'Required', text: ' *' }) : '', el('span', { class: 'col', text: '(' + f.col + ')' }),
         !f.editable ? el('span', { class: 'tag', text: 'calculated' }) : locked ? el('span', { class: 'tag', text: 'formula' }) : ''),
       input);
+    if (BAR_KEYS.includes(f.key)) { input.hidden = true; wrap.append(barNode(norm(rec.display[f.key]))); }
     if (input.dataset.legacy) wrap.append(el('div', { class: 'hint', text: 'Existing value "' + input.dataset.legacy + '" is kept unless you pick a date.' }));
     if (f.note) wrap.append(el('div', { class: 'hint', text: f.note }));
     if (editable) input.addEventListener('input', onEdit);

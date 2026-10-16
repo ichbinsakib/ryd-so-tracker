@@ -15,7 +15,7 @@ var SOCore = (function () {
   // type: text | longtext | id | number | currency | date | enum
   var RAW = [
     ['A', 'notes', 'NOTES', 'longtext'],
-    ['B', 'status', 'STATUS', 'enum', { options: ['1.ANR', '2.RFS', '5.HOLD', '3.OPEN', '4.CLOSE', '1. ANALYSIS'] }],
+    ['B', 'status', 'STATUS', 'enum', { options: ['1.ANR', '2.RFS', '5.HOLD', '3.OPEN', '4.CLOSE', '1. ANALYSIS'], required: true }],
     ['C', 'so_release_status_bar', 'SO RELEASE STATUS BAR', 'text', { calc: true }],
     ['D', 'mat_status_bar', 'MAT. STATUS BAR?', 'text', { calc: true }],
     ['E', 'champion', 'CHAMPION', 'text'],
@@ -103,7 +103,7 @@ var SOCore = (function () {
     var extra = r[4] || {};
     return {
       col: r[0], index: colToIndex(r[0]), key: r[1], label: r[2], type: r[3],
-      calc: !!extra.calc, options: extra.options || null, note: extra.note || ''
+      calc: !!extra.calc, options: extra.options || null, note: extra.note || '', required: !!extra.required
     };
   });
   var BY_KEY = {};
@@ -112,7 +112,7 @@ var SOCore = (function () {
   /** Public field description for the UI. */
   function publicFields() {
     return FIELDS.map(function (f) {
-      return { key: f.key, col: f.col, label: f.label, type: f.type, editable: !f.calc, options: f.options, note: f.note };
+      return { key: f.key, col: f.col, label: f.label, type: f.type, editable: !f.calc, options: f.options, note: f.note, required: f.required };
     });
   }
 
@@ -149,7 +149,10 @@ var SOCore = (function () {
     if (field.calc) return { ok: false, error: field.label + ' is calculated in the sheet and cannot be edited.' };
     var v = input === null || input === undefined ? '' : input;
     if (typeof v === 'string') v = v.trim();
-    if (v === '') return { ok: true, value: '' };
+    if (v === '') {
+      if (field.required) return { ok: false, error: field.label + ' is required and cannot be blank.' };
+      return { ok: true, value: '' };
+    }
 
     switch (field.type) {
       case 'enum':

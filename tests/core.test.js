@@ -82,3 +82,11 @@ test('record version changes when any editable value changes, not when calc valu
   assert.equal(a.version, b.version);
   assert.notEqual(a.version, c.version);
 });
+
+test('STATUS is required: cannot be cleared, but other fields can', () => {
+  const r = Core.validateValue(Core.BY_KEY.status, '  ');
+  assert.equal(r.ok, false);
+  assert.match(r.error, /required/);
+  assert.equal(Core.validateValue(Core.BY_KEY.notes, '').ok, true);
+  assert.equal(Core.publicFields().find(f => f.key === 'status').required, true);
+});
