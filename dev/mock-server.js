@@ -10,12 +10,13 @@ const { FakeSheet, makeRow } = require('../tests/fakeSheet.js');
 const statuses = ['1. ANALYSIS', '3.OPEN', '4.CLOSE', '5.HOLD'];
 const customers = ['ACME', 'GLOBEX', 'INITECH', 'UMBRELLA'];
 const champs = ['ALPHA', 'BRAVO', 'CHARLIE'];
+const iso = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 const rows = [];
 for (let i = 0; i < 180; i++) {
   rows.push(makeRow(3 + i, 'id-' + (i + 1), {
     status: statuses[i % 4], champion: champs[i % 3], customer: customers[i % 4],
     part_no: i % 17 === 0 ? '00' + (1000 + i) : '10' + (10000 + i * 7), so_qty: 50 + i * 3,
-    due_date: '2026-' + String(1 + (i % 12)).padStart(2, '0') + '-' + String(1 + (i % 28)).padStart(2, '0'),
+    due_date: iso((i * 5) % 45 - 15), mat_quote_request_date: i % 4 === 1 ? iso(-5) : '', quote_receive_date: i % 4 === 2 ? iso(-2) : '', quote_received: i % 4 === 2 ? 'yes' : '', mat_receive_date_stockroom: i % 6 === 0 ? iso(-1) : '',
     so_no: i % 25 === 0 ? '' : 25000 + i, so_type: ['STANDARD', 'REPAIR', 'ROUGH'][i % 3], kanban_or_po: i % 2 ? 'PO' : 'KANBAN',
     notes: i % 5 === 0 ? 'Stock-' + i + ' weeks' : '', req_mat_quote: i % 2 ? 'YES' : 'NO', po_receive_date: i % 13 === 0 ? 'req.form' : '2026-09-' + String(1 + (i % 28)).padStart(2, '0'),
     part_price: ' $ ' + ((i % 9) + 1.5).toFixed(2) + ' ', so_release_status_bar: ((i * 7) % 101) + '%', mat_status_bar: [0, 18, 45, 73, 100][i % 5] + '%', steel_type: i % 6 === 0 ? '-' : '.625 OD x .120 WA A513 TP5 RD TUBING', router_bar_size: i % 6 === 0 ? '-' : "12' BAR", qty_per_bar: i % 6 === 0 ? '-' : (i % 4 === 1 ? '0' : String(20 + i)), total_price_quote: i % 7 === 0 ? 398 : ''

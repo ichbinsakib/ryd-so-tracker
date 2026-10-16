@@ -5,18 +5,18 @@
   const $ = (id) => document.getElementById(id);
   const state = {
     token: null, email: '', role: null, fields: [], byKey: {}, intake: null,
-    dash: null, view: [], page: 0, pageSize: 50, current: null, dirty: false, saving: false, scans: []
+    dash: null, view: [], page: 0, pageSize: 50, chip: 'all', sort: 'progress',
+    current: null, dirty: false, saving: false, scans: [], tab: 0, users: [], bootstrap: []
   };
   const LOOKUP_KEYS = ['steel_type', 'router_bar_size', 'qty_per_bar'];
   const BAR_KEYS = ['so_release_status_bar', 'mat_status_bar'];
-  const SECTIONS = [
+  // Editable sections of an SO, grouped the way a buyer works through it.
+  const TABS = [
     ['Order', 'notes', 'so_no'],
-    ['Material requirement', 'steel_type', 'email_template'],
-    ['Material quote', 'qty_requested', 'update_mat_cost_date'],
-    ['SO request, approvals & PO', 'kanban_or_po', 'po_approve_date'],
+    ['Material & quote', 'steel_type', 'update_mat_cost_date'],
+    ['Approvals & PO', 'kanban_or_po', 'po_approve_date'],
     ['Release & prints', 'print_traveller', 'update_date'],
-    ['Receiving & invoice', 'po_no_2', 'note'],
-    ['Close', 'so_close_date', 'so_close_date']
+    ['Receiving, invoice & close', 'po_no_2', 'so_close_date']
   ];
   const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail'];
 
@@ -32,12 +32,25 @@
   }
   const norm = (v) => (v === null || v === undefined ? '' : String(v));
   const isIso = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
-  const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
   const fmtWhen = (iso) => { const d = new Date(iso); return isNaN(d) ? norm(iso) : d.toLocaleString(); };
   const daysAgo = (iso) => { const d = new Date(iso); return isNaN(d) ? null : Math.floor((Date.now() - d.getTime()) / 86400000); };
   const money = (n) => (n === null || n === undefined ? '—' : '$' + Number(n).toFixed(2));
+  const startOfToday = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; };
+  const today = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  // The sheet shows dates as MM/DD/YY; typed dates come back as ISO.
+  function parseDate(s) {
+    s = norm(s).trim(); let m;
+    if ((m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s))) return new Date(+m[1], +m[2] - 1, +m[3]);
+    if ((m = /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/.exec(s))) return new Date(m[3].length === 2 ? 2000 + +m[3] : +m[3], +m[1] - 1, +m[2]);
+    return null;
+  }
+  const daysUntil = (d) => (d ? Math.round((d.getTime() - startOfToday().getTime()) / 86400000) : null);
+  const shortDate = (d) => (d ? d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: '2-digit' }) : '');
+  function parseMoney(s) { const c = norm(s).replace(/[$,\s]/g, '').replace(/^\((.*)\)$/, '-$1'); return /^-?\d+(\.\d+)?$/.test(c) ? parseFloat(c) : null; }
+  const initials = (email) => email.split('@')[0].split(/[._-]+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('') || '?';
+  const niceName = (email) => email.split('@')[0].split(/[._-]+/).filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join(' ');
   function store(k, v) { try { if (v === undefined) return sessionStorage.getItem(k); v === null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch (e) { return null; } }
-  function show(id) { VIEWS.forEach((v) => { $(v).hidden = v !== id; }); }
+  function show(id) { VIEWS.forEach((v) => { $(v).hidden = v !== id; }); window.scrollTo(0, 0); }
   function toast(msg, isErr) {
     const t = $('toast'); t.textContent = msg; t.className = 'toast' + (isErr ? ' err' : ''); t.hidden = false;
     clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, isErr ? 8000 : 3500);
@@ -62,8 +75,21 @@
     return el('div', { class: 'bar' + (p >= 100 ? ' bar-done' : ''), title: p + '%', role: 'progressbar', 'aria-valuenow': String(p), 'aria-valuemin': '0', 'aria-valuemax': '100' },
       el('i', { style: 'width:' + p + '%;background:' + color }), el('span', { text: (p % 1 ? p.toFixed(1) : p) + '%' }));
   }
+  function statusPill(s) {
+    s = norm(s).trim(); if (!s) return el('span', { class: 'muted', text: '—' });
+    const cls = /OPEN/.test(s) ? 's-open' : /HOLD/.test(s) ? 's-hold' : /CLOSE/.test(s) ? 's-close' : /ANALYSIS|ANR|RFS/.test(s) ? 's-analysis' : '';
+    return el('span', { class: 'pill ' + cls, text: s.replace(/^\d\.\s*/, '') });
+  }
+  // Due-date cell: date plus a relative badge (overdue = red, within a week = amber).
+  function dueNode(d, closed) {
+    if (!d) return el('span', { class: 'muted', text: '—' });
+    const n = daysUntil(d);
+    let cls = '', label = n === 0 ? 'today' : n > 0 ? 'in ' + n + ' d' : Math.abs(n) + ' d overdue';
+    if (!closed) { if (n < 0) cls = 'bad'; else if (n <= 7) cls = 'warn'; } else label = 'closed';
+    return el('span', { class: 'due ' + cls }, shortDate(d), el('small', { text: label }));
+  }
 
-  // ---- stockroom price / STEEL USAGE check indicators (shown on the SO page) ----
+  // ---- stockroom price / STEEL USAGE check indicators ----
   function priceBadge(rec) {
     const c = rec.priceCheck; if (!c || c.state === 'none') return '';
     if (c.state === 'ok') return el('span', { class: 'chk', title: 'Price matches stockroom sheet (' + money(c.appPrice) + ')', text: '✓' });
@@ -129,7 +155,7 @@
   function signOut() {
     state.token = null; store('tok', null); state.dash = null; state.current = null; state.dirty = false;
     if (gisReady) google.accounts.id.disableAutoSelect();
-    $('user').textContent = ''; $('btn-signout').hidden = true; $('btn-refresh').hidden = true; $('refreshed').textContent = '';
+    $('userchip').hidden = true; $('btn-signout').hidden = true; $('btn-refresh').hidden = true; $('refreshed').textContent = '';
     showLogin('');
   }
   async function showLogin(msg) {
@@ -148,13 +174,15 @@
     }
     Object.assign(state, { email: r.email, role: r.role, fields: r.fields, intake: r.intake });
     state.byKey = Object.fromEntries(r.fields.map((f) => [f.key, f]));
-    $('user').textContent = r.email + ' · ' + r.role; $('btn-signout').hidden = false;
+    $('avatar').textContent = initials(r.email); $('user-name').textContent = niceName(r.email); $('user-role').textContent = r.role;
+    $('userchip').hidden = false; $('btn-signout').hidden = false;
     goHome();
   }
   function goHome() {
-    state.dirty = false; state.current = null;
+    state.dirty = false; state.current = null; updateSaveBar();
     if (state.role === 'admin') return loadDashboard();
     $('btn-refresh').hidden = true; $('refreshed').textContent = '';
+    $('home-greet').textContent = 'Welcome, ' + niceName(state.email).split(' ')[0];
     $('home-new').hidden = state.role === 'viewer'; $('home-msg').textContent = ''; $('home-find-input').value = '';
     show('view-home');
   }
@@ -183,8 +211,8 @@
   // ---------- admin dashboard
   async function loadDashboard() {
     show('view-admin'); $('btn-refresh').hidden = false;
-    $('grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 6, class: 'muted', text: 'Loading from the sheet…' })));
-    const ls = $('list-status'); ls.className = 'statusline'; ls.textContent = 'Loading from the sheet…';
+    $('grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: 'Loading from the sheet…' })));
+    const ls = $('list-status'); ls.className = 'statusline'; ls.textContent = '';
     $('btn-refresh').disabled = true;
     const r = await api('dashboard', { includeClosed: $('incl-closed').checked });
     $('btn-refresh').disabled = false;
@@ -193,47 +221,78 @@
       ls.className = 'statusline err'; ls.textContent = r.error + ' (data unavailable)'; return;
     }
     state.dash = r;
-    $('refreshed').textContent = 'Last refreshed ' + new Date(r.refreshedAt).toLocaleTimeString();
-    renderCards(r); applyView();
+    $('refreshed').textContent = 'Updated ' + new Date(r.refreshedAt).toLocaleTimeString();
+    renderKpis(r.rows); renderCards(r); buildChips(); applyView();
     if (!r.writable) toast('The sheet has no RECORD ID column yet, so editing is disabled.', true);
   }
-  function freshness(when, sub, whenIso, subText, emptyText) {
-    const w = $(when), s = $(sub), card = w.closest('.card');
+  const rowClosed = (r) => /CLOSE/.test(norm(r.status));
+  const rowDue = (r) => parseDate(r.due);
+  const rowProgress = (r) => { const a = [r.soBar, r.matBar].filter((x) => x !== null); return a.length ? Math.min.apply(null, a) : 1000; };
+  const awaitingQuote = (r) => norm(r.reqQuote).trim().toUpperCase() === 'YES' && !/^(y|stock|req|rec)/i.test(norm(r.quoteReceived).trim());
+  function renderKpis(rows) {
+    const open = rows.filter((r) => !rowClosed(r));
+    const overdue = open.filter((r) => { const n = daysUntil(rowDue(r)); return n !== null && n < 0; }).length;
+    const soon = open.filter((r) => { const n = daysUntil(rowDue(r)); return n !== null && n >= 0 && n <= 7; }).length;
+    const aq = open.filter(awaitingQuote).length;
+    const avg = (key) => { const v = open.map((r) => r[key]).filter((x) => x !== null); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) + '%' : '—'; };
+    const k = (cls, value, label) => el('div', { class: 'kpi ' + cls }, el('div', { class: 'kv', text: String(value) }), el('div', { class: 'kl', text: label }));
+    $('kpis').replaceChildren(k('info', open.length, 'Open SOs'), k(overdue ? 'bad' : 'ok', overdue, 'Overdue'), k(soon ? 'warn' : 'ok', soon, 'Due in 7 days'),
+      k(aq ? 'warn' : 'ok', aq, 'Awaiting quote'), k('info', avg('soBar'), 'Avg SO release'), k('info', avg('matBar'), 'Avg material'));
+  }
+  function freshness(cardId, whenId, subId, whenIso, subText, emptyText) {
+    const card = $(cardId), w = $(whenId), s = $(subId);
     card.classList.remove('stale', 'never');
-    if (!whenIso) { w.textContent = emptyText; s.textContent = ''; card.classList.add('never'); return; }
+    if (!whenIso) { w.textContent = emptyText; s.textContent = 'Upload a file to enable checks.'; card.classList.add('never'); return; }
     const d = daysAgo(whenIso);
     w.textContent = fmtWhen(whenIso);
-    s.textContent = (d === null ? '' : d === 0 ? 'today' : d + ' day' + (d === 1 ? '' : 's') + ' ago') + (subText ? ' · ' + subText : '');
+    s.textContent = (d === null ? '' : d === 0 ? 'Updated today' : 'Updated ' + d + ' day' + (d === 1 ? '' : 's') + ' ago') + (subText ? ' · ' + subText : '');
     if (d !== null && d > 30) card.classList.add('stale');
   }
   function renderCards(r) {
     const sm = r.stock.meta || {};
-    freshness('stock-when', 'stock-sub', r.stock.has ? sm.uploadedAt : null,
+    freshness('card-stock', 'stock-when', 'stock-sub', r.stock.has ? sm.uploadedAt : null,
       r.stock.count + ' parts' + (sm.uploadedBy ? ' · by ' + sm.uploadedBy : '') + (sm.fileName ? ' · ' + sm.fileName : ''), 'Never uploaded');
     const st = r.steel.meta;
-    freshness('steel-when', 'steel-sub', st ? st.at : null,
+    freshness('card-steel', 'steel-when', 'steel-sub', st ? st.at : null,
       st ? st.count + ' rows' + (st.by ? ' · by ' + st.by : '') + (st.fileName ? ' · ' + st.fileName : '') : '', 'Not updated through the app yet');
+  }
+  const CHIPS = [['all', 'All'], ['1. ANALYSIS', 'Analysis'], ['3.OPEN', 'Open'], ['5.HOLD', 'On hold'], ['late', 'Overdue'], ['quote', 'Awaiting quote'], ['4.CLOSE', 'Closed']];
+  function chipMatch(r, c) {
+    if (c === 'all') return true; if (c === 'late') { const n = daysUntil(rowDue(r)); return !rowClosed(r) && n !== null && n < 0; }
+    if (c === 'quote') return !rowClosed(r) && awaitingQuote(r); return norm(r.status).trim() === c;
+  }
+  function buildChips() {
+    const rows = state.dash ? state.dash.rows : [];
+    $('chips').replaceChildren(...CHIPS.filter(([c]) => c !== '4.CLOSE' || $('incl-closed').checked).map(([c, label]) =>
+      el('button', { class: 'chip' + (state.chip === c ? ' on' : ''), type: 'button', 'aria-pressed': String(state.chip === c), onclick: () => { state.chip = c; buildChips(); applyView(); } },
+        label, el('b', { text: String(rows.filter((r) => chipMatch(r, c)).length) }))));
   }
   function applyView() {
     const q = $('q').value.trim().toLowerCase();
-    state.view = (state.dash ? state.dash.rows : []).filter((r) => !q || [r.so_no, r.part_no, r.customer].some((v) => norm(v).toLowerCase().includes(q)));
-    state.page = 0; renderTable();
+    const rows = (state.dash ? state.dash.rows : []).filter((r) => chipMatch(r, state.chip) && (!q || [r.so_no, r.part_no, r.customer].some((v) => norm(v).toLowerCase().includes(q))));
+    const soNum = (r) => { const n = parseFloat(norm(r.so_no).replace(/\D/g, '')); return isNaN(n) ? -1 : n; };
+    if (state.sort === 'due') rows.sort((a, b) => { const x = rowDue(a), y = rowDue(b); return (x ? x.getTime() : 9e15) - (y ? y.getTime() : 9e15); });
+    else if (state.sort === 'so') rows.sort((a, b) => soNum(b) - soNum(a));
+    else rows.sort((a, b) => rowProgress(a) - rowProgress(b));
+    state.view = rows; state.page = 0; renderTable();
   }
   function renderTable() {
-    $('grid').tHead.replaceChildren(el('tr', {}, ['SO#', 'PART #', 'CUSTOMER', 'STATUS', 'SO RELEASE STATUS BAR', 'MATERIAL STATUS BAR'].map((h) => el('th', { text: h }))));
+    $('grid').tHead.replaceChildren(el('tr', {}, ['SO#', 'Part / customer', 'Status', 'Due', 'SO release', 'Material', ''].map((h) => el('th', { text: h }))));
     const pages = Math.max(1, Math.ceil(state.view.length / state.pageSize));
     state.page = Math.min(state.page, pages - 1);
     const slice = state.view.slice(state.page * state.pageSize, (state.page + 1) * state.pageSize);
     const body = $('grid').tBodies[0];
-    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 6, text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : 'No open SOs.' })));
+    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : 'No open SOs.' })));
     else body.replaceChildren(...slice.map((r) => el('tr', { tabindex: 0, onclick: () => openById(r.id), onkeydown: (e) => { if (e.key === 'Enter') openById(r.id); } },
-      el('td', { text: norm(r.so_no) }), el('td', { text: norm(r.part_no) }), el('td', { text: norm(r.customer) }),
-      el('td', {}, r.status ? el('span', { class: 'pill ' + (/OPEN/.test(r.status) ? 's-open' : /HOLD/.test(r.status) ? 's-hold' : /CLOSE/.test(r.status) ? 's-close' : ''), text: r.status }) : ''),
-      el('td', {}, barNode(r.soBar)), el('td', {}, barNode(r.matBar)))));
+      el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'so', text: norm(r.so_no) || '—' }), el('small', { text: norm(r.qty) ? norm(r.qty) + ' pcs' : '' }))),
+      el('td', {}, el('div', { class: 'cell2' }, el('span', { text: norm(r.part_no) }), el('small', { text: norm(r.customer) }))),
+      el('td', {}, statusPill(r.status)),
+      el('td', {}, dueNode(rowDue(r), rowClosed(r))),
+      el('td', {}, barNode(r.soBar)), el('td', {}, barNode(r.matBar)), el('td', { class: 'chev', text: '›' }))));
     $('pg-info').textContent = 'Page ' + (state.page + 1) + ' of ' + pages;
     $('pg-prev').disabled = state.page === 0; $('pg-next').disabled = state.page >= pages - 1;
     const ls = $('list-status'); ls.className = 'statusline';
-    ls.textContent = state.view.length + ' of ' + (state.dash ? state.dash.rows.length : 0) + ' SOs · lowest progress first';
+    ls.textContent = state.view.length + ' of ' + (state.dash ? state.dash.rows.length : 0) + ' SOs';
   }
   async function openById(id) {
     const r = await api('get', { id });
@@ -243,6 +302,11 @@
   const loadList = () => loadDashboard();
 
   // ---------- open a new SO
+  const NEW_GROUPS = [
+    ['Order', ['so_no', 'part_no', 'customer', 'so_qty']],
+    ['Delivery & type', ['due_date', 'so_req_date', 'so_type', 'kanban_or_po']],
+    ['People & notes', ['champion', 'req_by', 'notes']]
+  ];
   function newField(key) {
     const f = state.byKey[key]; const req = state.intake.required.includes(key); const id = 'nf-' + key;
     let input;
@@ -256,8 +320,9 @@
       el('label', { for: id }, f.label, req ? el('span', { class: 'req', title: 'Required', text: ' *' }) : el('span', { class: 'tag', text: 'optional' })), input);
   }
   function openNewForm() {
-    state.dirty = false;
-    $('new-form').replaceChildren(el('fieldset', {}, el('legend', { text: 'Order details' }), el('div', { class: 'grid' }, state.intake.keys.map(newField))));
+    state.dirty = false; updateSaveBar();
+    $('new-form').replaceChildren(...NEW_GROUPS.map(([title, keys]) => el('fieldset', {}, el('legend', { text: title }),
+      el('div', { class: 'grid' }, keys.filter((k) => state.intake.keys.includes(k)).map(newField)))));
     banner('new-banner', '', ''); show('view-new');
     $('nf-so_no').focus();
   }
@@ -279,30 +344,128 @@
     creating = true; $('new-submit').disabled = true; $('new-submit').textContent = 'Opening…'; banner('new-banner', '', '');
     const r = await api('createSO', { changes: ch });
     creating = false; $('new-submit').disabled = false; $('new-submit').textContent = 'Open SO';
-    if (r.ok) { toast('SO ' + norm(r.record.values.so_no) + ' opened.'); openRecord(r.record, 'ok', 'SO opened and added to the sheet. Fill in the rest of the details if needed, then print and upload the scan.'); return; }
+    if (r.ok) { toast('SO ' + norm(r.record.values.so_no) + ' opened.'); openRecord(r.record, 'ok', 'SO opened and added to the sheet. Fill in the rest of the details as they arrive, then print it and upload the scan.'); return; }
     if (r.code === 'UNAUTHENTICATED') { banner('new-banner', 'err', r.error + ' Your form is still here — sign in again, then click Open SO.'); const h = el('span'); $('new-banner').append(' ', h); renderSignIn(h, (t) => { state.token = t; store('tok', t); banner('new-banner', 'ok', 'Signed in again. Click Open SO to continue.'); }); return; }
     if (r.code === 'INVALID') { banner('new-banner', 'err', r.error); showFieldErrors('nf-', r.fieldErrors); return; }
     banner('new-banner', 'err', (r.error || 'Could not open the SO.') + ' Nothing was created; your answers are still in the form.');
   }
 
-  // ---------- one SO (edit, print, scan)
+  // ---------- one SO: workflow, facts, next actions
+  const dv = (rec, k) => norm(rec.display[k]).trim();
+  const has = (rec, k) => { const v = dv(rec, k); return v !== '' && v !== '-'; };
+  const dateOf = (rec, k) => { const t = norm(rec.values[k]); return isIso(t) ? parseDate(t) : parseDate(rec.display[k]); };
+  const yes = (v) => /^(y|yes|true)/i.test(norm(v).trim());
+  function workflow(rec) {
+    const quoteSkipped = dv(rec, 'req_mat_quote').toUpperCase() === 'NO';
+    const lookupBad = rec.lookupChecks && Object.values(rec.lookupChecks).some((c) => c.state === 'issue');
+    const closed = /CLOSE/.test(dv(rec, 'status')) || has(rec, 'so_close_date');
+    const S = [];
+    S.push({ label: 'Order', raw: has(rec, 'so_no') && has(rec, 'due_date') ? 'done' : 'todo', date: dateOf(rec, 'so_req_date') });
+    S.push({ label: 'Material', raw: lookupBad ? 'issue' : (rec.lookupChecks ? 'done' : (has(rec, 'steel_type') ? 'done' : 'todo')), date: null });
+    S.push({ label: quoteSkipped ? 'Quote (n/a)' : 'Quote', raw: quoteSkipped ? 'skip' : (has(rec, 'quote_receive_date') || /^(y|stock)/i.test(dv(rec, 'quote_received')) ? 'done' : (has(rec, 'mat_quote_request_date') ? 'part' : 'todo')), date: dateOf(rec, 'quote_receive_date') || dateOf(rec, 'mat_quote_request_date') });
+    S.push({ label: 'Approval', raw: quoteSkipped ? 'skip' : (has(rec, 'quote_approve_date') ? 'done' : 'todo'), date: dateOf(rec, 'quote_approve_date') });
+    S.push({ label: 'PO', raw: has(rec, 'po_approve_date') ? 'done' : (has(rec, 'po_receive_date') || has(rec, 'po_no_1') ? 'part' : 'todo'), date: dateOf(rec, 'po_approve_date') || dateOf(rec, 'po_receive_date') });
+    S.push({ label: 'Release', raw: has(rec, 'charllete_jay_release_date') ? 'done' : (has(rec, 'date_of_send') ? 'part' : 'todo'), date: dateOf(rec, 'charllete_jay_release_date') || dateOf(rec, 'date_of_send') });
+    S.push({ label: 'Receiving', raw: has(rec, 'mat_receive_date_stockroom') ? 'done' : 'todo', date: dateOf(rec, 'mat_receive_date_stockroom') });
+    S.push({ label: 'Invoice', raw: yes(dv(rec, 'invoice_received_finance')) || has(rec, 'invoice_no') ? 'done' : 'todo', date: null });
+    S.push({ label: 'Closed', raw: closed ? 'done' : 'todo', date: dateOf(rec, 'so_close_date') });
+    let currentSet = false;
+    S.forEach((s) => {
+      if (s.raw === 'done') s.state = 'done'; else if (s.raw === 'skip') s.state = 'skip';
+      else if (s.raw === 'issue') { s.state = 'issue'; if (!currentSet) currentSet = true; }
+      else if (!currentSet) { s.state = 'current'; currentSet = true; } else s.state = 'todo';
+    });
+    return S;
+  }
+  function renderStepper(rec) {
+    $('stepper').replaceChildren(...workflow(rec).map((s, i) => el('li', { class: 'step st-' + s.state, 'aria-current': s.state === 'current' ? 'step' : null },
+      el('span', { class: 'sc', text: s.state === 'done' ? '✓' : s.state === 'issue' ? '!' : s.state === 'skip' ? '–' : String(i + 1) }),
+      el('b', { text: s.label }), el('small', { text: s.date ? shortDate(s.date) : (s.state === 'current' ? 'next step' : '') }))));
+  }
+  function nextActions(rec) {
+    const out = []; const closed = /CLOSE/.test(dv(rec, 'status'));
+    const add = (kind, title, text) => out.push({ kind, title, text });
+    if (!closed) {
+      const n = daysUntil(dateOf(rec, 'due_date'));
+      if (n !== null && n < 0) add('bad', 'SO is ' + Math.abs(n) + ' day' + (Math.abs(n) === 1 ? '' : 's') + ' overdue', 'Due ' + shortDate(dateOf(rec, 'due_date')) + '. Check the material and release status below.');
+      else if (n !== null && n <= 7) add('warn', 'Due ' + (n === 0 ? 'today' : 'in ' + n + ' day' + (n === 1 ? '' : 's')), 'Due date is ' + shortDate(dateOf(rec, 'due_date')) + '.');
+    }
+    if (rec.lookupChecks) {
+      const miss = Object.entries(rec.lookupChecks).filter(([, c]) => c.state === 'issue').map(([k]) => state.byKey[k].label);
+      if (miss.length) add('warn', 'Steel data missing for this part', miss.join(', ') + ' not found in STEEL USAGE — material needs cannot be calculated. Ask an admin to update STEEL USAGE.');
+    }
+    if (rec.priceCheck && rec.priceCheck.state === 'issue') add('warn', 'Part price does not match the stockroom sheet', rec.priceCheck.reason + '. Worksheet ' + money(rec.priceCheck.appPrice) + ' vs stockroom ' + (rec.priceCheck.stockPrices.length ? rec.priceCheck.stockPrices.map(money).join(', ') : 'not listed') + '.');
+    if (!closed && dv(rec, 'req_mat_quote').toUpperCase() === 'YES' && has(rec, 'mat_quote_request_date') && !has(rec, 'quote_receive_date') && !/^(y|stock)/i.test(dv(rec, 'quote_received'))) {
+      const d = dateOf(rec, 'mat_quote_request_date'); const age = d ? -daysUntil(d) : null;
+      if (age !== null && age >= 3) add('warn', 'Quote requested ' + age + ' days ago — no reply yet', 'Follow up with the supplier' + (has(rec, 'followups_required') ? ' (follow-ups planned: ' + dv(rec, 'followups_required') + ')' : '') + '.');
+      else add('info', 'Waiting for the material quote', 'Requested ' + (d ? shortDate(d) : 'recently') + '.');
+    } else if (!closed && has(rec, 'quote_receive_date') && !has(rec, 'quote_approve_date')) add('info', 'Quote received — approval pending', 'Quote received ' + shortDate(dateOf(rec, 'quote_receive_date')) + '. Approve it to move to the PO.');
+    if (!closed && has(rec, 'po_due_date') && !has(rec, 'mat_receive_date_stockroom')) {
+      const n = daysUntil(dateOf(rec, 'po_due_date'));
+      if (n !== null && n < 0) add('bad', 'Material is ' + Math.abs(n) + ' day' + (Math.abs(n) === 1 ? '' : 's') + ' past the PO due date', 'PO due ' + shortDate(dateOf(rec, 'po_due_date')) + ', not yet received in the stockroom.');
+    }
+    if (!closed && has(rec, 'mat_receive_date_stockroom') && !yes(dv(rec, 'invoice_received_finance')) && !has(rec, 'invoice_no')) add('info', 'Material received — invoice not yet with finance', 'Received ' + shortDate(dateOf(rec, 'mat_receive_date_stockroom')) + '.');
+    const dpo = parseMoney(rec.display.diff_po_invoice);
+    if (dpo !== null && Math.abs(dpo) >= 0.005 && has(rec, 'price_on_invoice')) add('warn', 'Invoice differs from the PO by ' + money(Math.abs(dpo)), has(rec, 'diff_reason') ? 'Reason noted: ' + dv(rec, 'diff_reason') : 'No reason recorded yet.');
+    if (!out.length) out.push({ kind: 'ok', title: closed ? 'This SO is closed' : 'On track — nothing needs attention right now', text: '' });
+    return out;
+  }
+  function renderCallouts(rec) {
+    const icon = { bad: '⛔', warn: '⚠️', info: 'ℹ️', ok: '✅' };
+    $('callouts').replaceChildren(...nextActions(rec).map((a) => el('div', { class: 'callout ' + a.kind },
+      el('span', { class: 'ci', text: icon[a.kind] }), el('div', {}, el('b', { text: a.title }), a.text ? el('span', { text: a.text }) : ''))));
+  }
+  function renderFacts(rec) {
+    const row = (label, value, tone, badge) => el('div', { class: 'frow' }, el('span', { text: label }), el('span', { class: tone ? 'tone-' + tone : '' }, value === '' || value === '-' ? '—' : value, badge || ''));
+    const diffTone = (k) => { const n = parseMoney(rec.display[k]); return n === null ? 'none' : Math.abs(n) < 0.005 ? 'ok' : Math.abs(n) < 5 ? 'warn' : 'bad'; };
+    const dateRow = (label, k, watch) => { const d = dateOf(rec, k); const n = daysUntil(d); return row(label, d ? shortDate(d) + (watch && n !== null ? (n < 0 ? ' · ' + Math.abs(n) + ' d late' : n === 0 ? ' · today' : ' · in ' + n + ' d') : '') : '', watch && n !== null && n < 0 ? 'bad' : d ? '' : 'none'); };
+    $('facts').replaceChildren(
+      el('div', { class: 'fcard' }, el('h3', { text: 'Material needed' }),
+        row('Steel type', dv(rec, 'steel_type'), null, lookupBadge(rec, 'steel_type')), row('Bar type', dv(rec, 'bar_type')),
+        row('Router bar size', dv(rec, 'router_bar_size'), null, lookupBadge(rec, 'router_bar_size')), row('Qty / bar', dv(rec, 'qty_per_bar'), null, lookupBadge(rec, 'qty_per_bar')),
+        row('Required (ft)', dv(rec, 'req_ft')), row('Required (lbs)', dv(rec, 'req_lbs')), row('Required bars', dv(rec, 'req_bar')), row('Available (ft)', dv(rec, 'avail_ft'))),
+      el('div', { class: 'fcard' }, el('h3', { text: 'Pricing' }),
+        row('Part price', dv(rec, 'part_price'), null, priceBadge(rec)), row('Traveller mat. price / pc', dv(rec, 'traveller_mat_price_piece')),
+        row('Quote price / pc', dv(rec, 'quote_price_piece')), row('Diff (traveller vs quote)', dv(rec, 'diff'), diffTone('diff')),
+        row('Total price in quote', dv(rec, 'total_price_quote')), row('Price on PO', dv(rec, 'price_on_po')), row('Quote vs PO', dv(rec, 'quote_vs_po_price'), diffTone('quote_vs_po_price')),
+        row('Price on invoice', dv(rec, 'price_on_invoice')), row('PO vs invoice', dv(rec, 'diff_po_invoice'), diffTone('diff_po_invoice'))),
+      el('div', { class: 'fcard' }, el('h3', { text: 'Key dates' }),
+        dateRow('Due', 'due_date', !/CLOSE/.test(dv(rec, 'status'))), dateRow('SO requested', 'so_req_date'), dateRow('Quote requested', 'mat_quote_request_date'), dateRow('Quote received', 'quote_receive_date'),
+        dateRow('PO received', 'po_receive_date'), dateRow('PO due', 'po_due_date', !/CLOSE/.test(dv(rec, 'status')) && !has(rec, 'mat_receive_date_stockroom')), dateRow('Material received', 'mat_receive_date_stockroom'), dateRow('Closed', 'so_close_date')));
+  }
+
+  // ---------- one SO: page, tabs, editing
   function openRecord(rec, kind, msg) {
-    state.current = rec; state.dirty = false; state.scans = [];
+    state.current = rec; state.dirty = false; state.scans = []; state.tab = 0;
     renderDetail(); show('view-detail'); banner('detail-banner', kind || '', msg || ''); updateDirty();
     renderScans(); loadScans();
   }
   function canEdit() { return state.role !== 'viewer' && state.current && state.current.id; }
   function renderDetail() {
     const rec = state.current;
-    $('detail-title').replaceChildren('SO# ' + (norm(rec.values.so_no) || '(none)') + ' · Part ' + (norm(rec.values.part_no) || '(none)'), priceBadge(rec));
-    const form = $('detail-form'); form.replaceChildren();
+    $('detail-title').textContent = 'SO# ' + (norm(rec.values.so_no) || '(none)');
+    $('detail-sub').replaceChildren('Part ' + (norm(rec.values.part_no) || '(none)'), priceBadge(rec), ' · ' + (norm(rec.values.customer) || 'no customer') + (norm(rec.values.so_qty) ? ' · ' + norm(rec.values.so_qty) + ' pcs' : ''));
+    const closed = /CLOSE/.test(dv(rec, 'status'));
+    $('detail-meta').replaceChildren(statusPill(dv(rec, 'status')), dueNode(dateOf(rec, 'due_date'), closed), barNode(norm(rec.display.so_release_status_bar)), barNode(norm(rec.display.mat_status_bar)));
+    $('detail-meta').children[2].title = 'SO release'; $('detail-meta').children[3].title = 'Material';
+    renderStepper(rec); renderCallouts(rec); renderFacts(rec);
     const order = state.fields.map((f) => f.key);
-    SECTIONS.forEach(([title, from, to]) => {
+    const form = $('detail-form'); form.replaceChildren();
+    TABS.forEach(([title, from, to], i) => {
       const keys = order.slice(order.indexOf(from), order.indexOf(to) + 1);
-      form.append(el('fieldset', {}, el('legend', { text: title }), el('div', { class: 'grid' }, keys.map((k) => fieldNode(state.byKey[k], rec)))));
+      form.append(el('div', { class: 'tabpanel', id: 'panel-' + i, role: 'tabpanel', hidden: i !== state.tab },
+        el('fieldset', {}, el('legend', { text: title }), el('div', { class: 'grid' }, keys.map((k) => fieldNode(state.byKey[k], rec))))));
     });
+    buildTabs();
     $('scan-upload').hidden = state.role === 'viewer';
     if (!canEdit() && !$('detail-banner').textContent) banner('detail-banner', 'warn', state.role === 'viewer' ? 'You have read-only access.' : 'This SO has no RECORD ID yet, so it cannot be edited.');
+  }
+  function buildTabs() {
+    $('tabs').replaceChildren(...TABS.map(([title], i) => el('button', { class: 'tab', type: 'button', role: 'tab', 'aria-selected': String(i === state.tab), onclick: () => selectTab(i) }, title, el('span', { class: 'tc', id: 'tc-' + i, hidden: true }))));
+  }
+  function selectTab(i) {
+    state.tab = i; TABS.forEach((_, j) => { $('panel-' + j).hidden = j !== i; });
+    [...$('tabs').children].forEach((t, j) => t.setAttribute('aria-selected', String(j === i)));
   }
   function fieldNode(f, rec) {
     const locked = rec.formulaLocked.includes(f.key);
@@ -357,10 +520,14 @@
     wrap.classList.remove('invalid'); wrap.querySelector('.ferr')?.remove();
     updateDirty();
   }
+  function updateSaveBar() { $('savebar').hidden = !(state.dirty || state.saving) || $('view-detail').hidden; }
   function updateDirty() {
     const n = Object.keys(collectChanges()).length; state.dirty = n > 0;
-    $('dirty-flag').hidden = !state.dirty; $('btn-save').disabled = !state.dirty || state.saving; $('btn-discard').disabled = !state.dirty || state.saving;
+    $('btn-save').disabled = !state.dirty || state.saving; $('btn-discard').disabled = !state.dirty || state.saving;
     $('btn-save').textContent = state.saving ? 'Saving…' : 'Save changes' + (n ? ' (' + n + ')' : '');
+    $('dirty-flag').textContent = n ? n + ' unsaved change' + (n === 1 ? '' : 's') : 'Saving…';
+    TABS.forEach((_, i) => { const c = $('panel-' + i) ? $('panel-' + i).querySelectorAll('.field.changed').length : 0; const b = $('tc-' + i); if (b) { b.hidden = !c; b.textContent = String(c); } });
+    $('savebar').hidden = !(state.dirty || state.saving);
   }
   async function save() {
     if (state.saving) return;
@@ -373,7 +540,7 @@
     const r = await api('update', { id: rec.id, baseVersion: rec.version, changes });
     state.saving = false;
     if (r.ok) {
-      state.current = r.record; renderDetail(); updateDirty(); banner('detail-banner', 'ok', 'Saved ' + r.changed.length + ' field(s) to the sheet.'); toast('Saved to the sheet.'); return;
+      state.current = r.record; const t = state.tab; renderDetail(); selectTab(t); updateDirty(); banner('detail-banner', 'ok', 'Saved ' + r.changed.length + ' field(s) to the sheet.'); toast('Saved to the sheet.'); return;
     }
     updateDirty();
     if (r.code === 'INVALID') { banner('detail-banner', 'err', 'Some values are invalid. Nothing was saved.'); showFieldErrors('fld-', r.fieldErrors); }
@@ -387,7 +554,7 @@
     const theirs = state.fields.filter((f) => f.editable && norm(cur.values[f.key]) !== norm(state.current.values[f.key])).map((f) => f.label);
     const node = el('div', {}, 'Someone else changed this record after you opened it (' + (theirs.join(', ') || 'unknown fields') + '). Your changes were not saved. ',
       el('button', { class: 'btn', type: 'button', text: 'Load latest and re-apply my edits', onclick: () => {
-        state.current = Object.assign({}, state.current, cur); renderDetail();
+        state.current = Object.assign({}, state.current, cur); const t = state.tab; renderDetail(); selectTab(t);
         Object.entries(mine).forEach(([k, v]) => { const inp = $('fld-' + k); if (inp && !inp.disabled) { inp.value = v; inp.dispatchEvent(new Event('input')); } });
         banner('detail-banner', 'warn', 'Latest version loaded. Review your edits, then save again.');
       } }));
@@ -398,7 +565,7 @@
     renderSignIn(holder, (t) => { state.token = t; store('tok', t); banner('detail-banner', 'ok', 'Signed in again. Click Save to continue.'); });
   }
   async function discard() {
-    if (await confirmDialog('Discard changes?', el('p', { text: 'Reset this record to the last saved values?' }), 'Discard', true)) { renderDetail(); updateDirty(); banner('detail-banner', '', ''); }
+    if (await confirmDialog('Discard changes?', el('p', { text: 'Reset this record to the last saved values?' }), 'Discard', true)) { const t = state.tab; renderDetail(); selectTab(t); updateDirty(); banner('detail-banner', '', ''); }
   }
 
   // ---------- scans
@@ -407,8 +574,8 @@
     if (!list.length) { box.className = 'muted'; box.textContent = 'No scan uploaded yet.'; return; }
     box.className = '';
     box.replaceChildren(...list.map((s) => el('div', { class: 'scanitem' }, el('span', { class: 'scanname', text: s.name }),
-      el('span', { class: 'muted', text: ' · ' + norm(s.by) + (s.at ? ' · ' + fmtWhen(s.at) : '') }),
-      el('button', { class: 'btn', type: 'button', text: 'Download', onclick: () => downloadScan(s) }))));
+      el('span', { class: 'muted small', text: ' · ' + norm(s.by) + (s.at ? ' · ' + fmtWhen(s.at) : '') }),
+      el('button', { class: 'btn btn-sm', type: 'button', text: 'Download', onclick: () => downloadScan(s) }))));
   }
   async function loadScans() {
     const rec = state.current; if (!rec || !rec.id) return;
@@ -449,7 +616,7 @@
   function printSheet() {
     if (state.dirty) { toast('Save your changes first so the printout is up to date.', true); return; }
     const rec = state.current; const order = state.fields.map((f) => f.key); const box = $('print-sheet');
-    const sections = SECTIONS.map(([title, from, to]) => {
+    const sections = TABS.map(([title, from, to]) => {
       const rows = order.slice(order.indexOf(from), order.indexOf(to) + 1).map((k) => state.byKey[k])
         .filter((f) => norm(rec.display[f.key]).trim() !== '' && norm(rec.display[f.key]).trim() !== '-')
         .map((f) => el('tr', {}, el('th', { text: f.label }), el('td', { text: norm(rec.display[f.key]) })));
@@ -669,6 +836,7 @@
   $('new-back').onclick = () => goHome();
   $('new-submit').onclick = submitNew;
   $('q').addEventListener('input', () => { clearTimeout(applyView.t); applyView.t = setTimeout(applyView, 150); });
+  $('sort').addEventListener('change', (e) => { state.sort = e.target.value; applyView(); });
   $('incl-closed').addEventListener('change', () => loadDashboard());
   $('pg-prev').onclick = () => { state.page--; renderTable(); };
   $('pg-next').onclick = () => { state.page++; renderTable(); };
@@ -688,8 +856,8 @@
   $('btn-signout').onclick = signOut;
 
   (async function init() {
-    const t = store('tok');
     show('view-loading');
+    const t = store('tok');
     if (t) { state.token = t; await start(); } else await showLogin('');
   })();
 })();

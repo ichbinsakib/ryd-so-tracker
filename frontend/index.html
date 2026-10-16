@@ -3,84 +3,129 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>RYD-SO Tracker</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <header class="topbar">
-  <h1><a href="#" id="btn-home" class="homelink">RYD-SO</a> <span class="sub">Sales order &amp; material tracker</span></h1>
+  <a id="btn-home" class="brand" href="#" aria-label="Home">
+    <span class="logo" aria-hidden="true">SO</span>
+    <span class="brandtext"><b>RYD-SO</b><small>Order &amp; material tracker</small></span>
+  </a>
   <div class="topbar-right">
-    <span id="refreshed" class="muted"></span>
-    <button id="btn-refresh" class="btn" title="Reload from the sheet" hidden>Refresh</button>
-    <span id="user" class="muted"></span>
+    <span id="refreshed" class="muted small"></span>
+    <button id="btn-refresh" class="btn btn-ghost" title="Reload from the sheet" hidden>↻ Refresh</button>
+    <div id="userchip" class="userchip" hidden>
+      <span id="avatar" class="avatar" aria-hidden="true"></span>
+      <span class="who"><b id="user-name"></b><small id="user-role"></small></span>
+    </div>
     <button id="btn-signout" class="btn btn-ghost" hidden>Sign out</button>
   </div>
 </header>
 
+<div class="page">
+
+<main id="view-loading" class="center">
+  <div class="card login"><div class="spinner" aria-hidden="true"></div><h2>Loading…</h2><p class="muted">Connecting to the sheet. This can take a few seconds.</p></div>
+</main>
+
 <main id="view-login" class="center" hidden>
   <div class="card login">
-    <h2>Sign in</h2>
-    <p>Use your authorised Google account.</p>
-    <div id="g-signin"></div>
+    <span class="logo big" aria-hidden="true">SO</span>
+    <h2>Sign in to RYD-SO</h2>
+    <p class="muted">Use the Google account your admin registered for you.</p>
+    <div id="g-signin" class="gsignin"></div>
     <p id="login-msg" class="error" role="alert"></p>
-    <p class="muted small">Sign in with the Google account your admin registered for you. If you cannot get in, ask an admin to add your email.</p>
+    <p class="muted small">Cannot get in? Ask an admin to add your email.</p>
   </div>
 </main>
 
-<main id="view-loading" class="center"><div class="card login"><h2>Loading…</h2><p class="muted">Connecting to the sheet. This can take a few seconds.</p></div></main>
-
 <!-- Regular users: no data table, just two ways in -->
 <main id="view-home" hidden>
-  <section class="homebox">
-    <h2>What would you like to do?</h2>
-    <div class="home-actions">
-      <button id="home-new" class="bigbtn bigbtn-primary">＋ Open an SO</button>
-      <form id="home-find" class="findbox" autocomplete="off">
-        <label for="home-find-input">Find an SO by number</label>
-        <div class="findrow">
-          <input id="home-find-input" type="text" placeholder="SO#" inputmode="text">
-          <button class="btn btn-primary" type="submit">Find</button>
-        </div>
-      </form>
-    </div>
-    <p id="home-msg" class="error" role="alert"></p>
+  <section class="hero">
+    <h1 id="home-greet">Welcome</h1>
+    <p class="muted">Open a new sales order, or look up an existing one by its number.</p>
   </section>
+  <div class="homegrid">
+    <button id="home-new" class="actioncard primary" type="button">
+      <span class="ac-icon" aria-hidden="true">＋</span>
+      <b>Open an SO</b>
+      <small>Start a new sales order, fill in the details, then print it and attach the scan.</small>
+    </button>
+    <form id="home-find" class="actioncard" autocomplete="off">
+      <span class="ac-icon" aria-hidden="true">⌕</span>
+      <b>Find an SO</b>
+      <small>Type the SO number to open its page.</small>
+      <div class="findrow">
+        <input id="home-find-input" type="text" placeholder="SO#" aria-label="SO number">
+        <button class="btn btn-primary" type="submit">Find</button>
+      </div>
+    </form>
+  </div>
+  <p id="home-msg" class="error" role="alert"></p>
+  <ol class="howto">
+    <li><b>Open</b><span>Enter the order details. Required fields are marked.</span></li>
+    <li><b>Track</b><span>Follow quote, PO, material and invoice steps on the SO page.</span></li>
+    <li><b>Close out</b><span>Print the SO and upload the signed scan when it is complete.</span></li>
+  </ol>
 </main>
 
-<!-- Admin: progress + data freshness, not the worksheet -->
+<!-- Admin: progress + data freshness -->
 <main id="view-admin" hidden>
-  <section class="cards">
-    <div class="card stat" id="card-stock"><h3>Stockroom price sheet</h3><div class="statbig" id="stock-when">—</div><div class="muted" id="stock-sub"></div></div>
-    <div class="card stat" id="card-steel"><h3>STEEL USAGE sheet</h3><div class="statbig" id="steel-when">—</div><div class="muted" id="steel-sub"></div></div>
-    <div class="card actions">
+  <div class="pagehead">
+    <div><h1>Dashboard</h1><p class="muted">Progress of every sales order that is not closed.</p></div>
+    <div class="head-actions">
+      <form id="admin-find" class="findrow" autocomplete="off"><input id="admin-find-input" type="text" placeholder="Find SO#" aria-label="Find SO number"><button class="btn" type="submit">Find</button></form>
+      <button id="admin-users" class="btn">Users</button>
       <button id="admin-new" class="btn btn-primary">＋ Open an SO</button>
-      <form id="admin-find" class="findrow" autocomplete="off"><input id="admin-find-input" type="text" placeholder="Find SO#"><button class="btn" type="submit">Find</button></form>
-      <button id="btn-upload" class="btn">Upload stockroom sheet</button>
-      <button id="admin-users" class="btn">Manage users</button>
-      <button id="btn-upload-steel" class="btn">Replace STEEL USAGE data</button>
+    </div>
+  </div>
+
+  <section id="kpis" class="kpis" aria-label="Key numbers"></section>
+
+  <section class="fresh">
+    <div class="card stat" id="card-stock">
+      <div class="stat-top"><span class="dot" aria-hidden="true"></span><h3>Stockroom price sheet</h3></div>
+      <div class="statbig" id="stock-when">—</div>
+      <div class="muted small" id="stock-sub"></div>
+      <button id="btn-upload" class="btn btn-sm">Upload new sheet</button>
+    </div>
+    <div class="card stat" id="card-steel">
+      <div class="stat-top"><span class="dot" aria-hidden="true"></span><h3>STEEL USAGE sheet</h3></div>
+      <div class="statbig" id="steel-when">—</div>
+      <div class="muted small" id="steel-sub"></div>
+      <button id="btn-upload-steel" class="btn btn-sm">Replace data</button>
     </div>
   </section>
-  <section class="toolbar">
-    <h2 class="sectionh">Open SOs — progress</h2>
-    <input id="q" type="search" placeholder="Filter by SO#, part # or customer…" aria-label="Filter">
-    <label class="inline"><input type="checkbox" id="incl-closed"> include closed</label>
+
+  <section class="listhead">
+    <h2>Open SOs</h2>
+    <div id="chips" class="chips" role="group" aria-label="Filter by status"></div>
+    <div class="listtools">
+      <input id="q" type="search" placeholder="Search SO#, part or customer…" aria-label="Search">
+      <select id="sort" aria-label="Sort">
+        <option value="progress">Lowest progress first</option>
+        <option value="due">Due date (soonest)</option>
+        <option value="so">SO# (newest)</option>
+      </select>
+      <label class="inline"><input type="checkbox" id="incl-closed"> closed</label>
+    </div>
   </section>
   <div id="list-status" class="statusline" aria-live="polite"></div>
-  <div class="tablewrap"><table id="grid"><thead></thead><tbody></tbody></table></div>
+  <div class="tablewrap card"><table id="grid" class="datatable"><thead></thead><tbody></tbody></table></div>
   <nav class="pager">
     <button id="pg-prev" class="btn">‹ Prev</button>
-    <span id="pg-info"></span>
+    <span id="pg-info" class="muted"></span>
     <button id="pg-next" class="btn">Next ›</button>
-    <label>Rows <select id="pg-size"><option>25</option><option selected>50</option><option>100</option></select></label>
+    <label class="muted small">Rows <select id="pg-size"><option>25</option><option selected>50</option><option>100</option></select></label>
   </nav>
 </main>
 
 <!-- Admin: who can sign in -->
 <main id="view-users" hidden>
-  <div class="detail-head">
-    <button id="users-back" class="btn" type="button">← Back</button>
-    <h2>Users</h2>
-    <span class="spacer"></span>
+  <div class="pagehead">
+    <div><button id="users-back" class="btn btn-ghost" type="button">← Back</button><h1>Users</h1><p class="muted">Who can sign in, and what they can do.</p></div>
     <span id="users-count" class="muted"></span>
   </div>
   <div id="users-banner" role="alert"></div>
@@ -101,47 +146,73 @@
     </div>
     <div class="muted small">Columns: email, name, employee id, role (viewer/editor/admin; blank = viewer). Existing emails are updated.</div>
   </section>
-  <div class="tablewrap"><table id="users-grid"><thead></thead><tbody></tbody></table></div>
-  <p id="users-bootstrap" class="muted pad small"></p>
+  <div class="tablewrap card"><table id="users-grid" class="datatable"><thead></thead><tbody></tbody></table></div>
+  <p id="users-bootstrap" class="muted small pad"></p>
 </main>
 
 <!-- Open a new SO -->
 <main id="view-new" hidden>
-  <div class="detail-head">
-    <button id="new-back" class="btn" type="button">← Cancel</button>
-    <h2>Open a new SO</h2>
-    <span class="spacer"></span>
-    <button id="new-submit" class="btn btn-primary" type="button">Open SO</button>
+  <div class="pagehead">
+    <div><button id="new-back" class="btn btn-ghost" type="button">← Cancel</button><h1>Open a new SO</h1><p class="muted">Fields marked <span class="req">*</span> are required.</p></div>
+    <button id="new-submit" class="btn btn-primary btn-lg" type="button">Open SO</button>
   </div>
-  <p class="muted pad">Fields marked <span class="req">*</span> are required. The SO is added to the RYD-SO sheet with status 3.OPEN. Steel type, router bar size, qty/bar and the other calculated values fill in automatically.</p>
   <div id="new-banner" role="alert"></div>
-  <form id="new-form" autocomplete="off"></form>
+  <div class="newlayout">
+    <form id="new-form" autocomplete="off"></form>
+    <aside class="card tips">
+      <h3>What happens next</h3>
+      <ol>
+        <li>The SO is added to the RYD-SO sheet with status <b>3.OPEN</b>.</li>
+        <li>Steel type, bar size and quantity per bar fill in from <b>STEEL USAGE</b>.</li>
+        <li>Add quote, PO and receiving details on the SO page as they arrive.</li>
+        <li>When it is complete, <b>print</b> the SO and <b>upload the signed scan</b>.</li>
+      </ol>
+    </aside>
+  </div>
 </main>
 
-<!-- One SO: edit, print, scan -->
+<!-- One SO: workflow, facts, edit, print, scan -->
 <main id="view-detail" hidden>
-  <div class="detail-head">
-    <button id="btn-back" class="btn">← Back</button>
-    <h2 id="detail-title"></h2>
-    <span id="dirty-flag" class="badge badge-warn" hidden>Unsaved changes</span>
+  <div id="detail-banner" role="alert"></div>
+  <div class="dhead">
+    <button id="btn-back" class="btn btn-ghost">← Back</button>
+    <div class="dtitle">
+      <h1 id="detail-title"></h1>
+      <div id="detail-sub" class="muted"></div>
+    </div>
+    <div id="detail-meta" class="dmeta"></div>
+    <div class="head-actions"><button id="btn-print" class="btn">🖨 Print details</button></div>
+  </div>
+  <section class="card stepper-card"><ol id="stepper" class="stepper" aria-label="Order workflow"></ol></section>
+  <section id="callouts" class="callouts"></section>
+  <div class="dlayout">
+    <aside class="dside">
+      <section id="facts" class="facts"></section>
+      <section class="card scanbox" id="scanbox">
+        <h3>Scanned document</h3>
+        <div id="scan-list" class="muted">No scan uploaded yet.</div>
+        <div id="scan-upload" class="scanrow">
+          <input id="scan-file" type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png">
+          <button id="scan-go" class="btn btn-primary" disabled>Upload scan</button>
+          <span id="scan-msg" class="muted"></span>
+        </div>
+        <div class="muted small">PDF, JPG or PNG, up to 7 MB. Upload the signed copy once the SO is complete.</div>
+      </section>
+    </aside>
+    <div class="dmain">
+      <nav id="tabs" class="tabs" role="tablist" aria-label="Sections"></nav>
+      <form id="detail-form" autocomplete="off"></form>
+    </div>
+  </div>
+  <div id="savebar" class="savebar" hidden>
+    <span id="dirty-flag" class="badge badge-warn">Unsaved changes</span>
     <span class="spacer"></span>
-    <button id="btn-print" class="btn">Print details</button>
-    <button id="btn-discard" class="btn" disabled>Discard changes</button>
+    <button id="btn-discard" class="btn" disabled>Discard</button>
     <button id="btn-save" class="btn btn-primary" disabled>Save changes</button>
   </div>
-  <div id="detail-banner" role="alert"></div>
-  <section class="card scanbox" id="scanbox">
-    <h3>Scanned document</h3>
-    <div id="scan-list" class="muted">No scan uploaded yet.</div>
-    <div id="scan-upload" class="scanrow">
-      <input id="scan-file" type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png">
-      <button id="scan-go" class="btn btn-primary" disabled>Upload scan</button>
-      <span id="scan-msg" class="muted"></span>
-    </div>
-    <div class="muted small">PDF, JPG or PNG, up to 7 MB. Upload the signed/printed copy once the SO is complete.</div>
-  </section>
-  <form id="detail-form" autocomplete="off"></form>
 </main>
+
+</div>
 
 <div id="print-sheet" aria-hidden="true"></div>
 

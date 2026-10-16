@@ -246,7 +246,8 @@ var SOService = (function () {
     var K = Core.BY_KEY;
     var idIndex = adapter.getIdIndex();
     var stock = readStockInfo(adapter);
-    var idxs = [K.status.index, K.so_release_status_bar.index, K.mat_status_bar.index, K.customer.index, K.part_no.index, K.so_no.index];
+    // B..AC in one contiguous read (status, bars, customer, part, qty, due date, SO#, quote flags)
+    var idxs = span(K.status.index, K.quote_received.index);
     if (idIndex >= 0) idxs.push(idIndex);
     var rows = [];
     adapter.readColumns(idxs, true).forEach(function (r) {
@@ -256,7 +257,8 @@ var SOService = (function () {
       if (!req.includeClosed && status === '4.CLOSE') return;
       rows.push({
         id: idIndex >= 0 ? v[idIndex] || null : null, so_no: v[K.so_no.index], part_no: v[K.part_no.index], customer: v[K.customer.index],
-        status: status, soBar: Core.pctNum(v[K.so_release_status_bar.index]), matBar: Core.pctNum(v[K.mat_status_bar.index])
+        status: status, soBar: Core.pctNum(v[K.so_release_status_bar.index]), matBar: Core.pctNum(v[K.mat_status_bar.index]),
+        due: v[K.due_date.index], qty: v[K.so_qty.index], reqQuote: v[K.req_mat_quote.index], quoteReceived: v[K.quote_received.index]
       });
     });
     // lowest progress first (unknown bars last)
