@@ -71,3 +71,12 @@ dialog table th { position:static; cursor:default; } dialog td { white-space:nor
 .bar-done > span { color:#fff; text-shadow:0 0 2px rgba(0,0,0,.5); }
 .req { color:var(--err); font-weight:700; }
 td .bar { min-width:100px; }
+.chk { display:inline-flex; align-items:center; justify-content:center; width:16px; height:16px; margin-left:6px; border-radius:50%; background:#1f9d55; color:#fff; font-size:11px; line-height:1; font-weight:700; vertical-align:middle; }
+.issue { display:inline-flex; align-items:center; justify-content:center; min-width:16px; height:16px; margin-left:6px; padding:0 5px; border-radius:8px; background:var(--err); color:#fff; border:0; font-size:11px; font-weight:700; line-height:1; cursor:pointer; vertical-align:middle; }
+#dlg-upload select, #dlg-upload input[type=file] { display:block; margin:4px 0 10px; width:100%; }
+#dlg-upload label { display:block; font-size:12px; color:var(--muted); }
+#dlg-upload { width:min(520px,92vw); }
+#up-preview { margin:6px 0; white-space:pre-wrap; }
+.pricehint { font-size:12px; margin-top:3px; }
+.pricehint.ok { color:var(--ok); } .pricehint.bad { color:var(--err); }
+.prow { display:flex; justify-content:space-between; gap:20px; padding:3px 0; border-bottom:1px solid var(--line); }

@@ -18,8 +18,8 @@ function makeRow(rowNumber, id, fields, formulas = {}) {
 
 function seedRows() {
   return [
-    makeRow(3, 'id-1', { status: '1. ANALYSIS', champion: 'ALPHA', customer: 'ACME', part_no: '838-004-428', so_qty: 1200, due_date: '2026-11-05', so_no: 25712, notes: 'Stock-27 weeks', bar_type: 'RD', so_release_status_bar: '35%' }),
-    makeRow(4, 'id-2', { status: '3.OPEN', customer: 'ACME', part_no: '00123', so_qty: 770, so_no: 'R24449', req_mat_quote: 'YES', price_on_po: 319.95, total_price_quote: 398 }, { total_price_quote: '=275*7.53' }),
+    makeRow(3, 'id-1', { status: '1. ANALYSIS', champion: 'ALPHA', customer: 'ACME', part_no: '838-004-428', so_qty: 1200, due_date: '2026-11-05', so_no: 25712, notes: 'Stock-27 weeks', bar_type: 'RD', so_release_status_bar: '35%', part_price: ' $ 11.79 ' }),
+    makeRow(4, 'id-2', { status: '3.OPEN', customer: 'ACME', part_no: '00123', so_qty: 770, so_no: 'R24449', part_price: ' $ 2.49 ', req_mat_quote: 'YES', price_on_po: 319.95, total_price_quote: 398 }, { total_price_quote: '=275*7.53' }),
     makeRow(5, 'id-3', { status: '4.CLOSE', customer: 'GLOBEX', part_no: '1078364', so_qty: 50, so_no: 25692, po_receive_date: '8-Oct' })
   ];
 }
@@ -30,14 +30,19 @@ class FakeSheet {
     this.idIndex = opts.noIdColumn ? -1 : ID_INDEX;
     this.auditLog = [];
     this.locked = false;
+    this.stock = [];
+    this.stockMeta = null;
     this.tokens = opts.tokens || {
       'tok-editor': { email: 'editor@example.com' },
       'tok-viewer': { email: 'viewer@example.com' },
-      'tok-stranger': { email: 'stranger@example.com' }
+      'tok-stranger': { email: 'stranger@example.com' },
+      'tok-admin': { email: 'admin@example.com' }
     };
   }
   verifyToken(t) { const x = this.tokens[t]; return x ? { ok: true, email: x.email } : { ok: false, error: 'Session expired or invalid. Please sign in again.' }; }
-  config() { return { editors: 'editor@example.com', viewers: 'viewer@example.com' }; }
+  config() { return { editors: 'editor@example.com', viewers: 'viewer@example.com', admins: 'admin@example.com' }; }
+  readStock() { return { rows: this.stock.map(r => r.slice()), meta: this.stockMeta }; }
+  writeStock(rows, meta) { this.stock = rows.map(r => r.slice()); this.stockMeta = meta; }
   now() { return '2026-10-16T12:00:00.000Z'; }
   readAll() { return { idIndex: this.idIndex, rows: this.rows.map(r => JSON.parse(JSON.stringify(r))) }; }
   readRow(n) { return JSON.parse(JSON.stringify(this.rows.find(r => r.rowNumber === n))); }

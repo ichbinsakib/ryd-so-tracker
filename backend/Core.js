@@ -258,13 +258,75 @@ var SOCore = (function () {
     return String(s || '').split(/[,\s;]+/).map(function (e) { return e.trim().toLowerCase(); }).filter(Boolean);
   }
 
-  /** @returns 'editor' | 'viewer' | null */
-  function roleFor(email, editorsCsv, viewersCsv) {
+  /** @returns 'admin' | 'editor' | 'viewer' | null  (admins can also edit) */
+  function roleFor(email, editorsCsv, viewersCsv, adminsCsv) {
     if (!email) return null;
     var e = String(email).toLowerCase();
+    if (parseEmailList(adminsCsv).indexOf(e) >= 0) return 'admin';
     if (parseEmailList(editorsCsv).indexOf(e) >= 0) return 'editor';
     if (parseEmailList(viewersCsv).indexOf(e) >= 0) return 'viewer';
     return null;
+  }
+
+  // ---- stockroom price check ----
+  var PRICE_TOLERANCE = 0.005;
+  var MAX_STOCK_ROWS = 20000;
+
+  function normalizePart(p) {
+    return String(p === undefined || p === null ? '' : p).trim().toUpperCase().replace(/\s+/g, ' ');
+  }
+
+  /** Parses 11.79, "$ 11.79 ", "1,416.50". Returns null for "-", "", text. */
+  function parsePrice(v) {
+    if (typeof v === 'number') return isFinite(v) ? v : null;
+    var s = String(v === undefined || v === null ? '' : v).replace(/[$,\s]/g, '');
+    if (!/^-?\d+(\.\d+)?$/.test(s)) return null;
+    return parseFloat(s);
+  }
+
+  /** rows: [[part, price], ...] -> {PART: [prices]} */
+  function buildStockIndex(rows) {
+    var idx = {};
+    (rows || []).forEach(function (r) {
+      var k = normalizePart(r[0]);
+      var p = parsePrice(r[1]);
+      if (!k || p === null) return;
+      (idx[k] = idx[k] || []).push(p);
+    });
+    return idx;
+  }
+
+  /**
+   * Compare a record's PART PRICE (worksheet) to the uploaded stockroom prices.
+   * state: 'none' (nothing to compare) | 'ok' | 'issue'
+   */
+  function priceCheck(rec, index, hasStock) {
+    if (!hasStock) return { state: 'none' };
+    var part = normalizePart(rec.values.part_no);
+    if (!part) return { state: 'none' };
+    var appPrice = parsePrice(rec.display.part_price);
+    var list = index[part];
+    if (!list) return { state: 'issue', reason: 'Part not found in the stockroom sheet', appPrice: appPrice, stockPrices: [] };
+    if (appPrice === null) return { state: 'issue', reason: 'No part price in the worksheet', appPrice: null, stockPrices: list };
+    var ok = list.some(function (p) { return Math.abs(p - appPrice) < PRICE_TOLERANCE; });
+    return ok
+      ? { state: 'ok', appPrice: appPrice, stockPrices: list }
+      : { state: 'issue', reason: 'Price differs from the stockroom sheet', appPrice: appPrice, stockPrices: list };
+  }
+
+  /** Validate rows sent by an admin upload: [{part, price}]. */
+  function validateStockUpload(rows) {
+    if (!Array.isArray(rows) || !rows.length) return { ok: false, error: 'The file has no rows to import.' };
+    if (rows.length > MAX_STOCK_ROWS) return { ok: false, error: 'Too many rows (limit ' + MAX_STOCK_ROWS + ').' };
+    var clean = [], skipped = 0;
+    rows.forEach(function (r) {
+      var part = r && typeof r.part === 'string' ? r.part.trim() : (r && typeof r.part === 'number' ? String(r.part) : '');
+      var price = r ? parsePrice(r.price) : null;
+      if (!part || part.length > 100 || part.charAt(0) === '=' || price === null || price < 0) { skipped++; return; }
+      clean.push([part, price]);
+    });
+    if (!clean.length) return { ok: false, error: 'No valid part number + price rows were found. Check the column choice.' };
+    return { ok: true, rows: clean, skipped: skipped };
   }
 
   /** Check Google tokeninfo payload. */
@@ -284,7 +346,9 @@ var SOCore = (function () {
     hash: hash, validateValue: validateValue, validIsoDate: validIsoDate,
     buildRecord: buildRecord, recordVersion: recordVersion, isRecordRow: isRecordRow,
     planUpdate: planUpdate, sameValue: sameValue,
-    parseEmailList: parseEmailList, roleFor: roleFor, checkTokenInfo: checkTokenInfo
+    parseEmailList: parseEmailList, roleFor: roleFor, checkTokenInfo: checkTokenInfo,
+    normalizePart: normalizePart, parsePrice: parsePrice, buildStockIndex: buildStockIndex,
+    priceCheck: priceCheck, validateStockUpload: validateStockUpload
   };
 })();
 

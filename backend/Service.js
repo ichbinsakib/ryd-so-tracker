@@ -27,12 +27,22 @@ var SOService = (function () {
     return r;
   }
 
-  function loadRecords(adapter) {
+  function readStockInfo(adapter) {
+    var s = adapter.readStock ? adapter.readStock() : { rows: [], meta: null };
+    return { index: Core.buildStockIndex(s.rows), has: s.rows.length > 0, count: s.rows.length, meta: s.meta || null };
+  }
+
+  function withCheck(rec, stock) {
+    rec.priceCheck = Core.priceCheck(rec, stock.index, stock.has);
+    return rec;
+  }
+
+  function loadRecords(adapter, stock) {
     var data = adapter.readAll();
     var records = [];
     data.rows.forEach(function (row) {
       if (!Core.isRecordRow(row)) return;
-      records.push(Core.buildRecord(row, data.idIndex));
+      records.push(withCheck(Core.buildRecord(row, data.idIndex), stock));
     });
     return { records: records, idIndex: data.idIndex };
   }
@@ -44,7 +54,7 @@ var SOService = (function () {
       var auth = adapter.verifyToken(req.idToken);
       if (!auth || !auth.ok) return fail('UNAUTHENTICATED', (auth && auth.error) || 'Please sign in.');
       var cfg = adapter.config();
-      var role = Core.roleFor(auth.email, cfg.editors, cfg.viewers);
+      var role = Core.roleFor(auth.email, cfg.editors, cfg.viewers, cfg.admins);
       if (!role) return fail('FORBIDDEN', 'Your Google account (' + auth.email + ') is not authorised for this application.');
 
       switch (req.action) {
@@ -52,22 +62,28 @@ var SOService = (function () {
           return { ok: true, email: auth.email, role: role, fields: Core.publicFields() };
 
         case 'list': {
-          var l = loadRecords(adapter);
+          var stock = readStockInfo(adapter);
+          var l = loadRecords(adapter, stock);
           return {
             ok: true, role: role, email: auth.email, fields: Core.publicFields(),
-            writable: l.idIndex >= 0, refreshedAt: adapter.now(), records: l.records
+            writable: l.idIndex >= 0, refreshedAt: adapter.now(), records: l.records,
+            stock: { has: stock.has, count: stock.count, meta: stock.meta }
           };
         }
 
         case 'get': {
           var row = findById(adapter, req.id);
           if (!row) return fail('NOT_FOUND', 'Record not found.');
-          return { ok: true, record: Core.buildRecord(row.row, row.idIndex), refreshedAt: adapter.now() };
+          return { ok: true, record: withCheck(Core.buildRecord(row.row, row.idIndex), readStockInfo(adapter)), refreshedAt: adapter.now() };
         }
 
         case 'update':
-          if (role !== 'editor') return fail('FORBIDDEN', 'You have read-only access.');
+          if (role === 'viewer') return fail('FORBIDDEN', 'You have read-only access.');
           return update(adapter, auth.email, req);
+
+        case 'uploadStock':
+          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can upload the stockroom sheet.');
+          return uploadStock(adapter, auth.email, req);
 
         default:
           return fail('BAD_REQUEST', 'Unknown action.');
@@ -108,7 +124,7 @@ var SOService = (function () {
         return { index: w.field.index, value: w.value, type: w.field.type };
       }));
       var after = adapter.readRow(found.row.rowNumber);
-      var updated = Core.buildRecord(after, found.idIndex);
+      var updated = withCheck(Core.buildRecord(after, found.idIndex), readStockInfo(adapter));
       plan.writes.forEach(function (w) {
         adapter.audit({
           at: adapter.now(), user: email, recordId: req.id, row: found.row.rowNumber,
@@ -116,6 +132,21 @@ var SOService = (function () {
         });
       });
       return { ok: true, record: updated, changed: plan.writes.map(function (w) { return w.key; }), refreshedAt: adapter.now() };
+    });
+  }
+
+  function uploadStock(adapter, email, req) {
+    var v = Core.validateStockUpload(req.rows);
+    if (!v.ok) return fail('INVALID', v.error);
+    var fileName = String(req.fileName || '').slice(0, 120);
+    return adapter.withLock(function () {
+      var meta = { uploadedAt: adapter.now(), uploadedBy: email, fileName: fileName };
+      adapter.writeStock(v.rows, meta);
+      adapter.audit({
+        at: meta.uploadedAt, user: email, recordId: '', row: '', field: 'STOCKROOM UPLOAD',
+        oldValue: '', newValue: v.rows.length + ' rows' + (fileName ? ' from ' + fileName : '') + (v.skipped ? ' (' + v.skipped + ' skipped)' : '')
+      });
+      return { ok: true, count: v.rows.length, skipped: v.skipped, meta: meta };
     });
   }
 

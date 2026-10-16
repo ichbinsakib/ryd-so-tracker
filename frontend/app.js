@@ -6,10 +6,10 @@
   const state = {
     token: null, email: '', role: null, fields: [], byKey: {}, records: [], writable: false,
     refreshedAt: null, view: [], sortKey: 'so_no', sortDir: 'desc', page: 0, pageSize: 50,
-    visibleCols: null, current: null, dirty: false, saving: false
+    visibleCols: null, stock: null, current: null, dirty: false, saving: false
   };
   const BAR_KEYS = ['so_release_status_bar', 'mat_status_bar'];
-  const DEFAULT_COLS = ['status', 'so_release_status_bar', 'mat_status_bar', 'so_no', 'part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_mat_quote', 'quote_received', 'so_close_date'];
+  const DEFAULT_COLS = ['status', 'so_release_status_bar', 'mat_status_bar', 'part_price', 'so_no', 'part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_mat_quote', 'quote_received', 'so_close_date'];
   const SECTIONS = [
     ['Order', 'notes', 'so_no'],
     ['Material requirement', 'steel_type', 'email_template'],
@@ -54,6 +54,29 @@
     return el('div', { class: 'bar' + (p >= 100 ? ' bar-done' : ''), title: text, role: 'progressbar', 'aria-valuenow': String(p), 'aria-valuemin': '0', 'aria-valuemax': '100' },
       el('i', { style: 'width:' + p + '%;background:' + color }), el('span', { text: p % 1 ? p.toFixed(1) + '%' : p + '%' }));
   }
+  // ---- stockroom price check indicators ----
+  const money = (n) => (n === null || n === undefined ? '—' : '$' + Number(n).toFixed(2));
+  function priceBadge(rec) {
+    const c = rec.priceCheck; if (!c || c.state === 'none') return '';
+    if (c.state === 'ok') return el('span', { class: 'chk', title: 'Price matches stockroom sheet (' + money(c.appPrice) + ')', text: '✓' });
+    return el('button', { class: 'issue', type: 'button', title: c.reason + ' — click for details', text: '!', onclick: (e) => { e.stopPropagation(); showPriceDialog(rec); } });
+  }
+  function showPriceDialog(rec) {
+    const c = rec.priceCheck;
+    $('dp-title').textContent = 'Price issue · part ' + norm(rec.values.part_no);
+    $('dp-body').replaceChildren(
+      el('p', { text: c.reason + '.' }),
+      el('div', { class: 'prow' }, el('span', { text: 'Worksheet PART PRICE' }), el('strong', { text: money(c.appPrice) })),
+      el('div', { class: 'prow' }, el('span', { text: 'Stockroom sheet price' }), el('strong', { text: c.stockPrices.length ? c.stockPrices.map(money).join(', ') : 'not listed' })));
+    $('dlg-price').showModal();
+  }
+  function showStockStatus() {
+    const st = state.stock, box = $('stock-status');
+    if (!st || !st.has) { box.textContent = state.role === 'admin' ? 'No stockroom price sheet uploaded yet. Use "Upload stockroom sheet" to enable price checks.' : 'Stockroom price check is not active yet (no sheet uploaded).'; return; }
+    const m = st.meta || {};
+    box.textContent = 'Stockroom prices: ' + st.count + ' parts' + (m.uploadedAt ? ', uploaded ' + new Date(m.uploadedAt).toLocaleString() : '') + (m.uploadedBy ? ' by ' + m.uploadedBy : '') + (m.fileName ? ' (' + m.fileName + ')' : '') + '. ✓ = matches, ! = issue.';
+  }
+
   const isIso = (s) => /^\d{4}-\d{2}-\d{2}$/.test(s);
   const norm = (v) => (v === null || v === undefined ? '' : String(v));
 
@@ -85,7 +108,8 @@
     if (CFG.DEV_MODE) {
       container.replaceChildren(el('button', { class: 'btn btn-primary', text: 'Dev sign-in (editor)', onclick: () => onToken('tok-editor') }),
         ' ', el('button', { class: 'btn', text: 'Dev sign-in (viewer)', onclick: () => onToken('tok-viewer') }),
-        ' ', el('button', { class: 'btn', text: 'Dev sign-in (stranger)', onclick: () => onToken('tok-stranger') }));
+        ' ', el('button', { class: 'btn', text: 'Dev sign-in (stranger)', onclick: () => onToken('tok-stranger') }),
+        ' ', el('button', { class: 'btn', text: 'Dev sign-in (admin)', onclick: () => onToken('tok-admin') }));
       return;
     }
     await loadGis();
@@ -119,7 +143,8 @@
       if (r.code === 'FORBIDDEN') { signOut(); return showLogin(r.error); }
       ls.className = 'statusline err'; ls.textContent = r.error + ' (data unavailable)'; return;
     }
-    Object.assign(state, { email: r.email, role: r.role, fields: r.fields, records: r.records, writable: r.writable, refreshedAt: r.refreshedAt });
+    Object.assign(state, { email: r.email, role: r.role, fields: r.fields, records: r.records, writable: r.writable, refreshedAt: r.refreshedAt, stock: r.stock });
+    $('btn-upload').hidden = r.role !== 'admin'; showStockStatus();
     state.byKey = Object.fromEntries(r.fields.map((f) => [f.key, f]));
     if (!state.visibleCols) state.visibleCols = DEFAULT_COLS.slice();
     $('user').textContent = state.email + ' · ' + state.role; $('btn-signout').hidden = false;
@@ -148,9 +173,11 @@
   const SEARCH_KEYS = ['so_no', 'part_no', 'po_no_1', 'po_no_2', 'invoice_no', 'customer', 'notes', 'note', 'steel_type', 'material_code', 'champion'];
   function applyView() {
     const q = $('q').value.trim().toLowerCase();
+    const pf = $('f-price').value;
     const fl = { status: $('f-status').value, customer: $('f-customer').value, champion: $('f-champion').value, so_type: $('f-sotype').value, kanban_or_po: $('f-kanban').value };
     state.view = state.records.filter((r) => {
       for (const [k, v] of Object.entries(fl)) if (v && norm(r.values[k]).trim() !== v) return false;
+      if (pf && (!r.priceCheck || r.priceCheck.state !== pf)) return false;
       if (!q) return true;
       return SEARCH_KEYS.some((k) => norm(r.values[k]).toLowerCase().includes(q) || norm(r.display[k]).toLowerCase().includes(q));
     });
@@ -188,6 +215,7 @@
       cols.map((f) => {
         const text = norm(r.display[f.key]);
         if (BAR_KEYS.includes(f.key)) return el('td', {}, barNode(text));
+        if (f.key === 'part_no' || f.key === 'part_price') return el('td', { title: text }, text, priceBadge(r));
         if (f.key === 'status') return el('td', {}, text ? el('span', { class: 'pill ' + (/OPEN/.test(text) ? 's-open' : /HOLD/.test(text) ? 's-hold' : /CLOSE/.test(text) ? 's-close' : ''), text }) : '');
         return el('td', { title: text, text });
       }))));
@@ -205,7 +233,7 @@
     banner('', ''); updateDirty();
   }
   function banner(kind, msg, node) { const b = $('detail-banner'); b.className = kind; b.replaceChildren(node || msg || ''); }
-  function canEdit() { return state.role === 'editor' && state.writable && state.current && state.current.id; }
+  function canEdit() { return state.role !== 'viewer' && state.writable && state.current && state.current.id; }
   function renderDetail() {
     const rec = state.current;
     $('detail-title').textContent = 'SO# ' + (norm(rec.values.so_no) || '(none)') + ' · Part ' + (norm(rec.values.part_no) || '(none)') + ' · row ' + rec.row;
@@ -215,7 +243,7 @@
       const keys = order.slice(order.indexOf(from), order.indexOf(to) + 1);
       form.append(el('fieldset', {}, el('legend', { text: title }), el('div', { class: 'grid' }, keys.map((k) => fieldNode(state.byKey[k], rec)))));
     });
-    if (!canEdit()) banner('warn', state.role !== 'editor' ? 'You have read-only access.' : 'Editing is disabled until RECORD IDs are set up in the sheet.');
+    if (!canEdit()) banner('warn', state.role === 'viewer' ? 'You have read-only access.' : 'Editing is disabled until RECORD IDs are set up in the sheet.');
   }
   function fieldNode(f, rec) {
     const locked = rec.formulaLocked.includes(f.key);
@@ -241,6 +269,10 @@
       el('label', { for: id }, f.label, f.required ? el('span', { class: 'req', title: 'Required', text: ' *' }) : '', el('span', { class: 'col', text: '(' + f.col + ')' }),
         !f.editable ? el('span', { class: 'tag', text: 'calculated' }) : locked ? el('span', { class: 'tag', text: 'formula' }) : ''),
       input);
+    if (f.key === 'part_price' && rec.priceCheck && rec.priceCheck.state !== 'none') {
+      const c = rec.priceCheck;
+      wrap.append(el('div', { class: 'pricehint ' + (c.state === 'ok' ? 'ok' : 'bad'), text: c.state === 'ok' ? '✓ Matches stockroom sheet (' + money(c.stockPrices[0]) + ')' : '! ' + c.reason + ' — stockroom: ' + (c.stockPrices.length ? c.stockPrices.map(money).join(', ') : 'not listed') }));
+    }
     if (BAR_KEYS.includes(f.key)) { input.hidden = true; wrap.append(barNode(norm(rec.display[f.key]))); }
     if (input.dataset.legacy) wrap.append(el('div', { class: 'hint', text: 'Existing value "' + input.dataset.legacy + '" is kept unless you pick a date.' }));
     if (f.note) wrap.append(el('div', { class: 'hint', text: f.note }));
@@ -320,11 +352,106 @@
     if (await confirmDialog('Discard changes?', el('p', { text: 'Reset this record to the last saved values?' }), 'Discard', true)) { renderDetail(); updateDirty(); banner('', ''); }
   }
 
+  // ---------- admin: stockroom sheet upload
+  const SHEETJS = { src: 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', integrity: 'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw' };
+  const up = { sheets: [], file: null, rows: [] };
+  function loadSheetJs() {
+    return new Promise((resolve, reject) => {
+      if (window.XLSX) return resolve();
+      const s = document.createElement('script');
+      s.src = SHEETJS.src; s.integrity = SHEETJS.integrity; s.crossOrigin = 'anonymous';
+      s.onload = resolve; s.onerror = () => reject(new Error('Could not load the Excel reader. Save the sheet as CSV and try again.'));
+      document.head.append(s);
+    });
+  }
+  function parseCsv(t) {
+    const rows = []; let r = [], f = '', q = false;
+    for (let i = 0; i < t.length; i++) {
+      const c = t[i];
+      if (q) { if (c === '"') { if (t[i + 1] === '"') { f += '"'; i++; } else q = false; } else f += c; }
+      else if (c === '"') q = true; else if (c === ',') { r.push(f); f = ''; }
+      else if (c === '\n' || c === '\r') { if (c === '\r' && t[i + 1] === '\n') i++; r.push(f); f = ''; rows.push(r); r = []; }
+      else f += c;
+    }
+    if (f || r.length) { r.push(f); rows.push(r); }
+    return rows;
+  }
+  async function readUploadFile(file) {
+    if (file.size > 15 * 1024 * 1024) throw new Error('File is too large (15 MB limit).');
+    if (/\.csv$/i.test(file.name)) return [{ name: 'CSV', rows: parseCsv((await file.text()).replace(/^\uFEFF/, '')) }];
+    await loadSheetJs();
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    return wb.SheetNames.map((n) => ({ name: n, rows: XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, raw: true, defval: '' }) }));
+  }
+  const priceNum = (v) => { if (typeof v === 'number') return isFinite(v) ? v : null; const c = String(v ?? '').replace(/[$,\s]/g, ''); return /^-?\d+(\.\d+)?$/.test(c) ? parseFloat(c) : null; };
+  function currentSheet() { return up.sheets[+$('up-sheet').value] || { rows: [] }; }
+  function fillColumnPickers() {
+    const rows = currentSheet().rows;
+    const hi = rows.findIndex((r) => r.filter((c) => String(c).trim() !== '').length >= 2);
+    const head = hi >= 0 ? rows[hi] : [];
+    const colName = (i) => (String(head[i] ?? '').trim() || 'Column ' + (i + 1));
+    const n = Math.max(0, ...rows.slice(0, 50).map((r) => r.length));
+    const opts = () => Array.from({ length: n }, (_, i) => el('option', { value: String(i), text: colName(i) }));
+    const pSel = $('up-part'), cSel = $('up-price');
+    pSel.replaceChildren(...opts()); cSel.replaceChildren(...opts());
+    const find = (re) => Array.from({ length: n }, (_, i) => i).find((i) => re.test(String(head[i] ?? '')));
+    const pi = find(/part|item|sku|p\/n|number/i), ci = find(/price|cost|unit|amount/i);
+    if (pi !== undefined) pSel.value = String(pi);
+    cSel.value = String(ci !== undefined ? ci : Math.min(1, n - 1));
+    up.headerRow = hi;
+    updateUploadPreview();
+  }
+  function collectUploadRows() {
+    const rows = currentSheet().rows.slice(Math.max(0, up.headerRow + 1));
+    const pc = +$('up-part').value, cc = +$('up-price').value;
+    const out = []; let skipped = 0;
+    rows.forEach((r) => {
+      const part = String(r[pc] ?? '').trim(); const price = priceNum(r[cc]);
+      if (!part && (r[cc] === '' || r[cc] === undefined)) return;            // empty line
+      if (!part || price === null || price < 0) { skipped++; return; }
+      out.push({ part, price });
+    });
+    return { out, skipped };
+  }
+  function updateUploadPreview() {
+    const { out, skipped } = collectUploadRows();
+    up.rows = out;
+    $('up-preview').textContent = out.length
+      ? out.length + ' valid rows' + (skipped ? ', ' + skipped + ' skipped (blank or non-numeric price)' : '') + '.  First: ' + out.slice(0, 3).map((x) => x.part + ' → ' + money(x.price)).join('   ')
+      : 'No valid rows with this column choice.' + (skipped ? ' (' + skipped + ' rows skipped)' : '');
+    $('up-go').disabled = !out.length;
+  }
+  function openUpload() {
+    $('upload-file').value = ''; $('upload-map').hidden = true; $('upload-msg').textContent = ''; $('up-go').disabled = true; up.rows = [];
+    $('dlg-upload').showModal();
+  }
+  $('btn-upload').onclick = openUpload;
+  $('upload-file').addEventListener('change', async (e) => {
+    const file = e.target.files[0]; $('upload-msg').textContent = ''; $('upload-map').hidden = true; $('up-go').disabled = true;
+    if (!file) return;
+    try {
+      up.sheets = (await readUploadFile(file)).filter((s) => s.rows.length); up.file = file.name;
+      if (!up.sheets.length) throw new Error('The file looks empty.');
+      $('up-sheet').replaceChildren(...up.sheets.map((s, i) => el('option', { value: String(i), text: s.name + ' (' + s.rows.length + ' rows)' })));
+      $('upload-map').hidden = false; fillColumnPickers();
+    } catch (err) { $('upload-msg').textContent = err.message || 'Could not read the file.'; }
+  });
+  $('up-sheet').addEventListener('change', fillColumnPickers);
+  $('up-part').addEventListener('change', updateUploadPreview); $('up-price').addEventListener('change', updateUploadPreview);
+  $('dlg-upload').addEventListener('close', async () => {
+    if ($('dlg-upload').returnValue !== 'ok' || !up.rows.length) return;
+    const n = up.rows.length; toast('Uploading ' + n + ' stockroom prices…');
+    const r = await api('uploadStock', { rows: up.rows, fileName: up.file });
+    if (!r.ok) { toast(r.error || 'Upload failed.', true); return; }
+    toast('Stockroom prices uploaded: ' + r.count + ' rows' + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + '.');
+    await loadList();
+  });
+
   // ---------- wiring
   window.addEventListener('beforeunload', (e) => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
   $('q').addEventListener('input', () => { clearTimeout(applyView.t); applyView.t = setTimeout(applyView, 150); });
-  ['f-status', 'f-customer', 'f-champion', 'f-sotype', 'f-kanban'].forEach((id) => $(id).addEventListener('change', applyView));
-  $('btn-clear').onclick = () => { $('q').value = ''; ['f-status', 'f-customer', 'f-champion', 'f-sotype', 'f-kanban'].forEach((id) => { $(id).value = ''; }); applyView(); };
+  ['f-status', 'f-customer', 'f-champion', 'f-sotype', 'f-kanban', 'f-price'].forEach((id) => $(id).addEventListener('change', applyView));
+  $('btn-clear').onclick = () => { $('q').value = ''; ['f-status', 'f-customer', 'f-champion', 'f-sotype', 'f-kanban', 'f-price'].forEach((id) => { $(id).value = ''; }); applyView(); };
   $('btn-refresh').onclick = async () => {
     if (!$('view-detail').hidden && state.dirty && !(await confirmDialog('Refresh and lose edits?', el('p', { text: 'You have unsaved changes on the open record.' }), 'Refresh anyway', true))) return;
     state.dirty = false; await loadList();

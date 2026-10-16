@@ -9,9 +9,11 @@
  *   SHEET_ID          ID of the spreadsheet
  *   EDITORS           comma-separated emails who may view and edit
  *   VIEWERS           comma-separated emails who may only view
+ *   ADMINS            comma-separated emails who may edit AND upload the stockroom price sheet
  */
 var SHEET_NAME = 'RYD-SO';
 var AUDIT_SHEET_NAME = 'APP_AUDIT';
+var STOCK_SHEET_NAME = 'STOCKROOM_PRICES';
 var BACKUP_KEEP = 14;
 
 function prop_(name) {
@@ -27,8 +29,9 @@ function doPost(e) {
   var req;
   try {
     var body = e && e.postData && e.postData.contents;
-    if (!body || body.length > 100000) return json_({ ok: false, code: 'BAD_REQUEST', error: 'Bad request size.' });
+    if (!body || body.length > 2000000) return json_({ ok: false, code: 'BAD_REQUEST', error: 'Bad request size.' });
     req = JSON.parse(body);
+    if (body.length > 100000 && (!req || req.action !== 'uploadStock')) return json_({ ok: false, code: 'BAD_REQUEST', error: 'Bad request size.' });
   } catch (err) {
     return json_({ ok: false, code: 'BAD_REQUEST', error: 'Request is not valid JSON.' });
   }
@@ -76,7 +79,26 @@ function sheetAdapter_() {
   return {
     verifyToken: verifyIdToken_,
 
-    config: function () { return { editors: prop_('EDITORS'), viewers: prop_('VIEWERS') }; },
+    config: function () { return { editors: prop_('EDITORS'), viewers: prop_('VIEWERS'), admins: prop_('ADMINS') }; },
+
+    readStock: function () {
+      var st = ss.getSheetByName(STOCK_SHEET_NAME);
+      if (!st || st.getLastRow() < 2) return { rows: [], meta: null };
+      var rows = st.getRange(2, 1, st.getLastRow() - 1, 2).getValues().filter(function (r) { return String(r[0]).trim() !== ''; });
+      var m = st.getRange(1, 4, 3, 2).getValues();
+      return { rows: rows, meta: { uploadedAt: String(m[0][1]), uploadedBy: String(m[1][1]), fileName: String(m[2][1]) } };
+    },
+
+    writeStock: function (rows, meta) {
+      var st = ss.getSheetByName(STOCK_SHEET_NAME) || ss.insertSheet(STOCK_SHEET_NAME);
+      st.clear();
+      st.getRange(1, 1, 1, 2).setValues([['PART #', 'PRICE']]);
+      st.getRange(1, 4, 3, 2).setValues([['UPLOADED AT', meta.uploadedAt], ['UPLOADED BY', meta.uploadedBy], ['FILE', meta.fileName]]);
+      st.getRange(2, 1, rows.length, 1).setNumberFormat('@');
+      st.getRange(2, 1, rows.length, 2).setValues(rows);
+      st.setFrozenRows(1);
+      SpreadsheetApp.flush();
+    },
 
     now: function () { return new Date().toISOString(); },
 

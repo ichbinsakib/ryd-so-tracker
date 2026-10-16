@@ -34,10 +34,13 @@
     <select id="f-champion" aria-label="Champion"><option value="">All champions</option></select>
     <select id="f-sotype" aria-label="SO type"><option value="">All SO types</option></select>
     <select id="f-kanban" aria-label="Kanban or PO"><option value="">Kanban/PO</option></select>
+    <select id="f-price" aria-label="Stockroom price check"><option value="">Price check: all</option><option value="ok">✓ Matches stockroom</option><option value="issue">✗ Price issue</option></select>
     <button id="btn-clear" class="btn btn-ghost">Clear filters</button>
+    <button id="btn-upload" class="btn" hidden title="Admins only">Upload stockroom sheet</button>
     <details class="colpicker"><summary class="btn">Columns</summary><div id="colpicker-list" class="card"></div></details>
   </section>
   <div id="list-status" class="statusline" aria-live="polite"></div>
+  <div id="stock-status" class="statusline"></div>
   <div class="tablewrap"><table id="grid"><thead></thead><tbody></tbody></table></div>
   <nav class="pager">
     <button id="pg-prev" class="btn">‹ Prev</button>
@@ -59,6 +62,27 @@
   <div id="detail-banner" role="alert"></div>
   <form id="detail-form" autocomplete="off"></form>
 </main>
+
+<dialog id="dlg-upload">
+  <form method="dialog" id="upload-form">
+    <h3>Upload stockroom price sheet</h3>
+    <p class="muted">CSV or Excel (.xlsx). Prices in this file are compared with PART PRICE for each part number. Uploading replaces the previous stockroom prices for everyone.</p>
+    <input id="upload-file" type="file" accept=".csv,.xlsx,.xls">
+    <div id="upload-map" hidden>
+      <label>Sheet <select id="up-sheet"></select></label>
+      <label>Part number column <select id="up-part"></select></label>
+      <label>Price column <select id="up-price"></select></label>
+      <div id="up-preview" class="muted"></div>
+    </div>
+    <p id="upload-msg" class="error" role="alert"></p>
+    <menu>
+      <button value="cancel" class="btn">Cancel</button>
+      <button value="ok" class="btn btn-primary" id="up-go" disabled>Upload and compare</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-price"><form method="dialog"><h3 id="dp-title">Price check</h3><div id="dp-body"></div><menu><button value="ok" class="btn btn-primary">Close</button></menu></form></dialog>
 
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
