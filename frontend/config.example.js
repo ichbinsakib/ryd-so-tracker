@@ -7,3 +7,4 @@ window.APP_CONFIG = {
   // Local development against dev/mock-server.js only. Must be false in production.
   DEV_MODE: false
 };
+// Production values are injected by .github/workflows/deploy-frontend.yml from repository variables.
