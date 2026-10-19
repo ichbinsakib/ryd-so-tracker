@@ -328,7 +328,7 @@ var SOService = (function () {
         existing.push(r.values[K.so_no.index]);
         if (r.rowNumber > lastRecordRow) lastRecordRow = r.rowNumber;
       });
-      var plan = Core.planCreate(req.changes, existing);
+      var plan = Core.planCreate(req.changes, existing, adapter.readUsers ? Core.peopleList(adapter.readUsers()) : null);
       if (!plan.ok) return fail(plan.code, plan.error, { fieldErrors: plan.fieldErrors });
       var free = null;
       for (var i = 0; i < rows.length; i++) {

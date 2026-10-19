@@ -437,7 +437,7 @@ var SOCore = (function () {
    * Validate the "Open an SO" form. existingSoNos: array of SO# values already in the sheet.
    * Returns {ok:true, writes:[{key, field, value}]} or {ok:false, code, error, fieldErrors}.
    */
-  function planCreate(changes, existingSoNos) {
+  function planCreate(changes, existingSoNos, people) {
     var errors = {}, writes = [];
     changes = changes || {};
     Object.keys(changes).forEach(function (k) {
@@ -451,6 +451,11 @@ var SOCore = (function () {
       if (r.value === '') {
         if (INTAKE_REQUIRED.indexOf(k) >= 0) errors[k] = f.label + ' is required.';
         return;
+      }
+      if ((k === 'champion' || k === 'req_by') && people && people.length) {
+        var hit = people.filter(function (p) { return String(p).toLowerCase() === String(r.value).toLowerCase(); })[0];
+        if (!hit) { errors[k] = f.label + ' must be a person from the Users list.'; return; }
+        r.value = hit;
       }
       writes.push({ key: k, field: f, value: r.value });
     });

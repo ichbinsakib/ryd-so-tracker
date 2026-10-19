@@ -326,7 +326,7 @@
     else input = el('input', { id, type: 'text', inputmode: f.type === 'number' ? 'decimal' : 'text' });
     input.dataset.key = key;
     input.addEventListener('input', () => { const w = input.closest('.field'); w.classList.remove('invalid'); w.querySelector('.ferr')?.remove(); });
-    return el('div', { class: 'field' + (f.type === 'longtext' ? ' wide' : '') },
+    return el('div', { class: 'field' + (req ? ' mandatory' : '') + (f.type === 'longtext' ? ' wide' : '') },
       el('label', { for: id }, f.label, req ? el('span', { class: 'req', title: 'Required', text: ' *' }) : el('span', { class: 'tag', text: 'optional' })), input);
   }
   function openNewForm() {
@@ -496,7 +496,7 @@
     else { input = el('input', { id, type: 'text', value: norm(rec.display[f.key]) }); }
     input.dataset.key = f.key; input.dataset.orig = f.editable ? norm(val) : '';
     if (!editable) input.disabled = true;
-    const wrap = el('div', { class: 'field' + (editable ? '' : ' ro') + (f.type === 'longtext' ? ' wide' : '') },
+    const wrap = el('div', { class: 'field' + (f.required ? ' mandatory' : '') + (editable ? '' : ' ro') + (f.type === 'longtext' ? ' wide' : '') },
       el('label', { for: id }, f.label, f.required ? el('span', { class: 'req', title: 'Required', text: ' *' }) : '', el('span', { class: 'col', text: '(' + f.col + ')' }),
         !f.editable ? el('span', { class: 'tag', text: 'calculated' }) : locked ? el('span', { class: 'tag', text: 'formula' }) : ''),
       input);

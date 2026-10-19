@@ -180,11 +180,15 @@ test('SO# is optional when opening an SO; people list comes from active users', 
   assert.ok(!p.writes.some(w => w.key === 'so_no'));
   const s = new FakeSheet(); s.users = [
     { email: 'b@x.com', name: 'Bravo', role: 'editor', active: true },
+    { email: 'al@x.com', name: 'ALPHA', role: 'editor', active: true },
     { email: 'a@x.com', name: '', role: 'editor', active: true },
     { email: 'off@x.com', name: 'Gone', role: 'editor', active: false }
   ];
-  assert.deepEqual(Core.intakeInfo(s.users).people, ['a', 'Bravo']);
-  const r = call(s, 'tok-admin', { action: 'createSO', changes: f });
+  assert.deepEqual(Core.intakeInfo(s.users).people, ['a', 'ALPHA', 'Bravo']);
+  const r0 = call(s, 'tok-admin', { action: 'createSO', changes: { ...f, req_by: 'Nobody' } });
+  assert.equal(r0.code, 'INVALID'); assert.ok(r0.fieldErrors.req_by);
+  const r = call(s, 'tok-admin', { action: 'createSO', changes: { ...f, req_by: 'bravo' } });
+  assert.equal(s.rows.find(x => x.rowNumber === 6).values[Core.BY_KEY.req_by.index], 'Bravo');
   assert.equal(r.ok, true);
   assert.ok(s.auditLog.some(e => /without SO#/.test(e.newValue)));
 });
