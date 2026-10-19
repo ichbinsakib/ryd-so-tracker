@@ -415,10 +415,21 @@ var SOCore = (function () {
 
   // ---- Opening a new SO (intake form), dashboard rows, scan uploads ----
   var INTAKE_KEYS = ['so_no', 'part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_by', 'so_req_date', 'notes'];
-  var INTAKE_REQUIRED = ['so_no', 'part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_by', 'so_req_date'];
+  var INTAKE_REQUIRED = ['part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_by', 'so_req_date'];
   var NEW_SO_STATUS = '3.OPEN';
 
-  function intakeInfo() { return { keys: INTAKE_KEYS.slice(), required: INTAKE_REQUIRED.slice() }; }
+  /** Names offered in the Champion / Req. by dropdowns: active users from APP_USERS (name, else the part of the email before @). */
+  function peopleList(users) {
+    var seen = {}, out = [];
+    (users || []).forEach(function (u) {
+      if (!u || !u.active) return;
+      var n = String(u.name || '').trim() || String(u.email || '').split('@')[0];
+      if (n && !seen[n.toLowerCase()]) { seen[n.toLowerCase()] = 1; out.push(n); }
+    });
+    return out.sort(function (a, b) { return a.toLowerCase() < b.toLowerCase() ? -1 : 1; });
+  }
+
+  function intakeInfo(users) { return { keys: INTAKE_KEYS.slice(), required: INTAKE_REQUIRED.slice(), people: peopleList(users) }; }
 
   function normSo(v) { return String(v === undefined || v === null ? '' : v).trim().toUpperCase(); }
 
@@ -505,7 +516,7 @@ var SOCore = (function () {
     priceCheck: priceCheck, validateStockUpload: validateStockUpload,
     lookupChecks: lookupChecks, validateSteelUpload: validateSteelUpload, safeCellText: safeCellText,
     ROLES: ROLES, ROLE_RANK: ROLE_RANK, MAX_USERS: MAX_USERS, validateUser: validateUser, mergeUsers: mergeUsers,
-    INTAKE_KEYS: INTAKE_KEYS, INTAKE_REQUIRED: INTAKE_REQUIRED, intakeInfo: intakeInfo, planCreate: planCreate, normSo: normSo,
+    INTAKE_KEYS: INTAKE_KEYS, INTAKE_REQUIRED: INTAKE_REQUIRED, intakeInfo: intakeInfo, peopleList: peopleList, planCreate: planCreate, normSo: normSo,
     dashboardRow: dashboardRow, pctNum: pctNum, validateScanUpload: validateScanUpload, MAX_SCAN_BYTES: MAX_SCAN_BYTES
   };
 })();

@@ -61,11 +61,11 @@ var SOService = (function () {
 
       switch (req.action) {
         case 'whoami':
-          return { ok: true, email: auth.email, role: role, fields: Core.publicFields(), intake: Core.intakeInfo() };
+          return { ok: true, email: auth.email, role: role, fields: Core.publicFields(), intake: Core.intakeInfo(users) };
 
         case 'start': {
           // One round trip at sign-in: who am I + (for admins) the dashboard.
-          var base = { ok: true, email: auth.email, role: role, fields: Core.publicFields(), intake: Core.intakeInfo() };
+          var base = { ok: true, email: auth.email, role: role, fields: Core.publicFields(), intake: Core.intakeInfo(users) };
           if (role === 'admin') base.dashboard = dashboard(adapter, auth.email, {});
           return base;
         }
@@ -342,7 +342,7 @@ var SOService = (function () {
       clearDashCache(adapter);
       adapter.audit({
         at: adapter.now(), user: email, recordId: id, row: free.rowNumber, field: 'SO OPENED',
-        oldValue: '', newValue: 'SO# ' + plan.writes.filter(function (w) { return w.key === 'so_no'; })[0].value
+        oldValue: '', newValue: (function () { var w = plan.writes.filter(function (x) { return x.key === 'so_no'; })[0]; return w ? 'SO# ' + w.value : 'SO opened without SO# (part ' + plan.writes.filter(function (x) { return x.key === 'part_no'; })[0].value + ')'; })()
       });
       var rec = withCheck(Core.buildRecord(adapter.readRow(free.rowNumber), idIndex), readStockInfo(adapter));
       return { ok: true, record: rec, refreshedAt: adapter.now() };

@@ -171,3 +171,20 @@ test('dashboard is cached, fresh=true bypasses the cache, and any write clears i
   // the cache never lets a non-admin in
   assert.equal(call(s, 'tok-editor', { action: 'dashboard' }).code, 'FORBIDDEN');
 });
+
+test('SO# is optional when opening an SO; people list comes from active users', () => {
+  assert.ok(!Core.INTAKE_REQUIRED.includes('so_no'));
+  const f = goodForm(); delete f.so_no;
+  const p = Core.planCreate(f, ['x']);
+  assert.equal(p.ok, true);
+  assert.ok(!p.writes.some(w => w.key === 'so_no'));
+  const s = new FakeSheet(); s.users = [
+    { email: 'b@x.com', name: 'Bravo', role: 'editor', active: true },
+    { email: 'a@x.com', name: '', role: 'editor', active: true },
+    { email: 'off@x.com', name: 'Gone', role: 'editor', active: false }
+  ];
+  assert.deepEqual(Core.intakeInfo(s.users).people, ['a', 'Bravo']);
+  const r = call(s, 'tok-admin', { action: 'createSO', changes: f });
+  assert.equal(r.ok, true);
+  assert.ok(s.auditLog.some(e => /without SO#/.test(e.newValue)));
+});

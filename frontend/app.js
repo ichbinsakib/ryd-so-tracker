@@ -317,7 +317,10 @@
   function newField(key) {
     const f = state.byKey[key]; const req = state.intake.required.includes(key); const id = 'nf-' + key;
     let input;
-    if (f.type === 'enum') input = el('select', { id }, ['', ...f.options].map((o) => el('option', { value: o, text: o === '' ? '— choose —' : o })));
+    if (key === 'champion' || key === 'req_by') {
+      const names = (state.intake.people || []).slice();
+      input = el('select', { id }, ['', ...names].map((o) => el('option', { value: o, text: o === '' ? '— choose a person —' : o })));
+    } else if (f.type === 'enum') input = el('select', { id }, ['', ...f.options].map((o) => el('option', { value: o, text: o === '' ? '— choose —' : o })));
     else if (f.type === 'date') input = el('input', { id, type: 'date', value: key === 'so_req_date' ? today() : '' });
     else if (f.type === 'longtext') input = el('textarea', { id });
     else input = el('input', { id, type: 'text', inputmode: f.type === 'number' ? 'decimal' : 'text' });
@@ -331,7 +334,7 @@
     $('new-form').replaceChildren(...NEW_GROUPS.map(([title, keys]) => el('fieldset', {}, el('legend', { text: title }),
       el('div', { class: 'grid' }, keys.filter((k) => state.intake.keys.includes(k)).map(newField)))));
     banner('new-banner', '', ''); show('view-new');
-    $('nf-so_no').focus();
+    ($('nf-so_no') || document.querySelector('#new-form input')).focus();
   }
   function collectNew() { const ch = {}; $('new-form').querySelectorAll('[data-key]').forEach((i) => { ch[i.dataset.key] = i.value.trim(); }); return ch; }
   function showFieldErrors(prefix, errs) {
@@ -351,7 +354,7 @@
     creating = true; $('new-submit').disabled = true; $('new-submit').textContent = 'Opening…'; banner('new-banner', '', '');
     const r = await api('createSO', { changes: ch });
     creating = false; $('new-submit').disabled = false; $('new-submit').textContent = 'Open SO';
-    if (r.ok) { toast('SO ' + norm(r.record.values.so_no) + ' opened.'); openRecord(r.record, 'ok', 'SO opened and added to the sheet. Fill in the rest of the details as they arrive, then print it and upload the scan.'); return; }
+    if (r.ok) { toast((norm(r.record.values.so_no) ? 'SO ' + norm(r.record.values.so_no) : 'SO') + ' opened.'); openRecord(r.record, 'ok', 'SO opened and added to the sheet. Fill in the rest of the details as they arrive, then print it and upload the scan.'); return; }
     if (r.code === 'UNAUTHENTICATED') { banner('new-banner', 'err', r.error + ' Your form is still here — sign in again, then click Open SO.'); const h = el('span'); $('new-banner').append(' ', h); renderSignIn(h, (t) => { state.token = t; store('tok', t); banner('new-banner', 'ok', 'Signed in again. Click Open SO to continue.'); }); return; }
     if (r.code === 'INVALID') { banner('new-banner', 'err', r.error); showFieldErrors('nf-', r.fieldErrors); return; }
     banner('new-banner', 'err', (r.error || 'Could not open the SO.') + ' Nothing was created; your answers are still in the form.');
