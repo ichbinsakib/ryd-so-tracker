@@ -17,3 +17,8 @@ Nothing in the sheet or backend changes. Only: the OAuth origin (step 4) and DNS
 
 ## Alternative hosts
 Cloudflare Pages or Netlify also support custom domains with free HTTPS and private repositories; the same `frontend/` folder is deployed with `config.js` generated as in `.github/workflows/deploy-frontend.yml`. No reverse proxy is needed.
+
+## Done: https://so.amanasystem.com
+- Cloudflare DNS: `CNAME so -> ichbinsakib.github.io`, DNS only (grey cloud). Apex and www records untouched.
+- GitHub repo Settings -> Pages: custom domain `so.amanasystem.com`, HTTPS enforced.
+- Google OAuth client (project so-review): `https://so.amanasystem.com` added to Authorized JavaScript origins (the github.io origin and `http://localhost` stay, so the old link keeps working).
