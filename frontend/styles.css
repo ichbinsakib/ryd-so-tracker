@@ -223,3 +223,8 @@ dialog table { width: 100%; border-collapse: collapse; } dialog th { text-align:
   .ps-sign { display: flex; justify-content: space-between; margin-top: 34px; gap: 20px; }
   .ps-foot { margin-top: 16px; font-size: 10px; color: #444; }
 }
+
+.loginform { display: grid; gap: 10px; margin: 14px 0 4px; text-align: left; }
+.loginform input, .pwform input { width: 100%; }
+.pwform { display: grid; gap: 10px; min-width: min(360px, 80vw); }
+.pwform .findrow input { flex: 1; font-family: ui-monospace, Consolas, monospace; }

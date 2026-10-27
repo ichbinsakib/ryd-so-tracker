@@ -163,3 +163,18 @@ test('mySOs: any role gets the dashboard rows of the snapshot (already scoped to
   const FakeSheet = require('./fakeSheet.js').FakeSheet;
   assert.equal(Service.handle(new FakeSheet(), { idToken: 'tok-editor', action: 'mySOs' }).code, 'NOT_SUPPORTED');
 });
+
+test('setPassword: admin only, minimum length, user must exist, nothing plain is audited', () => {
+  const ed = make({ email: 'bob@example.com' });
+  assert.equal(call(ed, { action: 'setPassword', email: 'bob@example.com', password: 'longenough1' }).code, 'FORBIDDEN');
+  const p = make();
+  assert.equal(call(p, { action: 'setPassword', email: 'bob@example.com', password: 'short' }).code, 'INVALID');
+  assert.equal(call(p, { action: 'setPassword', email: 'nobody@example.com', password: 'longenough1' }).code, 'NOT_FOUND');
+  const ok = call(p, { action: 'setPassword', email: 'Bob@Example.com', password: 'longenough1' });
+  assert.equal(ok.ok, true);
+  const op = p.ops.filter((o) => o.type === 'setPassword')[0];
+  assert.deepEqual([op.email, op.password], ['bob@example.com', 'longenough1']);
+  const audit = p.ops.filter((o) => o.type === 'audit')[0].entry;
+  assert.equal(audit.field, 'PASSWORD SET');
+  assert.ok(!JSON.stringify(audit).includes('longenough1'));
+});

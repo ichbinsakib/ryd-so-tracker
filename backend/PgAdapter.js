@@ -137,6 +137,7 @@ var SOPg = (function () {
       },
       writeStock: function (list, meta) { ops.push({ type: 'stock', rows: list, meta: meta }); },
       writeSteelUsage: function (list, meta) { ops.push({ type: 'steel', rows: list, meta: meta }); return { previousRows: opts.steelCount || 0 }; },
+      setPassword: function (email, password) { ops.push({ type: 'setPassword', email: email, password: password }); },
       writeStockItems: function (list) { ops.push({ type: 'stockItems', rows: list }); },
       saveSteelMeta: function (m) { ops.push({ type: 'steelMeta', meta: m }); },
       readSteelMeta: function () { return opts.steelMeta || null; },

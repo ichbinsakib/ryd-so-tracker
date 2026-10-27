@@ -130,14 +130,6 @@
   }
 
   // ---------- auth
-  function loadGis() {
-    return new Promise((resolve, reject) => {
-      if (window.google && google.accounts) return resolve();
-      const s = document.createElement('script'); s.src = 'https://accounts.google.com/gsi/client'; s.async = true;
-      s.onload = resolve; s.onerror = () => reject(new Error('Could not load Google sign-in.')); document.head.append(s);
-    });
-  }
-  let gisReady = false;
   async function renderSignIn(container, onToken) {
     if (CFG.DEV_MODE) {
       container.replaceChildren(el('button', { class: 'btn btn-primary', text: 'Dev sign-in (editor)', onclick: () => onToken('tok-editor') }),
@@ -146,16 +138,27 @@
         ' ', el('button', { class: 'btn', text: 'Dev sign-in (admin)', onclick: () => onToken('tok-admin') }));
       return;
     }
-    await loadGis();
-    google.accounts.id.initialize({ client_id: CFG.GOOGLE_CLIENT_ID, callback: (r) => onToken(r.credential), auto_select: false });
-    gisReady = true;
-    google.accounts.id.renderButton(container, { theme: 'outline', size: 'large' });
+    const msg = el('p', { class: 'error', role: 'alert' });
+    const email = el('input', { type: 'email', autocomplete: 'username', placeholder: 'Email', required: true, 'aria-label': 'Email' });
+    const pw = el('input', { type: 'password', autocomplete: 'current-password', placeholder: 'Password', required: true, 'aria-label': 'Password' });
+    const go = el('button', { class: 'btn btn-primary', type: 'submit', text: 'Sign in' });
+    const form = el('form', { class: 'loginform' }, email, pw, go, msg);
+    email.value = store('lastEmail') || '';
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault(); go.disabled = true; go.textContent = 'Signing in…'; msg.textContent = '';
+      const r = await api('login', { email: email.value, password: pw.value });
+      go.disabled = false; go.textContent = 'Sign in';
+      if (!r.ok) { msg.textContent = r.error || 'Could not sign in.'; pw.value = ''; pw.focus(); return; }
+      store('lastEmail', r.email); onToken(r.token);
+    });
+    container.replaceChildren(form);
+    (email.value ? pw : email).focus();
   }
   async function onSignedIn(token) { state.token = token; store('tok', token); $('login-msg').textContent = ''; await start(); }
   function signOut() {
+    if (state.token && !CFG.DEV_MODE) api('logout');
     state.token = null; store('tok', null); state.dash = null; state.current = null; state.dirty = false;
-    if (gisReady) google.accounts.id.disableAutoSelect();
-    $('userchip').hidden = true; $('btn-signout').hidden = true; $('btn-refresh').hidden = true; $('refreshed').textContent = '';
+    $('userchip').hidden = true; $('btn-signout').hidden = true; $('btn-pw').hidden = true; $('btn-refresh').hidden = true; $('refreshed').textContent = '';
     showLogin('');
   }
   async function showLogin(msg) {
@@ -175,7 +178,7 @@
     Object.assign(state, { email: r.email, role: r.role, fields: r.fields, intake: r.intake });
     state.byKey = Object.fromEntries(r.fields.map((f) => [f.key, f]));
     $('avatar').textContent = initials(r.email); $('user-name').textContent = niceName(r.email); $('user-role').textContent = r.role;
-    $('userchip').hidden = false; $('btn-signout').hidden = false;
+    $('userchip').hidden = false; $('btn-signout').hidden = false; $('btn-pw').hidden = CFG.DEV_MODE;
     if (r.dashboard) {
       // admins get the dashboard in the same round trip
       state.dirty = false; state.current = null; updateSaveBar();
@@ -809,7 +812,7 @@
   // ---------- admin: users
   const ROLE_OPTIONS = ['viewer', 'editor', 'admin'];
   async function openUsers() {
-    show('view-users'); banner('users-banner', '', ''); $('users-grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 6, class: 'muted', text: 'Loading users…' })));
+    show('view-users'); banner('users-banner', '', ''); $('users-grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: 'Loading users…' })));
     const r = await api('listUsers');
     if (!r.ok) { if (r.code === 'UNAUTHENTICATED') return showLogin(r.error); banner('users-banner', 'err', r.error); return; }
     state.users = r.users; state.bootstrap = r.bootstrap; renderUsers();
@@ -824,7 +827,7 @@
   function renderUsers() {
     const users = state.users || [];
     $('users-count').textContent = users.length + ' user' + (users.length === 1 ? '' : 's');
-    $('users-grid').tHead.replaceChildren(el('tr', {}, ['EMAIL', 'NAME', 'EMPLOYEE ID', 'ROLE', 'ACTIVE', ''].map((t) => el('th', { text: t }))));
+    $('users-grid').tHead.replaceChildren(el('tr', {}, ['EMAIL', 'NAME', 'EMPLOYEE ID', 'ROLE', 'ACTIVE', 'PASSWORD', ''].map((t) => el('th', { text: t }))));
     const me = state.email.toLowerCase();
     $('users-grid').tBodies[0].replaceChildren(...(users.length ? users.map((u) => {
       const sel = el('select', { 'aria-label': 'Role for ' + u.email }, ROLE_OPTIONS.map((r) => el('option', { value: r, text: r })));
@@ -834,20 +837,38 @@
       act.addEventListener('change', () => saveUsers([{ email: u.email, role: u.role, active: act.checked }], act.checked ? 'User enabled.' : 'User disabled.'));
       return el('tr', { class: u.active ? '' : 'inactive' }, el('td', { text: u.email + (u.email === me ? '  (you)' : '') }), el('td', { text: norm(u.name) }), el('td', { text: norm(u.employeeId) }),
         el('td', {}, sel), el('td', {}, act),
+        el('td', {}, el('button', { class: 'btn btn-sm', type: 'button', text: u.hasPassword ? 'Change' : 'Set password', title: u.hasPassword ? 'A password is set' : 'No password yet: this person cannot sign in', onclick: () => setUserPassword(u) }), u.hasPassword ? '' : el('small', { class: 'muted', text: '  not set' })),
         el('td', {}, el('button', { class: 'btn btn-ghost', type: 'button', text: 'Delete', onclick: async () => {
           if (!(await confirmDialog('Delete user?', el('p', { text: u.email + ' will no longer be able to sign in.' }), 'Delete', true))) return;
           const r = await api('deleteUser', { email: u.email });
           if (!r.ok) { banner('users-banner', 'err', r.error); return; }
           usersApplied(r); toast('User deleted.');
         } })));
-    }) : [el('tr', {}, el('td', { colspan: 6, text: 'No users added yet. Add the first one above.' }))]));
+    }) : [el('tr', {}, el('td', { colspan: 7, text: 'No users added yet. Add the first one above.' }))]));
     const b = state.bootstrap || [];
-    $('users-bootstrap').textContent = b.length ? 'Always-allowed accounts set in the backend settings (emergency access, cannot be removed here): ' + b.map((x) => x.email + ' (' + x.role + ')').join(', ') + '.' : '';
+    $('users-bootstrap').textContent = b.length ? 'Also allowed by the backend settings (cannot be removed here): ' + b.map((x) => x.email + ' (' + x.role + ')').join(', ') + '.' : '';
+  }
+  function randomPassword() {
+    const chars = 'abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789'; const b = crypto.getRandomValues(new Uint8Array(12));
+    return Array.from(b, (x) => chars[x % chars.length]).join('');
+  }
+  async function setUserPassword(u) {
+    const pw = el('input', { type: 'text', value: randomPassword(), autocomplete: 'off', 'aria-label': 'New password' });
+    const gen = el('button', { class: 'btn btn-sm', type: 'button', text: 'Generate', onclick: () => { pw.value = randomPassword(); } });
+    const body = el('div', { class: 'pwform' }, el('p', { text: 'New password for ' + u.email + '. Give it to the person; they can change it themselves after signing in (Password button).' }), el('div', { class: 'findrow' }, pw, gen));
+    if (!(await confirmDialog('Set password', body, 'Set password'))) return;
+    const r = await api('setPassword', { email: u.email, password: pw.value });
+    if (!r.ok) { banner('users-banner', 'err', r.error); return; }
+    toast('Password set for ' + u.email + '.'); const ur = await api('listUsers'); if (ur.ok) usersApplied(ur);
   }
   $('user-add').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const ok = await saveUsers([{ email: $('ua-email').value, name: $('ua-name').value, employeeId: $('ua-eid').value, role: $('ua-role').value, active: true }], 'User saved.');
-    if (ok) { $('user-add').reset(); $('ua-email').focus(); }
+    const pw = $('ua-pw').value.trim(), email = $('ua-email').value;
+    if (pw && pw.length < 8) { banner('users-banner', 'err', 'The password must be at least 8 characters.'); return; }
+    const ok = await saveUsers([{ email, name: $('ua-name').value, employeeId: $('ua-eid').value, role: $('ua-role').value, active: true }], 'User saved.');
+    if (!ok) return;
+    if (pw) { const r = await api('setPassword', { email, password: pw }); if (!r.ok) banner('users-banner', 'err', r.error); else { toast('User saved with a password.'); const ur = await api('listUsers'); if (ur.ok) usersApplied(ur); } }
+    $('user-add').reset(); $('ua-email').focus();
   });
   let importRows = [];
   $('ua-file').addEventListener('change', async () => {
@@ -901,6 +922,16 @@
   $('btn-print').onclick = printSheet;
   $('btn-delete').onclick = () => { const r = state.current; if (r) deleteSO(r.id, norm(r.values.so_no) || norm(r.values.part_no)); };
   $('btn-signout').onclick = signOut;
+  $('btn-pw').onclick = async () => {
+    const mk = (ph, ac) => el('input', { type: 'password', placeholder: ph, autocomplete: ac, 'aria-label': ph });
+    const cur = mk('Current password', 'current-password'), n1 = mk('New password (min 8)', 'new-password'), n2 = mk('Repeat new password', 'new-password');
+    const body = el('div', { class: 'pwform' }, cur, n1, n2);
+    if (!(await confirmDialog('Change my password', body, 'Change password'))) return;
+    if (n1.value !== n2.value) { toast('The two new passwords do not match.', true); return; }
+    const r = await api('changePassword', { current: cur.value, next: n1.value });
+    if (!r.ok) { toast(r.error || 'Could not change the password.', true); return; }
+    toast('Password changed.');
+  };
 
   (async function init() {
     show('view-loading');

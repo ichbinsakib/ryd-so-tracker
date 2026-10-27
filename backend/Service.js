@@ -91,6 +91,10 @@ var SOService = (function () {
           if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can manage users.');
           return saveUsers(adapter, auth.email, cfg, req);
 
+        case 'setPassword':
+          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can set passwords.');
+          return setPassword(adapter, auth.email, req);
+
         case 'deleteUser':
           if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can manage users.');
           return deleteUser(adapter, auth.email, cfg, req);
@@ -267,6 +271,21 @@ var SOService = (function () {
       adapter.audit({ at: stamp, user: actor, recordId: '', row: '', field: 'USERS CHANGED', oldValue: '', newValue: clean.length + ' user(s): ' + clean.slice(0, 5).map(function (u) { return u.email + '=' + (u.active ? u.role : 'disabled'); }).join(', ') + (clean.length > 5 ? ', ...' : '') });
       return { ok: true, saved: clean.length, users: merged, bootstrap: bootstrapList(cfg) };
     });
+  }
+
+  var MIN_PASSWORD = 8;
+  function setPassword(adapter, actor, req) {
+    var email = String(req.email || '').trim().toLowerCase();
+    var pw = typeof req.password === 'string' ? req.password : '';
+    if (!email) return fail('BAD_REQUEST', 'Missing email.');
+    if (pw.length < MIN_PASSWORD) return fail('INVALID', 'The password must be at least ' + MIN_PASSWORD + ' characters.');
+    if (pw.length > 128) return fail('INVALID', 'The password is too long (limit 128 characters).');
+    if (!adapter.setPassword) return fail('NOT_SUPPORTED', 'This backend does not use passwords.');
+    var user = adapter.readUsers().filter(function (u) { return String(u.email).toLowerCase() === email; })[0];
+    if (!user) return fail('NOT_FOUND', 'User not found. Add the user first.');
+    adapter.setPassword(email, pw);
+    adapter.audit({ at: adapter.now(), user: actor, recordId: '', row: '', field: 'PASSWORD SET', oldValue: '', newValue: email });
+    return { ok: true, email: email };
   }
 
   function deleteUser(adapter, actor, cfg, req) {

@@ -20,6 +20,7 @@
       <span id="avatar" class="avatar" aria-hidden="true"></span>
       <span class="who"><b id="user-name"></b><small id="user-role"></small></span>
     </div>
+    <button id="btn-pw" class="btn btn-ghost" hidden>Password</button>
     <button id="btn-signout" class="btn btn-ghost" hidden>Sign out</button>
   </div>
 </header>
@@ -34,10 +35,10 @@
   <div class="card login">
     <span class="logo big" aria-hidden="true">SO</span>
     <h2>Sign in to SHOP ORDER TRACKING DETAILS</h2>
-    <p class="muted">Use the Google account your admin registered for you.</p>
+    <p class="muted">Sign in with your email and the password your admin gave you.</p>
     <div id="g-signin" class="gsignin"></div>
     <p id="login-msg" class="error" role="alert"></p>
-    <p class="muted small">Cannot get in? Ask an admin to add your email.</p>
+    <p class="muted small">Cannot get in or forgot your password? Ask an admin to set a new one.</p>
   </div>
 </main>
 
@@ -139,9 +140,10 @@
   <section class="card userbox">
     <h3>Add a user</h3>
     <form id="user-add" class="userform" autocomplete="off">
-      <input id="ua-email" type="email" placeholder="Email (Google account)" required>
+      <input id="ua-email" type="email" placeholder="Email (their sign-in name)" required>
       <input id="ua-name" type="text" placeholder="Name">
       <input id="ua-eid" type="text" placeholder="Employee ID">
+      <input id="ua-pw" type="text" placeholder="Password (min 8, optional now)" autocomplete="off">
       <select id="ua-role"><option value="viewer">viewer</option><option value="editor">editor</option><option value="admin">admin</option></select>
       <button class="btn btn-primary" type="submit">Add user</button>
     </form>

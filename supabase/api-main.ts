@@ -8,7 +8,6 @@
 // ---------------------------------------------------------------------------
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-const GOOGLE_CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID') || '2633337182-5qjj6uq4vuejlejghq9qvq9fm1jv99i5.apps.googleusercontent.com';
 const sb = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false, autoRefreshToken: false } });
 
 const ALLOWED_ORIGINS = ['https://so.amanasystem.com', 'https://ichbinsakib.github.io', 'http://localhost', 'http://localhost:5173', 'http://127.0.0.1:5173'];
@@ -22,21 +21,77 @@ function reply(obj: unknown, origin: string | null, status = 200) {
 }
 function fail(code: string, error: string, extra?: Record<string, unknown>) { return Object.assign({ ok: false, code, error }, extra || {}); }
 
-// ---- Google sign-in token (cached until it expires, so only the first request per token pays the lookup)
+// ---- sign-in: email + password (set by an admin), then a random session token
+const SESSION_HOURS = 12;
+const MAX_FAILS = 8;           // wrong passwords allowed per email ...
+const FAIL_WINDOW_MIN = 15;    // ... within this many minutes
 const tokenCache = new Map<string, { email: string; exp: number }>();
+
+async function sha256hex(s: string) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 async function verifyToken(idToken: unknown) {
-  if (typeof idToken !== 'string' || idToken.length < 20 || idToken.length > 4000) return { ok: false, error: 'Please sign in.' };
-  const now = Math.floor(Date.now() / 1000);
+  if (typeof idToken !== 'string' || !/^[0-9a-f]{64}$/.test(idToken)) return { ok: false, error: 'Please sign in.' };
+  const now = Date.now();
   const hit = tokenCache.get(idToken);
   if (hit && hit.exp > now) return { ok: true, email: hit.email };
-  const res = await fetch('https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken));
-  if (!res.ok) return { ok: false, error: 'Session expired or invalid. Please sign in again.' };
-  const info = await res.json();
-  const chk = SOCore.checkTokenInfo(info, GOOGLE_CLIENT_ID, now);
-  if (!chk.ok) return { ok: false, error: chk.error };
+  const rows = must(await sb.from('sessions').select('email,expires_at').eq('token_hash', await sha256hex(idToken)).limit(1)) as any[];
+  if (!rows.length || new Date(rows[0].expires_at).getTime() <= now) return { ok: false, error: 'Session expired. Please sign in again.' };
   if (tokenCache.size > 500) tokenCache.clear();
-  tokenCache.set(idToken, { email: chk.email, exp: Math.min(Number(info.exp), now + 3000) });
-  return { ok: true, email: chk.email };
+  tokenCache.set(idToken, { email: rows[0].email, exp: now + 30_000 });
+  return { ok: true, email: rows[0].email as string };
+}
+
+async function recentFailures(email: string) {
+  const since = new Date(Date.now() - FAIL_WINDOW_MIN * 60_000).toISOString();
+  const r = await sb.from('login_attempts').select('*', { count: 'exact', head: true }).eq('email', email).eq('ok', false).gte('at', since);
+  if (r.error) throw new Error(r.error.message);
+  return r.count || 0;
+}
+
+async function login(req: any) {
+  const email = String(req.email || '').trim().toLowerCase();
+  const password = typeof req.password === 'string' ? req.password : '';
+  if (!email || !password || password.length > 200 || email.length > 200) return fail('BAD_LOGIN', 'Enter your email and password.');
+  if (await recentFailures(email) >= MAX_FAILS) return fail('LOCKED', 'Too many wrong attempts. Try again in ' + FAIL_WINDOW_MIN + ' minutes.');
+  const chk = await sb.rpc('check_login', { p_email: email, p_password: password });
+  const good = !chk.error && chk.data === true;
+  await sb.from('login_attempts').insert({ email, ok: good });
+  if (!good) return fail('BAD_LOGIN', 'Wrong email or password.');
+  const { users, cfg } = await loadUsersAndConfig();
+  if (!SOCore.roleFor(email, cfg.editors, cfg.viewers, cfg.admins, users)) return fail('FORBIDDEN', 'This account is not authorised for the application. Ask an admin.');
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const token = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+  const expires = new Date(Date.now() + SESSION_HOURS * 3600_000).toISOString();
+  const ins = await sb.from('sessions').insert({ token_hash: await sha256hex(token), email, expires_at: expires });
+  if (ins.error) throw new Error(ins.error.message);
+  // housekeeping: forget the failures of this person, expired sessions and old attempts
+  await sb.from('login_attempts').delete().eq('email', email).eq('ok', false);
+  await sb.from('sessions').delete().lt('expires_at', new Date().toISOString());
+  await sb.from('login_attempts').delete().lt('at', new Date(Date.now() - 86400_000).toISOString());
+  return { ok: true, token, email, expiresAt: expires };
+}
+
+async function logout(idToken: string) {
+  tokenCache.delete(idToken);
+  await sb.from('sessions').delete().eq('token_hash', await sha256hex(idToken));
+  return { ok: true };
+}
+
+async function changePassword(email: string, req: any) {
+  const current = typeof req.current === 'string' ? req.current : '';
+  const next = typeof req.next === 'string' ? req.next : '';
+  if (next.length < 8) return fail('INVALID', 'The new password must be at least 8 characters.');
+  if (next.length > 128) return fail('INVALID', 'The new password is too long (limit 128 characters).');
+  if (await recentFailures(email) >= MAX_FAILS) return fail('LOCKED', 'Too many wrong attempts. Try again in ' + FAIL_WINDOW_MIN + ' minutes.');
+  const chk = await sb.rpc('check_login', { p_email: email, p_password: current });
+  if (chk.error || chk.data !== true) { await sb.from('login_attempts').insert({ email, ok: false }); return fail('INVALID', 'The current password is wrong.'); }
+  const set = await sb.rpc('set_user_password', { p_email: email, p_password: next });
+  if (set.error) throw new Error(set.error.message);
+  await sb.from('app_audit').insert({ user_email: email, field: 'PASSWORD CHANGED', new_value: email });
+  return { ok: true };
 }
 
 // ---- helpers
@@ -188,6 +243,9 @@ async function flush(ops: any[]) {
       const r = await sb.rpc('replace_stockroom_prices', { p_rows: o.rows });
       if (r.error) throw new Error(r.error.message);
       const m = await sb.from('app_meta').upsert({ key: 'stock_meta', value: o.meta }); if (m.error) throw new Error(m.error.message);
+    } else if (o.type === 'setPassword') {
+      const r = await sb.rpc('set_user_password', { p_email: o.email, p_password: o.password });
+      if (r.error) throw new Error(r.error.message);
     } else if (o.type === 'stockItems') {
       const r = await sb.rpc('replace_stock_items', { p_rows: o.rows });
       if (r.error) throw new Error(r.error.message);
@@ -209,18 +267,26 @@ async function flush(ops: any[]) {
   if (audits.length) { const r = await sb.from('app_audit').insert(audits); if (r.error) throw new Error(r.error.message); }
 }
 
+async function loadUsersAndConfig() {
+  const [userRows, cfgMeta] = await Promise.all([
+    sb.from('app_users').select('email,name,employee_id,role,active,has_password,added_by,added_at,updated_by,updated_at'),
+    metaValue('config')
+  ]);
+  const users = must(userRows as any).map((u: any) => ({ email: u.email, name: u.name, employeeId: u.employee_id, role: u.role, active: u.active, hasPassword: !!u.has_password, addedBy: u.added_by, addedAt: u.added_at, updatedBy: u.updated_by, updatedAt: u.updated_at }));
+  const cfg = { admins: Deno.env.get('ADMINS') || (cfgMeta && cfgMeta.admins) || '', editors: Deno.env.get('EDITORS') || (cfgMeta && cfgMeta.editors) || '', viewers: Deno.env.get('VIEWERS') || (cfgMeta && cfgMeta.viewers) || '' };
+  return { users, cfg };
+}
+
 async function handleRequest(req: any) {
+  if (req && req.action === 'login') return await login(req);
   const auth = await verifyToken(req && req.idToken);
   if (!auth.ok) return fail('UNAUTHENTICATED', (auth as any).error || 'Please sign in.');
   const email = (auth as any).email as string;
+  if (req.action === 'logout') return await logout(req.idToken);
 
-  const [userRows, cfgMeta] = await Promise.all([
-    sb.from('app_users').select('email,name,employee_id,role,active,added_by,added_at,updated_by,updated_at'),
-    metaValue('config')
-  ]);
-  const users = must(userRows as any).map((u: any) => ({ email: u.email, name: u.name, employeeId: u.employee_id, role: u.role, active: u.active, addedBy: u.added_by, addedAt: u.added_at, updatedBy: u.updated_by, updatedAt: u.updated_at }));
-  const cfg = { admins: Deno.env.get('ADMINS') || (cfgMeta && cfgMeta.admins) || '', editors: Deno.env.get('EDITORS') || (cfgMeta && cfgMeta.editors) || '', viewers: Deno.env.get('VIEWERS') || (cfgMeta && cfgMeta.viewers) || '' };
+  const { users, cfg } = await loadUsersAndConfig();
   const role = SOCore.roleFor(email, cfg.editors, cfg.viewers, cfg.admins, users);
+  if (req.action === 'changePassword' && role) return await changePassword(email, req);
 
   const opts = await prefetch(req, email, role, users, cfg);
   const snap = SOPg.create(opts);
