@@ -20,6 +20,7 @@
       <span id="avatar" class="avatar" aria-hidden="true"></span>
       <span class="who"><b id="user-name"></b><small id="user-role"></small></span>
     </div>
+    <button id="btn-subcon" class="btn btn-ghost" hidden>Subcontract</button>
     <button id="btn-pw" class="btn btn-ghost" hidden>Password</button>
     <button id="btn-signout" class="btn btn-ghost" hidden>Sign out</button>
   </div>
@@ -157,6 +158,18 @@
   </section>
   <div class="tablewrap card"><table id="users-grid" class="datatable"><thead></thead><tbody></tbody></table></div>
   <p id="users-bootstrap" class="muted small pad"></p>
+</main>
+
+<!-- Subcontract: whole parts made by vendors -->
+<main id="view-subcon" hidden>
+  <div class="pagehead">
+    <div><button id="sc-back" class="btn btn-ghost" type="button">← Back</button><h1>Subcontract</h1><p class="muted">Parts made by vendors: promised dates, lead times, vendor performance and cost.</p></div>
+    <div class="head-actions"><button id="sc-new" class="btn btn-primary" type="button">＋ New subcontract order</button></div>
+  </div>
+  <div id="sc-banner" role="alert"></div>
+  <section id="sc-kpis" class="kpis" aria-label="Subcontract numbers"></section>
+  <nav id="sc-tabs" class="chips sc-tabs" role="tablist" aria-label="Subcontract sections"></nav>
+  <div id="sc-body"></div>
 </main>
 
 <!-- Open a new SO -->

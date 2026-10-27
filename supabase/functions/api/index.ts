@@ -722,6 +722,171 @@ var SOCalc = (function () {
 if (typeof module !== 'undefined' && module.exports) module.exports = SOCalc;
 
 /**
+ * Subcontract module logic: validation, lead-time expectations (standard table + actual history),
+ * order state (overdue / due soon / on track), vendor scorecards and the alert list.
+ * Pure JavaScript (Node + Deno): all dates are 'YYYY-MM-DD' strings and `today` is passed in.
+ */
+var SOSub = (function () {
+  var STATUSES = ['QUOTING', 'PO PLACED', 'IN PROCESS', 'RECEIVED', 'CANCELLED'];
+  var DUE_SOON_DAYS = 7;
+  var DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+  function isDate(s) { return typeof s === 'string' && DATE_RE.test(s) && !isNaN(Date.parse(s + 'T00:00:00Z')); }
+  function dayNum(s) { return Math.round(Date.parse(s + 'T00:00:00Z') / 86400000); }
+  function daysBetween(a, b) { return dayNum(b) - dayNum(a); }
+  function addDays(s, n) { return new Date((dayNum(s) + n) * 86400000).toISOString().slice(0, 10); }
+  function str(v, max) { return String(v == null ? '' : v).trim().slice(0, max || 200); }
+  function numOrNull(v) { if (v === '' || v == null) return null; var n = Number(v); return isFinite(n) ? n : NaN; }
+  function dateOrNull(v) { v = str(v, 10); return v === '' ? null : v; }
+  function partKey(p) { return str(p).toUpperCase(); }
+
+  function cleanOrder(o) {
+    var errors = {};
+    var out = {
+      sc_no: str(o.sc_no, 40), so_no: str(o.so_no, 40), part_no: str(o.part_no, 80), description: str(o.description, 200),
+      qty: Number(o.qty), vendor_id: str(o.vendor_id, 60) || null, status: str(o.status, 20).toUpperCase() || 'QUOTING',
+      po_no: str(o.po_no, 60), notes: str(o.notes, 1000)
+    };
+    ['quote_date', 'po_date', 'promised_date', 'received_date'].forEach(function (k) {
+      out[k] = dateOrNull(o[k]); if (out[k] && !isDate(out[k])) errors[k] = 'Use a valid date.';
+    });
+    ['quote_amt', 'po_amt', 'invoice_amt'].forEach(function (k) {
+      out[k] = numOrNull(o[k]); if (out[k] !== null && (isNaN(out[k]) || out[k] < 0)) errors[k] = 'Enter an amount of 0 or more.';
+    });
+    if (!out.sc_no) errors.sc_no = 'Subcontract # is required.';
+    if (!out.part_no) errors.part_no = 'Part # is required.';
+    if (!out.vendor_id) errors.vendor_id = 'Choose a vendor.';
+    if (!isFinite(out.qty) || out.qty <= 0) errors.qty = 'Quantity must be more than 0.';
+    if (STATUSES.indexOf(out.status) < 0) errors.status = 'Unknown status.';
+    if (out.po_date && out.promised_date && !errors.po_date && !errors.promised_date && out.promised_date < out.po_date) errors.promised_date = 'Promised date is before the PO date.';
+    if (out.status === 'RECEIVED' && !out.received_date) errors.received_date = 'Enter the received date.';
+    var steps = [];
+    (Array.isArray(o.steps) ? o.steps : []).slice(0, 30).forEach(function (s, i) {
+      var st = { seq: i + 1, name: str(s.name, 80), vendor_id: str(s.vendor_id, 60) || null, sent_date: dateOrNull(s.sent_date), promised_date: dateOrNull(s.promised_date), received_date: dateOrNull(s.received_date), cost: numOrNull(s.cost) };
+      if (!st.name) { errors['step' + i] = 'Every step needs a name.'; }
+      ['sent_date', 'promised_date', 'received_date'].forEach(function (k) { if (st[k] && !isDate(st[k])) errors['step' + i] = 'Step ' + (i + 1) + ': use valid dates.'; });
+      if (st.cost !== null && (isNaN(st.cost) || st.cost < 0)) errors['step' + i] = 'Step ' + (i + 1) + ': enter a cost of 0 or more.';
+      steps.push(st);
+    });
+    out.steps = steps;
+    return { ok: Object.keys(errors).length === 0, value: out, errors: errors };
+  }
+
+  function cleanVendor(v) {
+    var out = { name: str(v.name, 80), contact: str(v.contact, 80), email: str(v.email, 120), phone: str(v.phone, 40), notes: str(v.notes, 500), active: v.active !== false };
+    var errors = {};
+    if (!out.name) errors.name = 'Vendor name is required.';
+    if (out.email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(out.email)) errors.email = 'Enter a valid email.';
+    return { ok: Object.keys(errors).length === 0, value: out, errors: errors };
+  }
+
+  function cleanLead(l) {
+    var out = { part_no: str(l.part_no, 80), vendor_id: str(l.vendor_id, 60) || null, std_days: Number(l.std_days), notes: str(l.notes, 200) };
+    var errors = {};
+    if (!out.vendor_id) errors.vendor_id = 'Choose a vendor.';
+    if (!isFinite(out.std_days) || out.std_days < 0 || Math.floor(out.std_days) !== out.std_days) errors.std_days = 'Days must be a whole number, 0 or more.';
+    return { ok: Object.keys(errors).length === 0, value: out, errors: errors };
+  }
+
+  // Standard lead days: exact part + vendor first, then the vendor's default (blank part).
+  function standardDays(order, leadTimes) {
+    var pk = partKey(order.part_no), best = null;
+    (leadTimes || []).forEach(function (l) {
+      if (l.vendor_id !== order.vendor_id) return;
+      if (partKey(l.part_no) === pk && pk) best = { days: l.std_days, source: 'part' };
+      else if (!partKey(l.part_no) && !best) best = { days: l.std_days, source: 'vendor' };
+    });
+    return best;
+  }
+
+  // Actual history: received orders with a PO date -> days from PO to receipt, per part+vendor (and per vendor).
+  function history(orders) {
+    var byPart = {}, byVendor = {};
+    function add(map, key, d) { var h = map[key] || (map[key] = { n: 0, sum: 0, min: d, max: d }); h.n++; h.sum += d; h.min = Math.min(h.min, d); h.max = Math.max(h.max, d); }
+    (orders || []).forEach(function (o) {
+      if (o.status !== 'RECEIVED' || !o.po_date || !o.received_date) return;
+      var d = daysBetween(o.po_date, o.received_date); if (d < 0) return;
+      add(byPart, o.vendor_id + '|' + partKey(o.part_no), d); add(byVendor, o.vendor_id, d);
+    });
+    function fin(h) { return h ? { n: h.n, avg: Math.round(h.sum / h.n), min: h.min, max: h.max } : null; }
+    return { part: function (vendorId, part) { return fin(byPart[vendorId + '|' + partKey(part)]); }, vendor: function (vendorId) { return fin(byVendor[vendorId]); } };
+  }
+
+  // Expected receipt date: the vendor's promise when given, else PO date + standard days, else PO date + historical average.
+  function describeOrder(o, ctx) {
+    var today = ctx.today, open = o.status !== 'RECEIVED' && o.status !== 'CANCELLED';
+    var std = standardDays(o, ctx.leadTimes), hist = ctx.history.part(o.vendor_id, o.part_no) || null;
+    var expected = null, basis = '';
+    if (o.promised_date) { expected = o.promised_date; basis = 'vendor promise'; }
+    else if (o.po_date && std) { expected = addDays(o.po_date, std.days); basis = 'standard lead time'; }
+    else if (o.po_date && hist) { expected = addDays(o.po_date, hist.avg); basis = 'past average'; }
+    var state = 'no-date', lateDays = 0;
+    if (o.status === 'CANCELLED') state = 'cancelled';
+    else if (o.status === 'RECEIVED') {
+      state = 'received';
+      if (o.received_date) {
+        var ref = o.promised_date || expected;
+        if (ref && o.received_date > ref) { lateDays = daysBetween(ref, o.received_date); state = 'received-late'; }
+      }
+    } else if (expected) {
+      var left = daysBetween(today, expected);
+      if (left < 0) { state = 'overdue'; lateDays = -left; } else if (left <= DUE_SOON_DAYS) state = 'due-soon'; else state = 'on-track';
+    }
+    var actual = o.po_date ? daysBetween(o.po_date, o.received_date || today) : null;
+    if (actual !== null && actual < 0) actual = null;
+    return Object.assign({}, o, {
+      open: open, expected: expected, basis: basis, state: state, lateDays: lateDays, actualDays: actual,
+      stdDays: std ? std.days : null, stdSource: std ? std.source : '', hist: hist,
+      daysToDue: open && expected ? daysBetween(today, expected) : null
+    });
+  }
+
+  function scorecard(vendors, described) {
+    return (vendors || []).map(function (v) {
+      var mine = described.filter(function (o) { return o.vendor_id === v.id; });
+      var done = mine.filter(function (o) { return o.status === 'RECEIVED'; });
+      var judged = done.filter(function (o) { return o.received_date && (o.promised_date || o.expected); });
+      var onTime = judged.filter(function (o) { return o.state !== 'received-late'; }).length;
+      var lead = done.filter(function (o) { return o.actualDays !== null; });
+      var spend = mine.reduce(function (t, o) { if (o.status === 'CANCELLED') return t; var a = o.invoice_amt != null ? o.invoice_amt : (o.po_amt != null ? o.po_amt : 0); return t + a; }, 0);
+      return {
+        id: v.id, name: v.name, active: v.active,
+        open: mine.filter(function (o) { return o.open; }).length, overdue: mine.filter(function (o) { return o.state === 'overdue'; }).length,
+        received: done.length, onTimePct: judged.length ? Math.round(100 * onTime / judged.length) : null,
+        avgLead: lead.length ? Math.round(lead.reduce(function (t, o) { return t + o.actualDays; }, 0) / lead.length) : null,
+        spend: Math.round(spend * 100) / 100
+      };
+    });
+  }
+
+  function build(raw, today) {
+    var hist = history(raw.orders);
+    var ctx = { today: today, leadTimes: raw.leadTimes, history: hist };
+    var orders = raw.orders.map(function (o) {
+      var d = describeOrder(o, ctx);
+      d.steps = (raw.steps || []).filter(function (s) { return s.order_id === o.id; }).sort(function (a, b) { return a.seq - b.seq; });
+      return d;
+    });
+    var alerts = orders.filter(function (o) { return o.state === 'overdue' || o.state === 'due-soon'; })
+      .sort(function (a, b) { return (a.daysToDue || 0) - (b.daysToDue || 0); });
+    var open = orders.filter(function (o) { return o.open; });
+    return {
+      orders: orders, vendors: scorecard(raw.vendors, orders), alerts: alerts,
+      kpis: {
+        open: open.length, overdue: open.filter(function (o) { return o.state === 'overdue'; }).length,
+        dueSoon: open.filter(function (o) { return o.state === 'due-soon'; }).length,
+        noDate: open.filter(function (o) { return o.state === 'no-date'; }).length,
+        openValue: Math.round(open.reduce(function (t, o) { return t + (o.po_amt || o.quote_amt || 0); }, 0) * 100) / 100
+      }
+    };
+  }
+
+  return { STATUSES: STATUSES, DUE_SOON_DAYS: DUE_SOON_DAYS, isDate: isDate, daysBetween: daysBetween, addDays: addDays, cleanOrder: cleanOrder, cleanVendor: cleanVendor, cleanLead: cleanLead, standardDays: standardDays, history: history, describeOrder: describeOrder, scorecard: scorecard, build: build };
+})();
+
+if (typeof module !== 'undefined' && module.exports) module.exports = SOSub;
+
+/**
  * Request handling and access control. Talks to the sheet only through an `adapter`
  * so it can be tested without Google (see tests/ and dev/).
  *
@@ -1652,6 +1817,80 @@ async function loadUsersAndConfig() {
   return { users, cfg };
 }
 
+
+// ---- Subcontract module (vendors, subcontract orders with routing steps, lead-time table)
+async function subconRaw() {
+  const [v, o, s, l] = await Promise.all([
+    sb.from('sc_vendors').select('*').order('name'), sb.from('sc_orders').select('*').order('created_at', { ascending: false }),
+    sb.from('sc_steps').select('*'), sb.from('sc_lead_times').select('*')
+  ]);
+  return { vendors: must(v as any), orders: must(o as any), steps: must(s as any), leadTimes: must(l as any) };
+}
+async function scAudit(email: string, recordId: string, field: string, newValue: string) {
+  await sb.from('app_audit').insert({ user_email: email, record_id: recordId, field, new_value: newValue });
+}
+async function subconAction(req: any, email: string, role: string | null) {
+  if (!role) return fail('FORBIDDEN', 'You are not allowed to use this app.');
+  const write = role === 'editor' || role === 'admin';
+  const action = req.action as string;
+  if (action === 'scList') {
+    const today = SOSub.isDate(req.today) ? req.today : new Date().toISOString().slice(0, 10);
+    const raw = await subconRaw();
+    return { ok: true, today, role, statuses: SOSub.STATUSES, vendorRows: raw.vendors, leadTimes: raw.leadTimes, ...SOSub.build(raw, today) };
+  }
+  if (!write) return fail('FORBIDDEN', 'Viewers cannot change subcontract data.');
+  const bad = (r: any) => fail('INVALID', 'Please fix the highlighted fields.', { fieldErrors: r.errors });
+  const dup = (e: any) => e && /duplicate key|unique/i.test(e.message || '');
+  if (action === 'scSaveVendor') {
+    const c = SOSub.cleanVendor(req.vendor || {}); if (!c.ok) return bad(c);
+    const r = req.vendor.id ? await sb.from('sc_vendors').update(c.value).eq('id', req.vendor.id).select('id').single() : await sb.from('sc_vendors').insert(c.value).select('id').single();
+    if (r.error) return dup(r.error) ? fail('INVALID', 'That vendor already exists.', { fieldErrors: { name: 'That vendor already exists.' } }) : fail('SERVER_ERROR', r.error.message);
+    await scAudit(email, (r.data as any).id, 'VENDOR SAVED', c.value.name);
+    return { ok: true, id: (r.data as any).id };
+  }
+  if (action === 'scDeleteVendor') {
+    if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can delete vendors.');
+    const used = await sb.from('sc_orders').select('id', { count: 'exact', head: true }).eq('vendor_id', String(req.id));
+    if ((used.count || 0) > 0) return fail('INVALID', 'This vendor has subcontract orders. Mark it inactive instead of deleting.');
+    const r = await sb.from('sc_vendors').delete().eq('id', String(req.id)); if (r.error) return fail('SERVER_ERROR', r.error.message);
+    await scAudit(email, String(req.id), 'VENDOR DELETED', ''); return { ok: true };
+  }
+  if (action === 'scSaveLead') {
+    const c = SOSub.cleanLead(req.lead || {}); if (!c.ok) return bad(c);
+    const r = req.lead.id ? await sb.from('sc_lead_times').update(c.value).eq('id', req.lead.id) : await sb.from('sc_lead_times').insert(c.value);
+    if (r.error) return dup(r.error) ? fail('INVALID', 'That part and vendor already has a lead time.', { fieldErrors: { part_no: 'Already exists for this vendor.' } }) : fail('SERVER_ERROR', r.error.message);
+    return { ok: true };
+  }
+  if (action === 'scDeleteLead') {
+    const r = await sb.from('sc_lead_times').delete().eq('id', String(req.id)); if (r.error) return fail('SERVER_ERROR', r.error.message); return { ok: true };
+  }
+  if (action === 'scSaveOrder') {
+    const c = SOSub.cleanOrder(req.order || {}); if (!c.ok) return bad(c);
+    const { steps, ...fields } = c.value as any;
+    const vendorIds = [fields.vendor_id, ...steps.map((s: any) => s.vendor_id)].filter(Boolean);
+    const vr = await sb.from('sc_vendors').select('id').in('id', vendorIds);
+    if (must(vr as any).length !== new Set(vendorIds).size) return fail('INVALID', 'Please fix the highlighted fields.', { fieldErrors: { vendor_id: 'Unknown vendor.' } });
+    let id = req.order.id as string | undefined;
+    if (id) {
+      const r = await sb.from('sc_orders').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', id).select('id').single();
+      if (r.error) return dup(r.error) ? fail('INVALID', 'That subcontract # already exists.', { fieldErrors: { sc_no: 'That subcontract # already exists.' } }) : fail('SERVER_ERROR', r.error.message);
+    } else {
+      const r = await sb.from('sc_orders').insert({ ...fields, created_by: email }).select('id').single();
+      if (r.error) return dup(r.error) ? fail('INVALID', 'That subcontract # already exists.', { fieldErrors: { sc_no: 'That subcontract # already exists.' } }) : fail('SERVER_ERROR', r.error.message);
+      id = (r.data as any).id;
+    }
+    const del = await sb.from('sc_steps').delete().eq('order_id', id as string); if (del.error) return fail('SERVER_ERROR', del.error.message);
+    if (steps.length) { const ins = await sb.from('sc_steps').insert(steps.map((s: any) => ({ ...s, order_id: id }))); if (ins.error) return fail('SERVER_ERROR', ins.error.message); }
+    await scAudit(email, id as string, req.order.id ? 'SUBCON UPDATED' : 'SUBCON OPENED', fields.sc_no + ' / ' + fields.status);
+    return { ok: true, id };
+  }
+  if (action === 'scDeleteOrder') {
+    const r = await sb.from('sc_orders').delete().eq('id', String(req.id)); if (r.error) return fail('SERVER_ERROR', r.error.message);
+    await scAudit(email, String(req.id), 'SUBCON DELETED', ''); return { ok: true };
+  }
+  return fail('BAD_REQUEST', 'Unknown action.');
+}
+
 async function handleRequest(req: any) {
   if (req && req.action === 'login') return await login(req);
   const auth = await verifyToken(req && req.idToken);
@@ -1662,6 +1901,8 @@ async function handleRequest(req: any) {
   const { users, cfg } = await loadUsersAndConfig();
   const role = SOCore.roleFor(email, cfg.editors, cfg.viewers, cfg.admins, users);
   if (req.action === 'changePassword' && role) return await changePassword(email, req);
+
+  if (typeof req.action === 'string' && req.action.startsWith('sc')) return await subconAction(req, email, role);
 
   const opts = await prefetch(req, email, role, users, cfg);
   const snap = SOPg.create(opts);

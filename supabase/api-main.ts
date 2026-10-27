@@ -277,6 +277,80 @@ async function loadUsersAndConfig() {
   return { users, cfg };
 }
 
+
+// ---- Subcontract module (vendors, subcontract orders with routing steps, lead-time table)
+async function subconRaw() {
+  const [v, o, s, l] = await Promise.all([
+    sb.from('sc_vendors').select('*').order('name'), sb.from('sc_orders').select('*').order('created_at', { ascending: false }),
+    sb.from('sc_steps').select('*'), sb.from('sc_lead_times').select('*')
+  ]);
+  return { vendors: must(v as any), orders: must(o as any), steps: must(s as any), leadTimes: must(l as any) };
+}
+async function scAudit(email: string, recordId: string, field: string, newValue: string) {
+  await sb.from('app_audit').insert({ user_email: email, record_id: recordId, field, new_value: newValue });
+}
+async function subconAction(req: any, email: string, role: string | null) {
+  if (!role) return fail('FORBIDDEN', 'You are not allowed to use this app.');
+  const write = role === 'editor' || role === 'admin';
+  const action = req.action as string;
+  if (action === 'scList') {
+    const today = SOSub.isDate(req.today) ? req.today : new Date().toISOString().slice(0, 10);
+    const raw = await subconRaw();
+    return { ok: true, today, role, statuses: SOSub.STATUSES, vendorRows: raw.vendors, leadTimes: raw.leadTimes, ...SOSub.build(raw, today) };
+  }
+  if (!write) return fail('FORBIDDEN', 'Viewers cannot change subcontract data.');
+  const bad = (r: any) => fail('INVALID', 'Please fix the highlighted fields.', { fieldErrors: r.errors });
+  const dup = (e: any) => e && /duplicate key|unique/i.test(e.message || '');
+  if (action === 'scSaveVendor') {
+    const c = SOSub.cleanVendor(req.vendor || {}); if (!c.ok) return bad(c);
+    const r = req.vendor.id ? await sb.from('sc_vendors').update(c.value).eq('id', req.vendor.id).select('id').single() : await sb.from('sc_vendors').insert(c.value).select('id').single();
+    if (r.error) return dup(r.error) ? fail('INVALID', 'That vendor already exists.', { fieldErrors: { name: 'That vendor already exists.' } }) : fail('SERVER_ERROR', r.error.message);
+    await scAudit(email, (r.data as any).id, 'VENDOR SAVED', c.value.name);
+    return { ok: true, id: (r.data as any).id };
+  }
+  if (action === 'scDeleteVendor') {
+    if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can delete vendors.');
+    const used = await sb.from('sc_orders').select('id', { count: 'exact', head: true }).eq('vendor_id', String(req.id));
+    if ((used.count || 0) > 0) return fail('INVALID', 'This vendor has subcontract orders. Mark it inactive instead of deleting.');
+    const r = await sb.from('sc_vendors').delete().eq('id', String(req.id)); if (r.error) return fail('SERVER_ERROR', r.error.message);
+    await scAudit(email, String(req.id), 'VENDOR DELETED', ''); return { ok: true };
+  }
+  if (action === 'scSaveLead') {
+    const c = SOSub.cleanLead(req.lead || {}); if (!c.ok) return bad(c);
+    const r = req.lead.id ? await sb.from('sc_lead_times').update(c.value).eq('id', req.lead.id) : await sb.from('sc_lead_times').insert(c.value);
+    if (r.error) return dup(r.error) ? fail('INVALID', 'That part and vendor already has a lead time.', { fieldErrors: { part_no: 'Already exists for this vendor.' } }) : fail('SERVER_ERROR', r.error.message);
+    return { ok: true };
+  }
+  if (action === 'scDeleteLead') {
+    const r = await sb.from('sc_lead_times').delete().eq('id', String(req.id)); if (r.error) return fail('SERVER_ERROR', r.error.message); return { ok: true };
+  }
+  if (action === 'scSaveOrder') {
+    const c = SOSub.cleanOrder(req.order || {}); if (!c.ok) return bad(c);
+    const { steps, ...fields } = c.value as any;
+    const vendorIds = [fields.vendor_id, ...steps.map((s: any) => s.vendor_id)].filter(Boolean);
+    const vr = await sb.from('sc_vendors').select('id').in('id', vendorIds);
+    if (must(vr as any).length !== new Set(vendorIds).size) return fail('INVALID', 'Please fix the highlighted fields.', { fieldErrors: { vendor_id: 'Unknown vendor.' } });
+    let id = req.order.id as string | undefined;
+    if (id) {
+      const r = await sb.from('sc_orders').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', id).select('id').single();
+      if (r.error) return dup(r.error) ? fail('INVALID', 'That subcontract # already exists.', { fieldErrors: { sc_no: 'That subcontract # already exists.' } }) : fail('SERVER_ERROR', r.error.message);
+    } else {
+      const r = await sb.from('sc_orders').insert({ ...fields, created_by: email }).select('id').single();
+      if (r.error) return dup(r.error) ? fail('INVALID', 'That subcontract # already exists.', { fieldErrors: { sc_no: 'That subcontract # already exists.' } }) : fail('SERVER_ERROR', r.error.message);
+      id = (r.data as any).id;
+    }
+    const del = await sb.from('sc_steps').delete().eq('order_id', id as string); if (del.error) return fail('SERVER_ERROR', del.error.message);
+    if (steps.length) { const ins = await sb.from('sc_steps').insert(steps.map((s: any) => ({ ...s, order_id: id }))); if (ins.error) return fail('SERVER_ERROR', ins.error.message); }
+    await scAudit(email, id as string, req.order.id ? 'SUBCON UPDATED' : 'SUBCON OPENED', fields.sc_no + ' / ' + fields.status);
+    return { ok: true, id };
+  }
+  if (action === 'scDeleteOrder') {
+    const r = await sb.from('sc_orders').delete().eq('id', String(req.id)); if (r.error) return fail('SERVER_ERROR', r.error.message);
+    await scAudit(email, String(req.id), 'SUBCON DELETED', ''); return { ok: true };
+  }
+  return fail('BAD_REQUEST', 'Unknown action.');
+}
+
 async function handleRequest(req: any) {
   if (req && req.action === 'login') return await login(req);
   const auth = await verifyToken(req && req.idToken);
@@ -287,6 +361,8 @@ async function handleRequest(req: any) {
   const { users, cfg } = await loadUsersAndConfig();
   const role = SOCore.roleFor(email, cfg.editors, cfg.viewers, cfg.admins, users);
   if (req.action === 'changePassword' && role) return await changePassword(email, req);
+
+  if (typeof req.action === 'string' && req.action.startsWith('sc')) return await subconAction(req, email, role);
 
   const opts = await prefetch(req, email, role, users, cfg);
   const snap = SOPg.create(opts);

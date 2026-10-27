@@ -18,7 +18,7 @@
     ['Release & prints', 'print_traveller', 'update_date'],
     ['Receiving, invoice & close', 'po_no_2', 'so_close_date']
   ];
-  const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail'];
+  const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail', 'view-subcon'];
 
   // ---------- helpers
   function el(tag, attrs, ...kids) {
@@ -158,7 +158,7 @@
   function signOut() {
     if (state.token && !CFG.DEV_MODE) api('logout');
     state.token = null; store('tok', null); state.dash = null; state.current = null; state.dirty = false;
-    $('userchip').hidden = true; $('btn-signout').hidden = true; $('btn-pw').hidden = true; $('btn-refresh').hidden = true; $('refreshed').textContent = '';
+    $('userchip').hidden = true; $('btn-signout').hidden = true; $('btn-pw').hidden = true; $('btn-subcon').hidden = true; $('btn-refresh').hidden = true; $('refreshed').textContent = '';
     showLogin('');
   }
   async function showLogin(msg) {
@@ -178,7 +178,7 @@
     Object.assign(state, { email: r.email, role: r.role, fields: r.fields, intake: r.intake });
     state.byKey = Object.fromEntries(r.fields.map((f) => [f.key, f]));
     $('avatar').textContent = initials(r.email); $('user-name').textContent = niceName(r.email); $('user-role').textContent = r.role;
-    $('userchip').hidden = false; $('btn-signout').hidden = false; $('btn-pw').hidden = CFG.DEV_MODE;
+    $('userchip').hidden = false; $('btn-signout').hidden = false; $('btn-pw').hidden = CFG.DEV_MODE; $('btn-subcon').hidden = false;
     if (r.dashboard) {
       // admins get the dashboard in the same round trip
       state.dirty = false; state.current = null; updateSaveBar();
@@ -892,6 +892,185 @@
   };
 
   // ---------- wiring
+  // ---------- subcontract module
+  const SC = { tab: 'orders', q: '', filter: 'open', data: null };
+  const SC_STATE = {
+    overdue: ['Overdue', 'bad'], 'due-soon': ['Due soon', 'warn'], 'on-track': ['On track', 'ok'], 'no-date': ['No date', 'muted'],
+    received: ['Received', 'ok'], 'received-late': ['Received late', 'warn'], cancelled: ['Cancelled', 'muted']
+  };
+  const scCanWrite = () => state.role === 'editor' || state.role === 'admin';
+  const vendorName = (id) => { const v = SC.data && SC.data.vendorRows.find((x) => x.id === id); return v ? v.name : '—'; };
+  const dshort = (s) => (isIso(s || '') ? shortDate(parseDate(s)) : '—');
+  async function openSubcon() {
+    if (!(await leaveGuard())) return;
+    show('view-subcon'); $('btn-refresh').hidden = true; banner('sc-banner', '', '');
+    await loadSubcon();
+  }
+  async function loadSubcon() {
+    const r = await api('scList', { today: today() });
+    if (!r.ok) { if (r.code === 'UNAUTHENTICATED') return showLogin(r.error); banner('sc-banner', 'err', r.error); return; }
+    SC.data = r; renderSubcon();
+  }
+  function renderSubcon() {
+    const d = SC.data, k = d.kpis;
+    const kp = (cls, v, l) => el('div', { class: 'kpi ' + cls }, el('div', { class: 'kv', text: String(v) }), el('div', { class: 'kl', text: l }));
+    $('sc-kpis').replaceChildren(kp('info', k.open, 'Open subcontract orders'), kp(k.overdue ? 'bad' : 'ok', k.overdue, 'Overdue'), kp(k.dueSoon ? 'warn' : 'ok', k.dueSoon, 'Due in 7 days'), kp('info', k.noDate, 'No expected date yet'), kp('info', money(k.openValue), 'Open order value'));
+    const tabs = [['orders', 'Orders'], ['alerts', 'Alerts (' + (k.overdue + k.dueSoon) + ')'], ['vendors', 'Vendors'], ['leads', 'Lead times']];
+    $('sc-tabs').replaceChildren(...tabs.map(([id, label]) => el('button', { class: 'chip' + (SC.tab === id ? ' on' : ''), type: 'button', role: 'tab', 'aria-selected': String(SC.tab === id), text: label, onclick: () => { SC.tab = id; renderSubcon(); } })));
+    $('sc-body').replaceChildren(SC.tab === 'orders' ? scOrdersView(false) : SC.tab === 'alerts' ? scOrdersView(true) : SC.tab === 'vendors' ? scVendorsView() : scLeadsView());
+  }
+  function scBadge(o) {
+    const [t, c] = SC_STATE[o.state] || ['', ''];
+    const extra = o.state === 'overdue' || o.state === 'received-late' ? ' ' + o.lateDays + 'd' : o.state === 'due-soon' && o.daysToDue != null ? ' ' + (o.daysToDue === 0 ? 'today' : o.daysToDue + 'd') : '';
+    return el('span', { class: 'badge sc-' + c, text: t + extra });
+  }
+  function scTable(head, body, emptyText) {
+    return el('div', { class: 'tablewrap card' }, el('table', { class: 'datatable' }, el('thead', {}, el('tr', {}, head.map((t) => el('th', { text: t })))),
+      el('tbody', {}, body.length ? body : [el('tr', {}, el('td', { colspan: head.length, class: 'muted', text: emptyText }))])));
+  }
+  function scOrdersView(alertsOnly) {
+    const d = SC.data;
+    let rows = alertsOnly ? d.alerts : d.orders;
+    if (!alertsOnly) {
+      const f = SC.filter;
+      rows = rows.filter((o) => f === 'all' || (f === 'open' && o.open) || (f === 'overdue' && o.state === 'overdue') || (f === 'received' && o.status === 'RECEIVED'));
+    }
+    const q = SC.q.trim().toLowerCase();
+    if (q) rows = rows.filter((o) => [o.sc_no, o.so_no, o.part_no, o.po_no, o.description, vendorName(o.vendor_id)].some((v) => norm(v).toLowerCase().includes(q)));
+    const wrap = el('div', {});
+    if (!alertsOnly) {
+      const search = el('input', { type: 'search', placeholder: 'Search SC#, SO#, part, vendor…', 'aria-label': 'Search', value: SC.q });
+      search.addEventListener('input', () => {
+        SC.q = search.value; clearTimeout(scOrdersView.t);
+        scOrdersView.t = setTimeout(() => { const pos = search.selectionStart; renderSubcon(); const s2 = $('sc-body').querySelector('input[type=search]'); if (s2) { s2.focus(); s2.setSelectionRange(pos, pos); } }, 250);
+      });
+      const chips = [['open', 'Open'], ['overdue', 'Overdue'], ['received', 'Received'], ['all', 'All']].map(([id, l]) => el('button', { class: 'chip' + (SC.filter === id ? ' on' : ''), type: 'button', text: l, onclick: () => { SC.filter = id; renderSubcon(); } }));
+      wrap.append(el('div', { class: 'listhead' }, el('div', { class: 'chips' }, chips), el('div', { class: 'listtools' }, search, el('button', { class: 'btn btn-sm', type: 'button', text: 'Export CSV', onclick: () => scExportCsv(rows) }))));
+    } else wrap.append(el('p', { class: 'muted pad', text: 'Open orders that are overdue or due within 7 days, most urgent first.' }));
+    const head = ['SC#', 'SO#', 'PART', 'VENDOR', 'QTY', 'STATUS', 'PO DATE', 'EXPECTED', 'TIMING', 'LEAD (days)', 'PO $', ''];
+    const body = rows.map((o) => el('tr', { class: 'clickrow', onclick: () => scEditOrder(o) },
+      el('td', {}, el('b', { text: o.sc_no })), el('td', { text: o.so_no || '—' }), el('td', { text: o.part_no, title: o.description || '' }), el('td', { text: vendorName(o.vendor_id) }), el('td', { text: String(o.qty) }),
+      el('td', { text: o.status }), el('td', { text: dshort(o.po_date) }), el('td', { title: o.basis ? 'Based on ' + o.basis : '' }, dshort(o.expected), o.basis ? el('small', { class: 'muted', text: ' ' + o.basis }) : ''),
+      el('td', {}, scBadge(o)), el('td', { title: o.stdDays != null ? 'Standard ' + o.stdDays + ' d' : '' }, o.actualDays != null ? o.actualDays + (o.stdDays != null ? ' / std ' + o.stdDays : '') : (o.stdDays != null ? 'std ' + o.stdDays : '—')),
+      el('td', { text: o.po_amt != null ? money(o.po_amt) : '—' }),
+      el('td', {}, scCanWrite() ? el('button', { class: 'rowdel', type: 'button', title: 'Delete', text: '🗑', onclick: (e) => { e.stopPropagation(); scDeleteOrder(o); } }) : '')));
+    wrap.append(scTable(head, body, alertsOnly ? 'Nothing is overdue or due soon.' : 'No subcontract orders here yet.'));
+    return wrap;
+  }
+  function scExportCsv(rows) {
+    const cols = ['sc_no', 'so_no', 'part_no', 'description', 'qty', 'status', 'po_no', 'po_date', 'promised_date', 'expected', 'received_date', 'state', 'lateDays', 'quote_amt', 'po_amt', 'invoice_amt'];
+    const esc = (v) => { v = norm(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const lines = [cols.concat(['vendor']).join(',')].concat(rows.map((o) => cols.map((c) => esc(o[c])).concat(esc(vendorName(o.vendor_id))).join(',')));
+    const a = el('a', { href: URL.createObjectURL(new Blob([lines.join('\r\n')], { type: 'text/csv' })), download: 'subcontract-orders-' + today() + '.csv' });
+    document.body.append(a); a.click(); a.remove();
+  }
+  function scVendorsView() {
+    const d = SC.data;
+    const head = ['VENDOR', 'CONTACT', 'OPEN', 'OVERDUE', 'RECEIVED', 'ON-TIME', 'AVG LEAD (days)', 'SPEND', ''];
+    const rows = d.vendors.map((v) => {
+      const raw = d.vendorRows.find((x) => x.id === v.id) || {};
+      return el('tr', { class: 'clickrow' + (v.active ? '' : ' inactive'), onclick: () => scEditVendor(raw) },
+        el('td', {}, el('b', { text: v.name }), v.active ? '' : el('small', { class: 'muted', text: '  inactive' })), el('td', { text: [raw.contact, raw.phone].filter(Boolean).join(' · ') || '—' }),
+        el('td', { text: String(v.open) }), el('td', { class: v.overdue ? 'sc-bad-text' : '', text: String(v.overdue) }), el('td', { text: String(v.received) }),
+        el('td', {}, v.onTimePct == null ? '—' : el('span', { class: 'badge ' + (v.onTimePct >= 90 ? 'sc-ok' : v.onTimePct >= 70 ? 'sc-warn' : 'sc-bad'), text: v.onTimePct + '%' })),
+        el('td', { text: v.avgLead == null ? '—' : String(v.avgLead) }), el('td', { text: money(v.spend) }),
+        el('td', {}, state.role === 'admin' ? el('button', { class: 'rowdel', type: 'button', title: 'Delete vendor', text: '🗑', onclick: (e) => { e.stopPropagation(); scDeleteVendor(raw); } }) : ''));
+    });
+    return el('div', {}, scCanWrite() ? el('div', { class: 'listhead' }, el('button', { class: 'btn btn-primary btn-sm', type: 'button', text: '＋ Add vendor', onclick: () => scEditVendor({}) })) : '',
+      scTable(head, rows, 'No vendors yet. Add one to start tracking subcontract orders.'),
+      el('p', { class: 'muted small pad', text: 'On-time % counts received orders that arrived on or before the promised (or expected) date. Click a vendor to edit it.' }));
+  }
+  function scLeadsView() {
+    const d = SC.data, hist = {};
+    d.orders.forEach((o) => { if (o.status === 'RECEIVED' && o.actualDays != null) { const k = o.vendor_id + '|' + norm(o.part_no).toUpperCase(); (hist[k] = hist[k] || []).push(o.actualDays); } });
+    const head = ['PART #', 'VENDOR', 'STANDARD (days)', 'ACTUAL AVG', 'ACTUAL RANGE', 'ORDERS', 'NOTES', ''];
+    const rows = d.leadTimes.map((l) => {
+      const h = hist[l.vendor_id + '|' + norm(l.part_no).toUpperCase()] || [];
+      const avg = h.length ? Math.round(h.reduce((t, x) => t + x, 0) / h.length) : null;
+      return el('tr', { class: 'clickrow', onclick: () => scEditLead(l) }, el('td', { text: l.part_no || 'Any part (vendor default)' }), el('td', { text: vendorName(l.vendor_id) }), el('td', {}, el('b', { text: String(l.std_days) })),
+        el('td', {}, avg == null ? '—' : el('span', { class: avg > l.std_days ? 'sc-bad-text' : '', text: String(avg) })), el('td', { text: h.length ? Math.min(...h) + '–' + Math.max(...h) : '—' }), el('td', { text: String(h.length) }), el('td', { text: l.notes || '' }),
+        el('td', {}, state.role === 'admin' ? el('button', { class: 'rowdel', type: 'button', title: 'Delete', text: '🗑', onclick: async (e) => { e.stopPropagation(); const r = await api('scDeleteLead', { id: l.id }); if (!r.ok) toast(r.error, true); else { toast('Lead time deleted.'); loadSubcon(); } } }) : ''));
+    });
+    return el('div', {}, el('p', { class: 'muted pad', text: 'Standard days from PO to receipt, per part and vendor (leave the part blank for a vendor default). The expected date on an order uses the vendor promise first, then this table, then the past average.' }),
+      scCanWrite() ? el('div', { class: 'listhead' }, el('button', { class: 'btn btn-primary btn-sm', type: 'button', text: '＋ Add lead time', onclick: () => scEditLead({}) })) : '',
+      scTable(head, rows, 'No lead times yet.'));
+  }
+
+  // ---- edit dialogs: one form body, re-shown with field errors until it saves or is cancelled
+  function scField(label, input, key, req) { return el('label', { class: 'scfield' }, el('span', { class: 'sclabel', text: label + (req ? ' *' : '') }), input, el('small', { class: 'fielderr', 'data-err': key })); }
+  const scInput = (type, val, extra) => el('input', Object.assign({ type, value: val == null ? '' : String(val), autocomplete: 'off' }, extra || {}));
+  function scSelect(options, val) { const s = el('select', {}, options.map(([v, l]) => el('option', { value: v, text: l }))); s.value = val == null ? '' : val; return s; }
+  function scShowErrors(body, errors) { body.querySelectorAll('[data-err]').forEach((n) => { n.textContent = (errors && errors[n.getAttribute('data-err')]) || ''; }); }
+  async function scDialog(title, body, collect, action, okLabel) {
+    for (;;) {
+      if (!(await confirmDialog(title, body, okLabel || 'Save'))) return false;
+      const r = await api(action, collect());
+      if (r.ok) return r;
+      if (r.fieldErrors) { scShowErrors(body, r.fieldErrors); toast(r.error || 'Please fix the highlighted fields.', true); continue; }
+      toast(r.error || 'Could not save.', true); return false;
+    }
+  }
+  const vendorOptions = (current) => [['', '— choose a vendor —']].concat(SC.data.vendorRows.filter((v) => v.active || v.id === current).map((v) => [v.id, v.name]));
+  async function scEditVendor(v) {
+    if (!scCanWrite()) return;
+    const f = { name: scInput('text', v.name), contact: scInput('text', v.contact), email: scInput('email', v.email), phone: scInput('text', v.phone), notes: scInput('text', v.notes), active: el('input', { type: 'checkbox' }) };
+    f.active.checked = v.id ? v.active !== false : true;
+    const body = el('div', { class: 'scform' }, scField('Vendor name', f.name, 'name', true), scField('Contact person', f.contact, 'contact'), scField('Email', f.email, 'email'), scField('Phone', f.phone, 'phone'), scField('Notes', f.notes, 'notes'), el('label', { class: 'inline' }, f.active, ' Active'));
+    const r = await scDialog(v.id ? 'Edit vendor' : 'Add vendor', body, () => ({ vendor: { id: v.id, name: f.name.value, contact: f.contact.value, email: f.email.value, phone: f.phone.value, notes: f.notes.value, active: f.active.checked } }), 'scSaveVendor');
+    if (r) { toast('Vendor saved.'); loadSubcon(); }
+  }
+  async function scDeleteVendor(v) {
+    if (!(await confirmDialog('Delete vendor', el('p', { text: 'Delete ' + v.name + '? Vendors with orders cannot be deleted: mark them inactive instead.' }), 'Delete', true))) return;
+    const r = await api('scDeleteVendor', { id: v.id }); if (!r.ok) { toast(r.error, true); return; } toast('Vendor deleted.'); loadSubcon();
+  }
+  async function scEditLead(l) {
+    if (!scCanWrite()) return;
+    const f = { part: scInput('text', l.part_no, { placeholder: 'Blank = any part' }), vendor: scSelect(vendorOptions(l.vendor_id), l.vendor_id), days: scInput('number', l.std_days, { min: 0, step: 1 }), notes: scInput('text', l.notes) };
+    const body = el('div', { class: 'scform' }, scField('Vendor', f.vendor, 'vendor_id', true), scField('Part # (blank = vendor default)', f.part, 'part_no'), scField('Standard lead time (days, PO to receipt)', f.days, 'std_days', true), scField('Notes', f.notes, 'notes'));
+    const r = await scDialog(l.id ? 'Edit lead time' : 'Add lead time', body, () => ({ lead: { id: l.id, part_no: f.part.value, vendor_id: f.vendor.value, std_days: f.days.value, notes: f.notes.value } }), 'scSaveLead');
+    if (r) { toast('Lead time saved.'); loadSubcon(); }
+  }
+  async function scDeleteOrder(o) {
+    if (!scCanWrite()) return;
+    if (!(await confirmDialog('Delete subcontract order', el('p', { text: 'Delete ' + o.sc_no + ' (' + o.part_no + ')? This cannot be undone.' }), 'Delete', true))) return;
+    const r = await api('scDeleteOrder', { id: o.id }); if (!r.ok) { toast(r.error, true); return; } toast('Deleted ' + o.sc_no + '.'); loadSubcon();
+  }
+  async function scEditOrder(o) {
+    o = o || {};
+    const ro = !scCanWrite();
+    const f = {
+      sc_no: scInput('text', o.sc_no), so_no: scInput('text', o.so_no), part_no: scInput('text', o.part_no), description: scInput('text', o.description), qty: scInput('number', o.qty, { min: 0, step: 'any' }),
+      vendor_id: scSelect(vendorOptions(o.vendor_id), o.vendor_id), status: scSelect(SC.data.statuses.map((s) => [s, s]), o.status || 'QUOTING'), po_no: scInput('text', o.po_no),
+      quote_date: scInput('date', o.quote_date), po_date: scInput('date', o.po_date), promised_date: scInput('date', o.promised_date), received_date: scInput('date', o.received_date),
+      quote_amt: scInput('number', o.quote_amt, { min: 0, step: 'any' }), po_amt: scInput('number', o.po_amt, { min: 0, step: 'any' }), invoice_amt: scInput('number', o.invoice_amt, { min: 0, step: 'any' }), notes: scInput('text', o.notes)
+    };
+    ['sc_no', 'part_no', 'qty', 'vendor_id'].forEach((k) => f[k].classList.add('mandatory-in'));
+    const stepsBox = el('div', { class: 'scsteps' });
+    const stepRows = [];
+    const addStep = (s) => {
+      s = s || {};
+      const r = { name: scInput('text', s.name, { placeholder: 'e.g. Machining, Plating, Inspection' }), vendor: scSelect(vendorOptions(s.vendor_id), s.vendor_id), sent: scInput('date', s.sent_date), promised: scInput('date', s.promised_date), received: scInput('date', s.received_date), cost: scInput('number', s.cost, { min: 0, step: 'any', placeholder: '$' }) };
+      const row = el('div', { class: 'scstep' }, r.name, r.vendor, el('label', {}, 'Sent', r.sent), el('label', {}, 'Promised', r.promised), el('label', {}, 'Received', r.received), r.cost,
+        el('button', { class: 'rowdel', type: 'button', title: 'Remove step', text: '✕', onclick: () => { stepRows.splice(stepRows.indexOf(r), 1); row.remove(); } }));
+      stepRows.push(r); stepsBox.append(row);
+    };
+    (o.steps || []).forEach(addStep);
+    const info = o.id ? el('div', { class: 'scinfo' }, scBadge(o), ' ', o.basis ? el('span', { class: 'muted', text: 'Expected ' + dshort(o.expected) + ' (' + o.basis + ')' }) : '', o.hist ? el('span', { class: 'muted', text: '  ·  Past orders of this part from this vendor: avg ' + o.hist.avg + ' d (' + o.hist.min + '–' + o.hist.max + ', ' + o.hist.n + ' orders)' }) : '') : '';
+    const body = el('div', { class: 'scform scorder' }, info,
+      scField('Subcontract #', f.sc_no, 'sc_no', true), scField('Related SO#', f.so_no, 'so_no'), scField('Part #', f.part_no, 'part_no', true), scField('Description', f.description, 'description'), scField('Qty', f.qty, 'qty', true),
+      scField('Vendor', f.vendor_id, 'vendor_id', true), scField('Status', f.status, 'status', true), scField('Vendor PO #', f.po_no, 'po_no'),
+      scField('Quote date', f.quote_date, 'quote_date'), scField('PO date', f.po_date, 'po_date'), scField('Promised date', f.promised_date, 'promised_date'), scField('Received date', f.received_date, 'received_date'),
+      scField('Quote $', f.quote_amt, 'quote_amt'), scField('PO $', f.po_amt, 'po_amt'), scField('Invoice $', f.invoice_amt, 'invoice_amt'), scField('Notes', f.notes, 'notes'),
+      el('div', { class: 'scwide' }, el('div', { class: 'scstephead' }, el('b', { text: 'Routing steps' }), el('button', { class: 'btn btn-sm', type: 'button', text: '＋ Add step', onclick: () => addStep() })), stepsBox, el('small', { class: 'fielderr', 'data-err': 'steps' })));
+    if (ro) { body.querySelectorAll('input,select,button').forEach((n) => { n.disabled = true; }); await confirmDialog('Subcontract ' + o.sc_no, body, 'Close'); return; }
+    const collect = () => ({ order: Object.assign({ id: o.id }, Object.fromEntries(Object.keys(f).map((k) => [k, f[k].value])), { steps: stepRows.map((s) => ({ name: s.name.value, vendor_id: s.vendor.value, sent_date: s.sent.value, promised_date: s.promised.value, received_date: s.received.value, cost: s.cost.value })) }) });
+    const r = await scDialog(o.id ? 'Edit ' + o.sc_no : 'New subcontract order', body, collect, 'scSaveOrder');
+    if (r) { toast('Subcontract order saved.'); loadSubcon(); }
+  }
+  $('btn-subcon').onclick = openSubcon;
+  $('sc-back').onclick = () => goHome();
+  $('sc-new').onclick = () => { if (!scCanWrite()) { toast('Viewers cannot open subcontract orders.', true); return; } scEditOrder(null); };
+
   window.addEventListener('beforeunload', (e) => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
   $('btn-home').onclick = async (e) => { e.preventDefault(); if (!state.token || !state.role) return; if (!(await leaveGuard())) return; goHome(); };
   $('home-new').onclick = openNewForm;
