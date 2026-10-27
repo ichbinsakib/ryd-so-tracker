@@ -152,3 +152,12 @@ revoke execute on function patch_order(uuid, jsonb) from public, anon, authentic
 -- Added later: who opened each SO (drives the "My SOs" list).
 alter table shop_orders add column if not exists created_by text not null default '';
 create index if not exists shop_orders_created_by_idx on shop_orders (created_by);
+
+-- The Edge Function connects as service_role. Tables were created with "auto-expose" off, so grant it explicitly.
+-- anon / authenticated get nothing: the browser can never read these tables directly.
+grant usage on schema public to service_role;
+grant all on all tables in schema public to service_role;
+grant all on all sequences in schema public to service_role;
+grant execute on all functions in schema public to service_role;
+alter default privileges in schema public grant all on tables to service_role;
+alter default privileges in schema public grant all on sequences to service_role;
