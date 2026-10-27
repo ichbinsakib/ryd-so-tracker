@@ -1,4 +1,4 @@
-/* RYD-SO Tracker frontend. No build step. All access control is enforced by the backend. */
+/* Shop Order Tracking Details frontend. No build step. All access control is enforced by the backend. */
 (function () {
   'use strict';
   const CFG = window.APP_CONFIG || {};
@@ -636,7 +636,7 @@
     if (rec.priceCheck && rec.priceCheck.state !== 'none') checks.push('Stockroom price: ' + (rec.priceCheck.state === 'ok' ? 'matches' : 'ISSUE — ' + rec.priceCheck.reason));
     if (rec.lookupChecks) checks.push('Steel usage data: ' + (Object.values(rec.lookupChecks).every((c) => c.state === 'ok') ? 'complete' : 'MISSING — ' + Object.entries(rec.lookupChecks).filter(([, c]) => c.state !== 'ok').map(([k]) => state.byKey[k].label).join(', ')));
     box.replaceChildren(
-      el('h1', { text: 'RYD-SO — Sales order details' }),
+      el('h1', { text: 'SHOP ORDER TRACKING DETAILS' }),
       el('div', { class: 'ps-head' }, el('div', {}, el('strong', { text: 'SO# ' + norm(rec.values.so_no) }), ' · Part ' + norm(rec.values.part_no) + ' · ' + norm(rec.values.customer)),
         el('div', { text: 'Status: ' + norm(rec.display.status) + '   ·   SO release ' + (norm(rec.display.so_release_status_bar) || '—') + '   ·   Material ' + (norm(rec.display.mat_status_bar) || '—') })),
       ...sections,

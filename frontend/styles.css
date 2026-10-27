@@ -1,4 +1,4 @@
-/* RYD-SO Tracker — design system. No build step. */
+/* Shop Order Tracking Details — design system. No build step. */
 :root {
   --bg: #f3f5f8; --panel: #ffffff; --panel-2: #f8fafc; --ink: #1b2430; --muted: #667487; --line: #e2e7ee; --line-2: #cfd7e2;
   --accent: #1f5fbf; --accent-2: #174b99; --accent-soft: #e8f0fc; --accent-ink: #ffffff;
@@ -33,7 +33,7 @@ a { color: var(--accent); }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: inherit; }
 .logo { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-weight: 800; font-size: 13px; letter-spacing: .02em; }
 .logo.big { width: 52px; height: 52px; font-size: 18px; border-radius: 13px; margin-bottom: 6px; }
-.brandtext { display: grid; line-height: 1.15; } .brandtext b { font-size: 15px; } .brandtext small { color: var(--muted); font-size: 11px; }
+.brandtext { display: grid; line-height: 1.15; } .brandtext b { font-size: 14px; letter-spacing: .01em; } .brandtext small { color: var(--muted); font-size: 11px; }
 .topbar-right { display: flex; align-items: center; gap: 10px; }
 .userchip { display: flex; align-items: center; gap: 8px; padding: 3px 10px 3px 4px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel-2); }
 .avatar { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-weight: 700; font-size: 11px; }
