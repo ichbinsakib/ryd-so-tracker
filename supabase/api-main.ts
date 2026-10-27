@@ -161,8 +161,9 @@ async function prefetch(req: any, email: string, role: string | null, users: any
 
   // lookups for the calculated columns and the price check (not needed for the dashboard: its bars do not use them)
   const needLookups = ['get', 'findSO', 'update', 'createSO', 'list', 'uploadScan'].includes(action);
+  const dashLookups = ['start', 'dashboard', 'mySOs'].includes(action);   // steel + stock lookups feed the material numbers on the dashboard rows
   const tasks: Promise<unknown>[] = [];
-  if (needLookups) {
+  if (needLookups || dashLookups) {
     const parts = new Set<string>(), codes = new Set<string>();
     const add = (d: any) => {
       if (!d) return;
@@ -181,7 +182,7 @@ async function prefetch(req: any, email: string, role: string | null, users: any
       tasks.push(chunkedIn('steel_usage', 'part_key,steel_type,qty_per_bar,router_bar_size', 'part_key', pk).then((rs) => {
         rs.forEach((r) => { if (!opts.steel[r.part_key]) opts.steel[r.part_key] = { steelType: r.steel_type, qtyPerBar: r.qty_per_bar, routerBarSize: r.router_bar_size }; });
       }));
-      tasks.push(chunkedIn('stockroom_prices', 'part,price', 'part_key', pk).then((rs) => { opts.stock.rows = rs.map((r) => [r.part, Number(r.price)]); }));
+      if (needLookups) tasks.push(chunkedIn('stockroom_prices', 'part,price', 'part_key', pk).then((rs) => { opts.stock.rows = rs.map((r) => [r.part, Number(r.price)]); }));
     }
   }
   // stock / steel upload info (small): counts and meta

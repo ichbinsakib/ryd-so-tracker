@@ -5,7 +5,7 @@
   const $ = (id) => document.getElementById(id);
   const state = {
     token: null, email: '', role: null, fields: [], byKey: {}, intake: null,
-    dash: null, view: [], page: 0, pageSize: 50, chip: 'all', sort: 'progress',
+    dash: null, view: [], page: 0, pageSize: 50, chip: 'all', sort: 'progress', stage: '', mat: '',
     current: null, dirty: false, saving: false, scans: [], tab: 0, users: [], bootstrap: []
   };
   const LOOKUP_KEYS = ['steel_type', 'router_bar_size', 'qty_per_bar'];
@@ -245,7 +245,7 @@
   function applyDashboard(r) {
     state.dash = r;
     $('refreshed').textContent = 'Updated ' + new Date(r.refreshedAt).toLocaleTimeString();
-    renderKpis(r.rows); if (isAdmin()) renderCards(r); buildChips(); applyView();
+    renderKpis(r.rows); renderPipeline(r.rows); renderMatReq(r.rows); if (isAdmin()) renderCards(r); buildChips(); applyView();
   }
   const rowClosed = (r) => /CLOSE/.test(norm(r.status));
   const rowDue = (r) => parseDate(r.due);
@@ -260,6 +260,47 @@
     const k = (cls, value, label) => el('div', { class: 'kpi ' + cls }, el('div', { class: 'kv', text: String(value) }), el('div', { class: 'kl', text: label }));
     $('kpis').replaceChildren(k('info', open.length, 'Open SOs'), k(overdue ? 'bad' : 'ok', overdue, 'Overdue'), k(soon ? 'warn' : 'ok', soon, 'Due in 7 days'),
       k(aq ? 'warn' : 'ok', aq, 'Awaiting quote'), k('info', avg('soBar'), 'Avg SO release'), k('info', avg('matBar'), 'Avg material'));
+  }
+  // ---------- inhouse planning: pipeline by stage, material roll-up
+  const STAGES = ['Order', 'Material', 'Quote', 'Approval', 'PO', 'Release', 'Receiving', 'Invoice'];
+  const STAGE_HINT = { Order: 'Details missing', Material: 'Steel data missing', Quote: 'Waiting for quote', Approval: 'Quote to approve', PO: 'PO to place / approve', Release: 'Ready to release', Receiving: 'Material in transit', Invoice: 'Invoice to finance' };
+  const rowOpen = (r) => !rowClosed(r) && r.stage !== 'Closed';
+  const matKey = (r) => (r.steelType ? [r.steelType, r.barType, r.barSize].map((x) => x || '?').join(' | ') : '');
+  const fmtN = (n, d) => (n === null || n === undefined ? '—' : Number(n).toLocaleString(undefined, { maximumFractionDigits: d === undefined ? 1 : d }));
+  function renderPipeline(rows) {
+    const open = rows.filter(rowOpen);
+    $('pipeline').replaceChildren(...STAGES.map((s, i) => {
+      const here = open.filter((r) => r.stage === s), late = here.filter((r) => { const n = daysUntil(rowDue(r)); return n !== null && n < 0; }).length;
+      const pcs = here.reduce((t, r) => t + (parseFloat(norm(r.qty).replace(/,/g, '')) || 0), 0);
+      return el('li', {}, el('button', { class: 'pstage' + (state.stage === s ? ' on' : '') + (late ? ' late' : '') + (here.length ? '' : ' empty'), type: 'button', 'aria-pressed': String(state.stage === s),
+        title: STAGE_HINT[s], onclick: () => { state.stage = state.stage === s ? '' : s; renderPipeline(state.dash.rows); applyView(); } },
+        el('span', { class: 'pn', text: String(i + 1) }), el('b', { text: s }), el('span', { class: 'pc', text: String(here.length) }),
+        el('small', { text: here.length ? (pcs ? fmtN(pcs, 0) + ' pcs' : '') + (late ? (pcs ? ' · ' : '') + late + ' late' : '') : STAGE_HINT[s] })));
+    }));
+  }
+  function renderMatReq(rows) {
+    const need = rows.filter((r) => rowOpen(r) && !r.matReceived);
+    const groups = {}, nodata = [];
+    need.forEach((r) => {
+      const k = matKey(r); if (!k) { nodata.push(r); return; }
+      const g = groups[k] || (groups[k] = { key: k, steel: r.steelType, bar: r.barType, size: r.barSize, sos: 0, pcs: 0, bars: 0, ft: 0, lbs: 0, short: 0, unknown: 0 });
+      g.sos++; g.pcs += parseFloat(norm(r.qty).replace(/,/g, '')) || 0; g.bars += r.reqBar || 0; g.ft += r.reqFt || 0; g.lbs += r.reqLbs || 0;
+      if (r.reqFt === null || r.availFt === null) g.unknown++; else if (r.availFt < r.reqFt) g.short++;
+    });
+    const list = Object.values(groups).sort((x, y) => y.lbs - x.lbs);
+    const tot = list.reduce((t, g) => ({ bars: t.bars + g.bars, ft: t.ft + g.ft, lbs: t.lbs + g.lbs }), { bars: 0, ft: 0, lbs: 0 });
+    $('matreq-sub').textContent = need.length ? ' · ' + need.length + ' open SO' + (need.length === 1 ? '' : 's') + ' still waiting for material · ' + fmtN(Math.ceil(tot.bars), 0) + ' bars · ' + fmtN(tot.ft, 0) + ' ft · ' + fmtN(tot.lbs, 0) + ' lbs' : ' · nothing waiting for material';
+    $('matreq').tHead.replaceChildren(el('tr', {}, ['STEEL', 'BAR', 'BAR SIZE', 'SOs', 'PCS', 'BARS', 'FEET', 'LBS', 'STOCK', ''].map((t) => el('th', { text: t }))));
+    const row = (g) => el('tr', { class: 'clickrow' + (state.mat === g.key ? ' picked' : ''), onclick: () => { state.mat = state.mat === g.key ? '' : g.key; renderMatReq(state.dash.rows); applyView(); } },
+      el('td', {}, el('b', { text: g.steel })), el('td', { text: g.bar || '—' }), el('td', { text: g.size || '—' }), el('td', { text: String(g.sos) }), el('td', { text: fmtN(g.pcs, 0) }),
+      el('td', {}, el('b', { text: fmtN(Math.ceil(g.bars), 0) })), el('td', { text: fmtN(g.ft, 0) }), el('td', { text: fmtN(g.lbs, 0) }),
+      el('td', {}, g.short ? el('span', { class: 'badge sc-bad', text: g.short + ' short' }) : g.unknown === g.sos ? el('span', { class: 'badge sc-muted', text: 'unknown' }) : el('span', { class: 'badge sc-ok', text: 'covered' }), g.short && g.unknown ? el('small', { class: 'muted', text: ' +' + g.unknown + ' unknown' }) : ''),
+      el('td', { class: 'muted small', text: state.mat === g.key ? 'filtering ✕' : 'show SOs' }));
+    const body = list.map(row);
+    if (nodata.length) body.push(el('tr', { class: 'clickrow' + (state.mat === 'none' ? ' picked' : ''), onclick: () => { state.mat = state.mat === 'none' ? '' : 'none'; renderMatReq(state.dash.rows); applyView(); } },
+      el('td', { colspan: 3 }, el('b', { text: 'No steel data' }), el('small', { class: 'muted', text: '  parts missing from STEEL USAGE, so the need cannot be calculated' })), el('td', { text: String(nodata.length) }), el('td', { colspan: 6, class: 'muted small', text: state.mat === 'none' ? 'filtering ✕' : 'show SOs' })));
+    $('matreq').tBodies[0].replaceChildren(...(body.length ? body : [el('tr', {}, el('td', { colspan: 10, class: 'muted', text: 'Every open SO has its material.' }))]));
+    $('matreq-card').hidden = !rows.length;
   }
   function freshness(cardId, whenId, subId, whenIso, subText, emptyText) {
     const card = $(cardId), w = $(whenId), s = $(subId);
@@ -291,7 +332,7 @@
   }
   function applyView() {
     const q = $('q').value.trim().toLowerCase();
-    const rows = (state.dash ? state.dash.rows : []).filter((r) => chipMatch(r, state.chip) && (!q || [r.so_no, r.part_no, r.customer].some((v) => norm(v).toLowerCase().includes(q))));
+    const rows = (state.dash ? state.dash.rows : []).filter((r) => chipMatch(r, state.chip) && (!state.stage || (rowOpen(r) && r.stage === state.stage)) && (!state.mat || (rowOpen(r) && !r.matReceived && (state.mat === 'none' ? !matKey(r) : matKey(r) === state.mat))) && (!q || [r.so_no, r.part_no, r.customer, r.steelType].some((v) => norm(v).toLowerCase().includes(q))));
     const soNum = (r) => { const n = parseFloat(norm(r.so_no).replace(/\D/g, '')); return isNaN(n) ? -1 : n; };
     if (state.sort === 'due') rows.sort((a, b) => { const x = rowDue(a), y = rowDue(b); return (x ? x.getTime() : 9e15) - (y ? y.getTime() : 9e15); });
     else if (state.sort === 'so') rows.sort((a, b) => soNum(b) - soNum(a));
@@ -299,22 +340,24 @@
     state.view = rows; state.page = 0; renderTable();
   }
   function renderTable() {
-    $('grid').tHead.replaceChildren(el('tr', {}, ['SO#', 'Part / customer', 'Status', 'Due', 'SO release', 'Material', ''].map((h) => el('th', { text: h }))));
+    $('grid').tHead.replaceChildren(el('tr', {}, ['SO#', 'Part / customer', 'Stage', 'Material', 'Due', 'SO release', 'Mat. status', ''].map((h) => el('th', { text: h }))));
     const pages = Math.max(1, Math.ceil(state.view.length / state.pageSize));
     state.page = Math.min(state.page, pages - 1);
     const slice = state.view.slice(state.page * state.pageSize, (state.page + 1) * state.pageSize);
     const body = $('grid').tBodies[0];
-    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : (isAdmin() ? 'No open SOs.' : 'You have no open SOs yet. Use Open an SO, or find one by its number.') })));
+    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 8, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : (isAdmin() ? 'No open SOs.' : 'You have no open SOs yet. Use Open an SO, or find one by its number.') })));
     else body.replaceChildren(...slice.map((r) => el('tr', { tabindex: 0, onclick: () => openById(r.id), onkeydown: (e) => { if (e.key === 'Enter') openById(r.id); } },
       el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'so', text: norm(r.so_no) || '—' }), el('small', { text: norm(r.qty) ? norm(r.qty) + ' pcs' : '' }))),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { text: norm(r.part_no) }), el('small', { text: norm(r.customer) }))),
-      el('td', {}, statusPill(r.status)),
+      el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill st-' + norm(r.stage).toLowerCase(), text: r.stage || '—' }), el('small', { text: norm(r.status) }))),
+      el('td', {}, el('div', { class: 'cell2' }, el('span', { text: r.steelType ? [r.steelType, r.barType].filter(Boolean).join(' ') : 'no steel data' }), el('small', { text: r.steelType ? [r.barSize, r.reqBar !== null ? fmtN(Math.ceil(r.reqBar), 0) + ' bars' : ''].filter(Boolean).join(' · ') : '' }))),
       el('td', {}, dueNode(rowDue(r), rowClosed(r))),
       el('td', {}, barNode(r.soBar)), el('td', {}, barNode(r.matBar)), el('td', { class: 'chev' }, rowClosed(r) ? '' : el('button', { class: 'rowdel', type: 'button', title: 'Delete this SO', 'aria-label': 'Delete this SO', text: '🗑', onclick: (e) => { e.stopPropagation(); deleteSO(r.id, norm(r.so_no) || norm(r.part_no)); } }), ' ›'))));
     $('pg-info').textContent = 'Page ' + (state.page + 1) + ' of ' + pages;
     $('pg-prev').disabled = state.page === 0; $('pg-next').disabled = state.page >= pages - 1;
     const ls = $('list-status'); ls.className = 'statusline';
     ls.textContent = state.view.length + ' of ' + (state.dash ? state.dash.rows.length : 0) + ' SOs';
+    if (state.stage || state.mat) ls.append(' · filtered by ' + (state.stage ? 'stage ' + state.stage : '') + (state.stage && state.mat ? ' and ' : '') + (state.mat ? (state.mat === 'none' ? 'no steel data' : 'material ' + state.mat.split(' | ')[0]) : '') + ' ', el('button', { class: 'btn btn-sm', type: 'button', text: 'Clear filter', onclick: () => { state.stage = ''; state.mat = ''; renderPipeline(state.dash.rows); renderMatReq(state.dash.rows); applyView(); } }));
   }
   async function deleteSO(id, label) {
     if (state.role === 'viewer') return;
@@ -335,8 +378,8 @@
   const loadList = () => loadDashboard();
   function exportCsv() {
     const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
-    const head = ['SO#', 'Part', 'Customer', 'Qty', 'Status', 'Due date', 'SO release %', 'Material %'];
-    const lines = [head.map(q).join(',')].concat(state.view.map((r) => [norm(r.so_no), norm(r.part_no), norm(r.customer), norm(r.qty), norm(r.status), norm(r.due), r.soBar === null ? '' : r.soBar, r.matBar === null ? '' : r.matBar].map((v) => q(/^[=+@-]/.test(String(v)) ? "'" + v : v)).join(',')));
+    const head = ['SO#', 'Part', 'Customer', 'Qty', 'Status', 'Stage', 'Steel', 'Bar', 'Bar size', 'Bars', 'Feet', 'Lbs', 'Due date', 'SO release %', 'Material %'];
+    const lines = [head.map(q).join(',')].concat(state.view.map((r) => [norm(r.so_no), norm(r.part_no), norm(r.customer), norm(r.qty), norm(r.status), norm(r.stage), norm(r.steelType), norm(r.barType), norm(r.barSize), r.reqBar === null ? '' : r.reqBar, r.reqFt === null ? '' : r.reqFt, r.reqLbs === null ? '' : r.reqLbs, norm(r.due), r.soBar === null ? '' : r.soBar, r.matBar === null ? '' : r.matBar].map((v) => q(/^[=+@-]/.test(String(v)) ? "'" + v : v)).join(',')));
     const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob); const link = el('a', { href: url, download: 'shop-orders-' + new Date().toISOString().slice(0, 10) + '.csv' });
     document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
@@ -460,15 +503,59 @@
     $('callouts').replaceChildren(...nextActions(rec).map((a) => el('div', { class: 'callout ' + a.kind },
       el('span', { class: 'ci', text: icon[a.kind] }), el('div', {}, el('b', { text: a.title }), a.text ? el('span', { text: a.text }) : ''))));
   }
+  // Release readiness: the go / no-go list an engineer walks through before releasing an SO to the floor.
+  const numOf = (rec, k) => { const t = dv(rec, k).replace(/[$,\s]/g, ''); return /^-?\d+(\.\d+)?$/.test(t) ? parseFloat(t) : null; };
+  function readiness(rec) {
+    const items = [], add = (label, st, detail) => items.push({ label, st, detail });
+    const ft = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' ft';
+    const matOk = has(rec, 'steel_type') && has(rec, 'router_bar_size') && has(rec, 'qty_per_bar');
+    add('Material data', matOk ? 'ok' : 'bad', matOk ? [dv(rec, 'steel_type'), dv(rec, 'router_bar_size'), dv(rec, 'qty_per_bar') + ' per bar'].join(' · ') : 'Steel type, bar size or qty per bar not found in STEEL USAGE');
+    const req = numOf(rec, 'req_ft'), avail = numOf(rec, 'avail_ft'), covered = has(rec, 'mat_receive_date_stockroom');
+    if (covered) add('Material on hand', 'ok', 'Received in the stockroom ' + shortDate(dateOf(rec, 'mat_receive_date_stockroom')));
+    else if (req === null) add('Material on hand', 'na', 'Required length unknown');
+    else if (avail !== null && avail >= req) add('Material on hand', 'ok', ft(avail) + ' in stock for ' + ft(req) + ' needed');
+    else add('Material on hand', has(rec, 'po_approve_date') ? 'warn' : 'bad', (avail === null ? 'No stock figure' : 'Short by ' + ft(req - avail)) + ' (need ' + ft(req) + ')' + (has(rec, 'po_approve_date') ? ': covered by the approved PO' : ': material has to be bought'));
+    const quoteNeeded = dv(rec, 'req_mat_quote').toUpperCase() !== 'NO';
+    if (!quoteNeeded) add('Material quote', 'na', 'Not required');
+    else if (has(rec, 'quote_approve_date')) add('Material quote', 'ok', 'Approved ' + shortDate(dateOf(rec, 'quote_approve_date')));
+    else if (has(rec, 'quote_receive_date') || /^(y|stock)/i.test(dv(rec, 'quote_received'))) add('Material quote', 'warn', 'Received, waiting for approval');
+    else add('Material quote', 'bad', has(rec, 'mat_quote_request_date') ? 'Requested ' + shortDate(dateOf(rec, 'mat_quote_request_date')) + ', no reply' : 'Not requested yet');
+    add('Purchase order', has(rec, 'po_approve_date') ? 'ok' : has(rec, 'po_receive_date') || has(rec, 'po_no_1') ? 'warn' : 'bad', has(rec, 'po_approve_date') ? 'Approved ' + shortDate(dateOf(rec, 'po_approve_date')) : has(rec, 'po_receive_date') || has(rec, 'po_no_1') ? 'PO received, not approved' : 'No PO yet');
+    const rv = numOf(rec, 'router_vs_po');
+    add('PO bar size matches router', rv === null ? 'na' : rv === 0 ? 'ok' : 'bad', rv === null ? 'No bar size entered from the PO' : rv === 0 ? dv(rec, 'po_mention_bar_size') : 'PO says ' + dv(rec, 'po_mention_bar_size') + ', router says ' + dv(rec, 'router_bar_size'));
+    if (rec.priceCheck && rec.priceCheck.state === 'issue') add('Part price', 'warn', rec.priceCheck.reason);
+    const prints = ['print_traveller', 'print_router', 'print_part_prints', 'print_req_po'].filter((k) => yes(dv(rec, k))).length;
+    add('Traveller, router, prints, req./PO', prints === 4 ? 'ok' : prints ? 'warn' : 'bad', prints + ' of 4 printed');
+    add('Verified', yes(dv(rec, 'verify_by_sakib')) ? 'ok' : 'bad', yes(dv(rec, 'verify_by_sakib')) ? 'Verified' : 'Not verified yet');
+    const due = dateOf(rec, 'due_date'), pod = dateOf(rec, 'po_due_date');
+    if (due && pod && !covered) { const gap = Math.round((pod - due) / 86400000); add('Material arrives before the SO is due', gap > 0 ? 'bad' : 'ok', gap > 0 ? 'PO due ' + gap + ' day' + (gap === 1 ? '' : 's') + ' after the SO due date' : 'PO due ' + Math.abs(gap) + ' day' + (Math.abs(gap) === 1 ? '' : 's') + ' before the SO is due'); }
+    return items;
+  }
+  function readinessCard(rec) {
+    const items = readiness(rec), bad = items.filter((i) => i.st === 'bad').length, warn = items.filter((i) => i.st === 'warn').length;
+    const icon = { ok: '✓', warn: '!', bad: '✕', na: '–' };
+    const closed = /CLOSE/.test(dv(rec, 'status')), released = has(rec, 'charllete_jay_release_date');
+    const head = closed ? 'Closed' : released ? 'Released' : bad ? 'Not ready to release: ' + bad + ' open' : warn ? 'Almost ready: ' + warn + ' to confirm' : 'Ready to release';
+    return el('div', { class: 'fcard ready ' + (closed || released ? 'done' : bad ? 'bad' : warn ? 'warn' : 'ok') }, el('h3', { text: 'Release readiness' }), el('div', { class: 'readyhead', text: head }),
+      el('ul', { class: 'readylist' }, items.map((i) => el('li', { class: 'r-' + i.st }, el('span', { class: 'ri', text: icon[i.st] }), el('div', {}, el('b', { text: i.label }), el('small', { text: i.detail }))))));
+  }
+  function coverageNode(rec) {
+    const req = numOf(rec, 'req_ft'), avail = numOf(rec, 'avail_ft');
+    if (req === null || req <= 0 || avail === null) return '';
+    const pct = Math.max(0, Math.min(100, Math.round(100 * avail / req)));
+    return el('div', { class: 'cover', title: 'Available stock against required length' }, el('div', { class: 'coverbar ' + (pct >= 100 ? 'ok' : pct >= 50 ? 'warn' : 'bad') }, el('i', { style: 'width:' + pct + '%' })),
+      el('small', { text: pct >= 100 ? 'Stock covers this SO (' + pct + '%)' : 'Stock covers ' + pct + '% · short by ' + (req - avail).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' ft' }));
+  }
   function renderFacts(rec) {
     const row = (label, value, tone, badge) => el('div', { class: 'frow' }, el('span', { text: label }), el('span', { class: tone ? 'tone-' + tone : '' }, value === '' || value === '-' ? '—' : value, badge || ''));
     const diffTone = (k) => { const n = parseMoney(rec.display[k]); return n === null ? 'none' : Math.abs(n) < 0.005 ? 'ok' : Math.abs(n) < 5 ? 'warn' : 'bad'; };
     const dateRow = (label, k, watch) => { const d = dateOf(rec, k); const n = daysUntil(d); return row(label, d ? shortDate(d) + (watch && n !== null ? (n < 0 ? ' · ' + Math.abs(n) + ' d late' : n === 0 ? ' · today' : ' · in ' + n + ' d') : '') : '', watch && n !== null && n < 0 ? 'bad' : d ? '' : 'none'); };
     $('facts').replaceChildren(
+      readinessCard(rec),
       el('div', { class: 'fcard' }, el('h3', { text: 'Material needed' }),
         row('Steel type', dv(rec, 'steel_type'), null, lookupBadge(rec, 'steel_type')), row('Bar type', dv(rec, 'bar_type')),
         row('Router bar size', dv(rec, 'router_bar_size'), null, lookupBadge(rec, 'router_bar_size')), row('Qty / bar', dv(rec, 'qty_per_bar'), null, lookupBadge(rec, 'qty_per_bar')),
-        row('Required (ft)', dv(rec, 'req_ft')), row('Required (lbs)', dv(rec, 'req_lbs')), row('Required bars', dv(rec, 'req_bar')), row('Available (ft)', dv(rec, 'avail_ft'))),
+        row('Required (ft)', dv(rec, 'req_ft')), row('Required (lbs)', dv(rec, 'req_lbs')), row('Required bars', dv(rec, 'req_bar')), row('Available (ft)', dv(rec, 'avail_ft')), coverageNode(rec)),
       el('div', { class: 'fcard' }, el('h3', { text: 'Pricing' }),
         row('Part price', dv(rec, 'part_price'), null, priceBadge(rec)), row('Traveller mat. price / pc', dv(rec, 'traveller_mat_price_piece')),
         row('Quote price / pc', dv(rec, 'quote_price_piece')), row('Diff (traveller vs quote)', dv(rec, 'diff'), diffTone('diff')),

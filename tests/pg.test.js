@@ -178,3 +178,19 @@ test('setPassword: admin only, minimum length, user must exist, nothing plain is
   assert.equal(audit.field, 'PASSWORD SET');
   assert.ok(!JSON.stringify(audit).includes('longenough1'));
 });
+
+test('dashboard rows carry the stage and the material numbers', () => {
+  const p = make({ rows: [
+    { rowNumber: 1, id: 'id-1', data: { status: '3.OPEN', part_no: 'P1', so_no: '100', so_qty: 25, due_date: '2026-12-01', bar_type: 'RD' } },
+    { rowNumber: 2, id: 'id-3', data: { status: '3.OPEN', part_no: 'P1', so_no: '102', so_qty: 5, due_date: '2026-12-01', req_mat_quote: 'NO', po_approve_date: '2026-10-01' } },
+    { rowNumber: 3, id: 'id-4', data: { status: '3.OPEN', part_no: 'NOPE', so_no: '103', so_qty: 5, due_date: '2026-12-01' } }
+  ] });
+  const d = call(p, { action: 'dashboard' });
+  const by = (so) => d.rows.find((r) => r.so_no === so);
+  assert.equal(by('100').stage, 'Quote');
+  assert.equal(by('100').steelType, '4140'); assert.equal(by('100').barType, 'RD'); assert.equal(by('100').barSize, "12' x 1.5"); assert.equal(by('100').qtyPerBar, 10);
+  assert.equal(by('100').reqBar, 2.5);
+  assert.equal(by('102').stage, 'Release');
+  assert.equal(by('103').stage, 'Material'); assert.equal(by('103').reqBar, null);
+  assert.equal(by('100').matReceived, false);
+});

@@ -91,6 +91,16 @@
 
   <section id="kpis" class="kpis" aria-label="Key numbers"></section>
 
+  <section class="card pipeline-card" id="pipeline-card">
+    <div class="sechead"><h3>Order pipeline</h3><span class="muted small">Where every open SO is waiting. Click a stage to list those SOs.</span></div>
+    <ol id="pipeline" class="pipeline"></ol>
+  </section>
+
+  <details class="card matreq" id="matreq-card" open>
+    <summary><b>Material requirements</b> <span class="muted small" id="matreq-sub"></span></summary>
+    <div class="tablewrap"><table id="matreq" class="datatable"><thead></thead><tbody></tbody></table></div>
+  </details>
+
   <section class="fresh" id="fresh-cards">
     <div class="card stat" id="card-stock">
       <div class="stat-top"><span class="dot" aria-hidden="true"></span><h3>Stockroom price sheet</h3></div>

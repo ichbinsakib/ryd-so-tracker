@@ -1290,12 +1290,37 @@ var SOService = (function () {
     return out;
   }
 
+  // Display text of a calculated/typed cell: '' for blank, '-' and error values.
+  function dashText(x) { var t = String(x === undefined || x === null ? '' : x).trim(); return t === '-' || t.charAt(0) === '#' ? '' : t; }
+  function dashNum(x) { var t = dashText(x).replace(/[$,\s]/g, ''); if (t === '' || !/^-?\d+(\.\d+)?$/.test(t)) return null; return parseFloat(t); }
+
+  // The workflow step an SO is waiting on, from its display values (mirrors the stepper on the SO page).
+  function stageOf(v, K) {
+    function has(k) { var t = String(v[K[k].index] === undefined || v[K[k].index] === null ? '' : v[K[k].index]).trim(); return t !== '' && t !== '-'; }
+    function txt(k) { return String(v[K[k].index] === undefined || v[K[k].index] === null ? '' : v[K[k].index]).trim(); }
+    var quoteSkipped = txt('req_mat_quote').toUpperCase() === 'NO';
+    if (/CLOSE/.test(txt('status')) || has('so_close_date')) return 'Closed';
+    if (!(has('so_no') && has('due_date'))) return 'Order';
+    if (!has('steel_type')) return 'Material';
+    if (!quoteSkipped && !(has('quote_receive_date') || /^(y|stock)/i.test(txt('quote_received')))) return 'Quote';
+    if (!quoteSkipped && !has('quote_approve_date')) return 'Approval';
+    if (!has('po_approve_date')) return 'PO';
+    if (!has('charllete_jay_release_date')) return 'Release';
+    if (!has('mat_receive_date_stockroom')) return 'Receiving';
+    if (!(/^(y|yes|true)/i.test(txt('invoice_received_finance')) || has('invoice_no'))) return 'Invoice';
+    return 'Closed';
+  }
+
   function buildDashboard(adapter, email, req) {
     var K = Core.BY_KEY;
     var idIndex = adapter.getIdIndex();
     var stock = readStockInfo(adapter);
     // only the columns the dashboard shows (status, bars, customer, part, qty, due date, SO#, quote flags)
-    var idxs = [K.status.index, K.so_release_status_bar.index, K.mat_status_bar.index, K.customer.index, K.part_no.index, K.so_qty.index, K.due_date.index, K.so_no.index, K.req_mat_quote.index, K.quote_received.index];
+    var DASH_KEYS = ['status', 'so_release_status_bar', 'mat_status_bar', 'customer', 'part_no', 'so_qty', 'due_date', 'so_no', 'req_mat_quote', 'quote_received',
+      'steel_type', 'bar_type', 'router_bar_size', 'qty_per_bar', 'req_bar', 'req_ft', 'req_lbs', 'avail_ft', 'champion', 'so_type', 'kanban_or_po', 'po_due_date',
+      'quote_receive_date', 'quote_approve_date', 'po_approve_date', 'po_receive_date', 'po_no_1', 'date_of_send', 'charllete_jay_release_date', 'mat_receive_date_stockroom',
+      'invoice_received_finance', 'invoice_no', 'so_close_date'];
+    var idxs = DASH_KEYS.map(function (k) { return K[k].index; });
     if (idIndex >= 0) idxs.push(idIndex);
     var rows = [];
     adapter.readColumns(idxs, true).forEach(function (r) {
@@ -1306,7 +1331,11 @@ var SOService = (function () {
       rows.push({
         id: idIndex >= 0 ? v[idIndex] || null : null, so_no: v[K.so_no.index], part_no: v[K.part_no.index], customer: v[K.customer.index],
         status: status, soBar: Core.pctNum(v[K.so_release_status_bar.index]), matBar: Core.pctNum(v[K.mat_status_bar.index]),
-        due: v[K.due_date.index], qty: v[K.so_qty.index], reqQuote: v[K.req_mat_quote.index], quoteReceived: v[K.quote_received.index]
+        due: v[K.due_date.index], qty: v[K.so_qty.index], reqQuote: v[K.req_mat_quote.index], quoteReceived: v[K.quote_received.index],
+        stage: stageOf(v, K), steelType: dashText(v[K.steel_type.index]), barType: dashText(v[K.bar_type.index]), barSize: dashText(v[K.router_bar_size.index]),
+        qtyPerBar: dashNum(v[K.qty_per_bar.index]), reqBar: dashNum(v[K.req_bar.index]), reqFt: dashNum(v[K.req_ft.index]), reqLbs: dashNum(v[K.req_lbs.index]), availFt: dashNum(v[K.avail_ft.index]),
+        champion: dashText(v[K.champion.index]), soType: dashText(v[K.so_type.index]), kanbanOrPo: dashText(v[K.kanban_or_po.index]), poDue: dashText(v[K.po_due_date.index]),
+        matReceived: !blank(v[K.mat_receive_date_stockroom.index]) && v[K.mat_receive_date_stockroom.index] !== '-'
       });
     });
     // lowest progress first (unknown bars last)
@@ -1774,8 +1803,9 @@ async function prefetch(req: any, email: string, role: string | null, users: any
 
   // lookups for the calculated columns and the price check (not needed for the dashboard: its bars do not use them)
   const needLookups = ['get', 'findSO', 'update', 'createSO', 'list', 'uploadScan'].includes(action);
+  const dashLookups = ['start', 'dashboard', 'mySOs'].includes(action);   // steel + stock lookups feed the material numbers on the dashboard rows
   const tasks: Promise<unknown>[] = [];
-  if (needLookups) {
+  if (needLookups || dashLookups) {
     const parts = new Set<string>(), codes = new Set<string>();
     const add = (d: any) => {
       if (!d) return;
@@ -1794,7 +1824,7 @@ async function prefetch(req: any, email: string, role: string | null, users: any
       tasks.push(chunkedIn('steel_usage', 'part_key,steel_type,qty_per_bar,router_bar_size', 'part_key', pk).then((rs) => {
         rs.forEach((r) => { if (!opts.steel[r.part_key]) opts.steel[r.part_key] = { steelType: r.steel_type, qtyPerBar: r.qty_per_bar, routerBarSize: r.router_bar_size }; });
       }));
-      tasks.push(chunkedIn('stockroom_prices', 'part,price', 'part_key', pk).then((rs) => { opts.stock.rows = rs.map((r) => [r.part, Number(r.price)]); }));
+      if (needLookups) tasks.push(chunkedIn('stockroom_prices', 'part,price', 'part_key', pk).then((rs) => { opts.stock.rows = rs.map((r) => [r.part, Number(r.price)]); }));
     }
   }
   // stock / steel upload info (small): counts and meta
