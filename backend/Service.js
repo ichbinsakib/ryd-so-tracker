@@ -99,6 +99,14 @@ var SOService = (function () {
           if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can see the dashboard.');
           return dashboard(adapter, auth.email, req);
 
+        case 'mySOs': {
+          // The SOs this person opened or is responsible for. Only adapters that load just those rows may serve it.
+          if (!adapter.scopedToUser) return fail('NOT_SUPPORTED', 'This backend cannot list a user own SOs.');
+          var mine = buildDashboard(adapter, auth.email, req);
+          mine.role = role; mine.mine = true; delete mine.stock; delete mine.steel;
+          return mine;
+        }
+
         case 'findSO':
           return findSO(adapter, req);
 

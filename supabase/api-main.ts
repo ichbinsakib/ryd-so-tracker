@@ -88,7 +88,12 @@ async function prefetch(req: any, email: string, role: string | null, users: any
   const wantsAll = ADMIN_ONLY_ROWS.has(action) && role === 'admin';
   let rows: any[] = [];
   if (wantsAll) rows = await allOrderRows();
-  else if (action === 'findSO') {
+  else if (action === 'mySOs') {
+    const me = users.find((u: any) => u.email === email);
+    const name = (me && me.name) || email.split('@')[0];
+    const q = (v: string) => '"' + String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    rows = must(await sb.from('shop_orders').select('row_no,id,data').or('created_by.eq.' + q(email) + ',data->>champion.eq.' + q(name) + ',data->>req_by.eq.' + q(name)).order('row_no').limit(2000)) as any[];
+  } else if (action === 'findSO') {
     const want = SOCore.normSo(req.so_no);
     if (want) rows = must(await sb.from('shop_orders').select('row_no,id,data').eq('so_key', want).order('row_no').limit(5)) as any[];
   } else if (BY_ID.has(action) && typeof req.id === 'string' && UUID.test(req.id)) {
@@ -165,7 +170,7 @@ async function flush(ops: any[]) {
       const r = await sb.rpc('patch_order', { p_id: o.id, p_patch: patches.get(o.id) });
       if (r.error) throw new Error(r.error.message);
     } else if (o.type === 'insert') {
-      const r = await sb.from('shop_orders').insert({ id: o.id, data: o.data });
+      const r = await sb.from('shop_orders').insert({ id: o.id, data: o.data, created_by: String(o.createdBy || '').toLowerCase() });
       if (r.error) { if (r.error.code === '23505') throw { duplicate: true }; throw new Error(r.error.message); }
     } else if (o.type === 'delete') {
       const r = await sb.from('shop_orders').delete().eq('id', o.id);

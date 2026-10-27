@@ -74,7 +74,7 @@
 <!-- Admin: progress + data freshness -->
 <main id="view-admin" hidden>
   <div class="pagehead">
-    <div><h1>Dashboard</h1><p class="muted">Progress of every sales order that is not closed.</p></div>
+    <div><h1 id="dash-title">Dashboard</h1><p class="muted" id="dash-sub">Progress of every sales order that is not closed.</p></div>
     <div class="head-actions">
       <form id="admin-find" class="findrow" autocomplete="off"><input id="admin-find-input" type="text" placeholder="Find SO#" aria-label="Find SO number"><button class="btn" type="submit">Find</button></form>
       <button id="admin-users" class="btn">Users</button>
@@ -84,7 +84,7 @@
 
   <section id="kpis" class="kpis" aria-label="Key numbers"></section>
 
-  <section class="fresh">
+  <section class="fresh" id="fresh-cards">
     <div class="card stat" id="card-stock">
       <div class="stat-top"><span class="dot" aria-hidden="true"></span><h3>Stockroom price sheet</h3></div>
       <div class="statbig" id="stock-when">—</div>
@@ -110,6 +110,7 @@
     <div id="chips" class="chips" role="group" aria-label="Filter by status"></div>
     <div class="listtools">
       <input id="q" type="search" placeholder="Search SO#, part or customer…" aria-label="Search">
+      <button id="btn-csv" class="btn btn-sm" type="button" title="Download the SOs shown as a CSV file">Export CSV</button>
       <select id="sort" aria-label="Sort">
         <option value="progress">Lowest progress first</option>
         <option value="due">Due date (soonest)</option>

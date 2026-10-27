@@ -146,3 +146,20 @@ test('service on the database adapter: roles and users', () => {
   assert.equal(r.ok, true);
   assert.ok(admin.ops.some((o) => o.type === 'users' && o.list.length === 2));
 });
+
+test('mySOs: any role gets the dashboard rows of the snapshot (already scoped to the person); new SOs record who opened them', () => {
+  const bob = make({ email: 'bob@example.com' });
+  const r = call(bob, { action: 'mySOs' });
+  assert.equal(r.ok, true);
+  assert.equal(r.mine, true);
+  assert.equal(r.role, 'editor');
+  assert.deepEqual(r.rows.map((x) => x.so_no), ['100']);
+  assert.equal(r.stock, undefined);
+  const form = { part_no: 'P9', customer: 'ACME', champion: 'Bob', so_qty: '5', due_date: '2026-12-01', so_type: 'standard', kanban_or_po: 'po', req_by: 'Bob', so_req_date: '2026-10-16' };
+  const c = call(bob, { action: 'createSO', changes: form });
+  assert.equal(c.ok, true);
+  assert.equal(bob.ops.filter((o) => o.type === 'insert')[0].createdBy, 'bob@example.com');
+  // the sheet backend is not scoped, so it refuses
+  const FakeSheet = require('./fakeSheet.js').FakeSheet;
+  assert.equal(Service.handle(new FakeSheet(), { idToken: 'tok-editor', action: 'mySOs' }).code, 'NOT_SUPPORTED');
+});

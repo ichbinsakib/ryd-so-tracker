@@ -822,6 +822,14 @@ var SOService = (function () {
           if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can see the dashboard.');
           return dashboard(adapter, auth.email, req);
 
+        case 'mySOs': {
+          // The SOs this person opened or is responsible for. Only adapters that load just those rows may serve it.
+          if (!adapter.scopedToUser) return fail('NOT_SUPPORTED', 'This backend cannot list a user own SOs.');
+          var mine = buildDashboard(adapter, auth.email, req);
+          mine.role = role; mine.mine = true; delete mine.stock; delete mine.steel;
+          return mine;
+        }
+
         case 'findSO':
           return findSO(adapter, req);
 
@@ -1252,6 +1260,7 @@ var SOPg = (function () {
       newId: opts.newId,
       withLock: function (fn) { return fn(); },
       getIdIndex: function () { return ID_INDEX; },
+      scopedToUser: true,
 
       readColumns: function (indexes, display) {
         return ordered().map(function (row) {
@@ -1297,7 +1306,7 @@ var SOPg = (function () {
         });
         tempRow -= 1;
         rows.push({ rowNumber: tempRow, id: id, data: JSON.parse(JSON.stringify(data)), pending: true });
-        ops.push({ type: 'insert', id: id, data: data });
+        ops.push({ type: 'insert', id: id, data: data, createdBy: opts.email });
         return tempRow;
       },
       deleteRow: function (rowNumber) {
@@ -1434,7 +1443,12 @@ async function prefetch(req: any, email: string, role: string | null, users: any
   const wantsAll = ADMIN_ONLY_ROWS.has(action) && role === 'admin';
   let rows: any[] = [];
   if (wantsAll) rows = await allOrderRows();
-  else if (action === 'findSO') {
+  else if (action === 'mySOs') {
+    const me = users.find((u: any) => u.email === email);
+    const name = (me && me.name) || email.split('@')[0];
+    const q = (v: string) => '"' + String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    rows = must(await sb.from('shop_orders').select('row_no,id,data').or('created_by.eq.' + q(email) + ',data->>champion.eq.' + q(name) + ',data->>req_by.eq.' + q(name)).order('row_no').limit(2000)) as any[];
+  } else if (action === 'findSO') {
     const want = SOCore.normSo(req.so_no);
     if (want) rows = must(await sb.from('shop_orders').select('row_no,id,data').eq('so_key', want).order('row_no').limit(5)) as any[];
   } else if (BY_ID.has(action) && typeof req.id === 'string' && UUID.test(req.id)) {
@@ -1511,7 +1525,7 @@ async function flush(ops: any[]) {
       const r = await sb.rpc('patch_order', { p_id: o.id, p_patch: patches.get(o.id) });
       if (r.error) throw new Error(r.error.message);
     } else if (o.type === 'insert') {
-      const r = await sb.from('shop_orders').insert({ id: o.id, data: o.data });
+      const r = await sb.from('shop_orders').insert({ id: o.id, data: o.data, created_by: String(o.createdBy || '').toLowerCase() });
       if (r.error) { if (r.error.code === '23505') throw { duplicate: true }; throw new Error(r.error.message); }
     } else if (o.type === 'delete') {
       const r = await sb.from('shop_orders').delete().eq('id', o.id);

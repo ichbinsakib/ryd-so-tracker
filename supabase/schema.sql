@@ -148,3 +148,7 @@ language sql as $$
    where id = p_id;
 $$;
 revoke execute on function patch_order(uuid, jsonb) from public, anon, authenticated;
+
+-- Added later: who opened each SO (drives the "My SOs" list).
+alter table shop_orders add column if not exists created_by text not null default '';
+create index if not exists shop_orders_created_by_idx on shop_orders (created_by);

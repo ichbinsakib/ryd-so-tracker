@@ -67,6 +67,7 @@ var SOPg = (function () {
       newId: opts.newId,
       withLock: function (fn) { return fn(); },
       getIdIndex: function () { return ID_INDEX; },
+      scopedToUser: true,
 
       readColumns: function (indexes, display) {
         return ordered().map(function (row) {
@@ -112,7 +113,7 @@ var SOPg = (function () {
         });
         tempRow -= 1;
         rows.push({ rowNumber: tempRow, id: id, data: JSON.parse(JSON.stringify(data)), pending: true });
-        ops.push({ type: 'insert', id: id, data: data });
+        ops.push({ type: 'insert', id: id, data: data, createdBy: opts.email });
         return tempRow;
       },
       deleteRow: function (rowNumber) {

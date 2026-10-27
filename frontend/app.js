@@ -182,9 +182,17 @@
       show('view-admin'); $('btn-refresh').hidden = false; applyDashboard(r.dashboard);
     } else goHome();
   }
+  const isAdmin = () => state.role === 'admin';
+  function setDashMode() {
+    const admin = isAdmin();
+    $('dash-title').textContent = admin ? 'Dashboard' : 'My SOs';
+    $('dash-sub').textContent = admin ? 'Progress of every sales order that is not closed.' : 'Sales orders you opened or are responsible for, with their progress.';
+    $('fresh-cards').hidden = !admin; $('admin-users').hidden = !admin; $('admin-new').hidden = state.role === 'viewer';
+    if (!admin && !state.sortSet) { state.sort = 'due'; $('sort').value = 'due'; state.sortSet = true; }
+  }
   function goHome() {
     state.dirty = false; state.current = null; updateSaveBar();
-    if (state.role === 'admin') return loadDashboard();
+    return loadDashboard();
     $('btn-refresh').hidden = true; $('refreshed').textContent = '';
     $('home-greet').textContent = 'Welcome, ' + niceName(state.email).split(' ')[0];
     $('home-new').hidden = state.role === 'viewer'; $('home-msg').textContent = ''; $('home-find-input').value = '';
@@ -214,11 +222,11 @@
 
   // ---------- admin dashboard
   async function loadDashboard(fresh) {
-    show('view-admin'); $('btn-refresh').hidden = false;
-    $('grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: 'Loading from the sheet…' })));
+    setDashMode(); show('view-admin'); $('btn-refresh').hidden = false;
+    $('grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: 'Loading…' })));
     const ls = $('list-status'); ls.className = 'statusline'; ls.textContent = '';
     $('btn-refresh').disabled = true;
-    const r = await api('dashboard', { includeClosed: $('incl-closed').checked, fresh: !!fresh });
+    const r = await api(isAdmin() ? 'dashboard' : 'mySOs', { includeClosed: $('incl-closed').checked, fresh: !!fresh });
     $('btn-refresh').disabled = false;
     if (!r.ok) {
       if (r.code === 'UNAUTHENTICATED') return showLogin(r.error);
@@ -229,8 +237,7 @@
   function applyDashboard(r) {
     state.dash = r;
     $('refreshed').textContent = 'Updated ' + new Date(r.refreshedAt).toLocaleTimeString();
-    renderKpis(r.rows); renderCards(r); buildChips(); applyView();
-    if (!r.writable) toast('The sheet has no RECORD ID column yet, so editing is disabled.', true);
+    renderKpis(r.rows); if (isAdmin()) renderCards(r); buildChips(); applyView();
   }
   const rowClosed = (r) => /CLOSE/.test(norm(r.status));
   const rowDue = (r) => parseDate(r.due);
@@ -289,7 +296,7 @@
     state.page = Math.min(state.page, pages - 1);
     const slice = state.view.slice(state.page * state.pageSize, (state.page + 1) * state.pageSize);
     const body = $('grid').tBodies[0];
-    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : 'No open SOs.' })));
+    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : (isAdmin() ? 'No open SOs.' : 'You have no open SOs yet. Use Open an SO, or find one by its number.') })));
     else body.replaceChildren(...slice.map((r) => el('tr', { tabindex: 0, onclick: () => openById(r.id), onkeydown: (e) => { if (e.key === 'Enter') openById(r.id); } },
       el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'so', text: norm(r.so_no) || '—' }), el('small', { text: norm(r.qty) ? norm(r.qty) + ' pcs' : '' }))),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { text: norm(r.part_no) }), el('small', { text: norm(r.customer) }))),
@@ -318,6 +325,15 @@
     openRecord(r.record);
   }
   const loadList = () => loadDashboard();
+  function exportCsv() {
+    const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+    const head = ['SO#', 'Part', 'Customer', 'Qty', 'Status', 'Due date', 'SO release %', 'Material %'];
+    const lines = [head.map(q).join(',')].concat(state.view.map((r) => [norm(r.so_no), norm(r.part_no), norm(r.customer), norm(r.qty), norm(r.status), norm(r.due), r.soBar === null ? '' : r.soBar, r.matBar === null ? '' : r.matBar].map((v) => q(/^[=+@-]/.test(String(v)) ? "'" + v : v)).join(',')));
+    const blob = new Blob(['\ufeff' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob); const link = el('a', { href: url, download: 'shop-orders-' + new Date().toISOString().slice(0, 10) + '.csv' });
+    document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  $('btn-csv').onclick = exportCsv;
 
   // ---------- open a new SO
   const NEW_GROUPS = [
