@@ -29,7 +29,8 @@ var SOService = (function () {
 
   function readStockInfo(adapter) {
     var s = adapter.readStock ? adapter.readStock() : { rows: [], meta: null };
-    return { index: Core.buildStockIndex(s.rows), has: s.rows.length > 0, count: s.rows.length, meta: s.meta || null };
+    var count = s.count !== undefined ? s.count : s.rows.length; // a database adapter may load only the needed rows but still report the total
+    return { index: Core.buildStockIndex(s.rows), has: count > 0, count: count, meta: s.meta || null };
   }
 
   function withCheck(rec, stock) {
@@ -196,10 +197,13 @@ var SOService = (function () {
       if (!found) return fail('NOT_FOUND', 'Record not found. It may already have been deleted.');
       var rec = Core.buildRecord(found.row, found.idIndex);
       if (/CLOSE/i.test(String(rec.values.status || ''))) return fail('CLOSED', 'A closed SO cannot be deleted.');
-      var cells = Core.FIELDS.filter(function (f) { return !f.calc && rec.formulaLocked.indexOf(f.key) < 0; })
-        .map(function (f) { return { index: f.index, value: '', type: f.type }; });
-      cells.push({ index: found.idIndex, value: '', type: 'text' });
-      adapter.writeCells(found.row.rowNumber, cells);
+      if (adapter.deleteRow) adapter.deleteRow(found.row.rowNumber);
+      else {
+        var cells = Core.FIELDS.filter(function (f) { return !f.calc && rec.formulaLocked.indexOf(f.key) < 0; })
+          .map(function (f) { return { index: f.index, value: '', type: f.type }; });
+        cells.push({ index: found.idIndex, value: '', type: 'text' });
+        adapter.writeCells(found.row.rowNumber, cells);
+      }
       clearDashCache(adapter);
       adapter.audit({
         at: adapter.now(), user: email, recordId: req.id, row: found.row.rowNumber, field: 'SO DELETED',
@@ -298,8 +302,8 @@ var SOService = (function () {
     var K = Core.BY_KEY;
     var idIndex = adapter.getIdIndex();
     var stock = readStockInfo(adapter);
-    // B..AC in one contiguous read (status, bars, customer, part, qty, due date, SO#, quote flags)
-    var idxs = span(K.status.index, K.quote_received.index);
+    // only the columns the dashboard shows (status, bars, customer, part, qty, due date, SO#, quote flags)
+    var idxs = [K.status.index, K.so_release_status_bar.index, K.mat_status_bar.index, K.customer.index, K.part_no.index, K.so_qty.index, K.due_date.index, K.so_no.index, K.req_mat_quote.index, K.quote_received.index];
     if (idIndex >= 0) idxs.push(idIndex);
     var rows = [];
     adapter.readColumns(idxs, true).forEach(function (r) {
@@ -356,14 +360,16 @@ var SOService = (function () {
       var plan = Core.planCreate(req.changes, existing, adapter.readUsers ? Core.peopleList(adapter.readUsers()) : null);
       if (!plan.ok) return fail(plan.code, plan.error, { fieldErrors: plan.fieldErrors });
       var free = null;
-      for (var i = 0; i < rows.length; i++) {
-        if (rows[i].rowNumber > lastRecordRow && !isRec(rows[i])) { free = rows[i]; break; }
+      if (!adapter.insertRow) {
+        for (var i = 0; i < rows.length; i++) {
+          if (rows[i].rowNumber > lastRecordRow && !isRec(rows[i])) { free = rows[i]; break; }
+        }
+        if (!free) return fail('NO_FREE_ROW', 'There is no free row left in RYD-SO. Ask an admin to extend the sheet.');
       }
-      if (!free) return fail('NO_FREE_ROW', 'There is no free row left in RYD-SO. Ask an admin to extend the sheet.');
       var id = adapter.newId();
       var cells = plan.writes.map(function (w) { return { index: w.field.index, value: w.value, type: w.field.type }; });
       cells.push({ index: idIndex, value: id, type: 'text' });
-      adapter.writeCells(free.rowNumber, cells);
+      if (adapter.insertRow) free = { rowNumber: adapter.insertRow(cells, id) }; else adapter.writeCells(free.rowNumber, cells);
       clearDashCache(adapter);
       adapter.audit({
         at: adapter.now(), user: email, recordId: id, row: free.rowNumber, field: 'SO OPENED',
