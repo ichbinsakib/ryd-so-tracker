@@ -134,6 +134,10 @@ var SOService = (function () {
           if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can upload the stockroom sheet.');
           return uploadStock(adapter, auth.email, req);
 
+        case 'uploadStockItems':
+          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can upload the STOCK list.');
+          return uploadStockItems(adapter, auth.email, req);
+
         case 'uploadSteelUsage':
           if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can upload STEEL USAGE data.');
           return uploadSteelUsage(adapter, auth.email, req);
@@ -422,6 +426,17 @@ var SOService = (function () {
     });
   }
 
+  function uploadStockItems(adapter, email, req) {
+    if (!adapter.writeStockItems) return fail('NOT_SUPPORTED', 'This backend does not keep a STOCK list.');
+    var v = Core.validateStockItems(req.rows);
+    if (!v.ok) return fail('INVALID', v.error);
+    return adapter.withLock(function () {
+      adapter.writeStockItems(v.rows);
+      adapter.audit({ at: adapter.now(), user: email, recordId: '', row: '', field: 'STOCK LIST UPLOAD', oldValue: '', newValue: v.rows.length + ' rows' + (v.skipped ? ' (' + v.skipped + ' skipped)' : '') });
+      return { ok: true, count: v.rows.length, skipped: v.skipped };
+    });
+  }
+
   function uploadSteelUsage(adapter, email, req) {
     var v = Core.validateSteelUpload(req.rows);
     if (!v.ok) return fail('INVALID', v.error);
@@ -433,7 +448,7 @@ var SOService = (function () {
       if (adapter.saveSteelMeta) adapter.saveSteelMeta({ at: meta.at, by: meta.by, fileName: meta.fileName, count: v.rows.length });
       adapter.audit({
         at: meta.at, user: email, recordId: '', row: '', field: 'STEEL USAGE REPLACED',
-        oldValue: (replaced && replaced.previousRows !== undefined ? replaced.previousRows : '?') + ' old rows (kept in STEEL USAGE (previous))',
+        oldValue: (replaced && replaced.previousRows !== undefined ? replaced.previousRows : '?') + ' old rows (a copy is kept)',
         newValue: v.rows.length + ' rows' + (fileName ? ' from ' + fileName : '') + (v.skipped ? ' (' + v.skipped + ' skipped)' : '')
       });
       return { ok: true, count: v.rows.length, skipped: v.skipped, previousRows: replaced ? replaced.previousRows : undefined, meta: meta };

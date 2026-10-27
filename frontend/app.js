@@ -670,9 +670,16 @@
       build: (r, c) => { const part = String(r[c.part] ?? '').trim(); const price = priceNum(r[c.price]); return part && price !== null && price >= 0 ? { part, price } : null; },
       show: (x) => x.part + ' → ' + money(x.price)
     },
+    items: {
+      title: 'Replace STOCK list', action: 'uploadStockItems', danger: true,
+      note: 'CSV or Excel (.xlsx) exported from the stock system (PartNumber, CustomerName, TotalQuantity, UnitPrice). This replaces the whole STOCK list that PART PRICE and AVAIL (FT) are looked up from.',
+      cols: [['part', 'Part number column (PartNumber)', /part/i], ['customer', 'Customer column (CustomerName)', /customer/i], ['quantity', 'Quantity column (TotalQuantity)', /quantity|qty/i], ['price', 'Unit price column (UnitPrice)', /unit.?price|price/i]],
+      build: (r, c) => { const part = String(r[c.part] ?? '').trim(); return part ? { part, customer: String(r[c.customer] ?? '').trim(), quantity: priceNum(r[c.quantity]), price: priceNum(r[c.price]) } : null; },
+      show: (x) => x.part + ' | ' + (x.customer || '—') + ' | qty ' + (x.quantity ?? '—') + ' | ' + (x.price === null ? '—' : money(x.price))
+    },
     steel: {
       title: 'Replace STEEL USAGE data', action: 'uploadSteelUsage', danger: true,
-      note: 'CSV or Excel (.xlsx) with one row per part. This DELETES all existing data in the STEEL USAGE tab and replaces it with this file. RYD-SO, IR-SO and ITT-SO read steel type, router bar size and qty/bar from that tab. A copy of the old data is kept in the tab "STEEL USAGE (previous)".',
+      note: 'CSV or Excel (.xlsx) with one row per part. This DELETES all existing STEEL USAGE data and replaces it with this file. Steel type, router bar size and qty/bar on every SO are looked up from it. A copy of the old data is kept so it can be restored.',
       cols: [['part', 'Part number column (PART NUMBER)', /part/i], ['steel', 'Steel type column (PS_COMP)', /comp|steel/i], ['qty', 'Qty / bar column (PS_QTY PER)', /qty|per/i], ['router', "Router bar size column (MAT'L TYPE)", /mat.?l|router|bar.?size/i]],
       build: (r, c) => { const t = (i) => String(r[i] ?? '').trim(); const part = t(c.part); return part ? { part, steel: t(c.steel), qty: t(c.qty), router: t(c.router) } : null; },
       show: (x) => x.part + ' | ' + (x.steel || '—') + ' | ' + (x.qty || '—') + ' | ' + (x.router || '—')
@@ -756,6 +763,7 @@
   }
   $('btn-upload').onclick = () => openUpload('stock');
   $('btn-upload-steel').onclick = () => openUpload('steel');
+  $('btn-upload-items').onclick = () => openUpload('items');
   $('upload-file').addEventListener('change', async (e) => {
     const file = e.target.files[0]; $('upload-msg').textContent = ''; $('upload-map').hidden = true; $('up-go').disabled = true;
     if (!file) return;
@@ -771,14 +779,14 @@
     if ($('dlg-upload').returnValue !== 'ok' || !up.rows.length) return;
     const mode = UP_MODES[up.mode]; const n = up.rows.length;
     if (mode.danger) {
-      const body = el('div', {}, el('p', { text: 'This will delete ALL existing data in the STEEL USAGE tab and replace it with ' + n + ' rows from "' + up.file + '".' }),
-        el('p', { text: 'The old data is copied to the tab "STEEL USAGE (previous)" first, so it can be restored. Every tab that looks up steel type, router bar size or qty/bar will change immediately.' }));
-      if (!(await confirmDialog('Replace STEEL USAGE data?', body, 'Delete old data and replace', true))) return;
+      const body = el('div', {}, el('p', { text: 'This will delete ALL existing ' + (up.mode === 'items' ? 'STOCK list' : 'STEEL USAGE') + ' data and replace it with ' + n + ' rows from "' + up.file + '".' }),
+        el('p', { text: up.mode === 'items' ? 'PART PRICE and AVAIL (FT) on every SO will change immediately.' : 'The old data is kept as a copy so it can be restored. Steel type, router bar size and qty/bar on every SO will change immediately.' }));
+      if (!(await confirmDialog(up.mode === 'items' ? 'Replace STOCK list?' : 'Replace STEEL USAGE data?', body, 'Delete old data and replace', true))) return;
     }
     toast('Uploading ' + n + ' rows…');
     const r = await api(mode.action, { rows: up.rows, fileName: up.file });
     if (!r.ok) { toast(r.error || 'Upload failed.', true); return; }
-    toast((up.mode === 'steel' ? 'STEEL USAGE replaced: ' : 'Stockroom prices uploaded: ') + r.count + ' rows' + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + '.');
+    toast((up.mode === 'steel' ? 'STEEL USAGE replaced: ' : up.mode === 'items' ? 'STOCK list replaced: ' : 'Stockroom prices uploaded: ') + r.count + ' rows' + (r.skipped ? ' (' + r.skipped + ' skipped)' : '') + '.');
     await loadList();
   });
 

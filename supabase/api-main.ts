@@ -183,6 +183,9 @@ async function flush(ops: any[]) {
       const r = await sb.rpc('replace_stockroom_prices', { p_rows: o.rows });
       if (r.error) throw new Error(r.error.message);
       const m = await sb.from('app_meta').upsert({ key: 'stock_meta', value: o.meta }); if (m.error) throw new Error(m.error.message);
+    } else if (o.type === 'stockItems') {
+      const r = await sb.rpc('replace_stock_items', { p_rows: o.rows });
+      if (r.error) throw new Error(r.error.message);
     } else if (o.type === 'steel') {
       const r = await sb.rpc('replace_steel_usage', { p_rows: o.rows });
       if (r.error) throw new Error(r.error.message);
@@ -237,7 +240,7 @@ Deno.serve(async (request: Request) => {
     if (!body || body.length > 14_000_000) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
     req = JSON.parse(body);
     const big = body.length > 100_000;
-    if (big && !['uploadStock', 'uploadSteelUsage', 'uploadScan'].includes(req && req.action)) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
+    if (big && !['uploadStock', 'uploadStockItems', 'uploadSteelUsage', 'uploadScan'].includes(req && req.action)) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
   } catch (_e) {
     return reply(fail('BAD_REQUEST', 'Request is not valid JSON.'), origin);
   }

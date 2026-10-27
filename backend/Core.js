@@ -370,6 +370,22 @@ var SOCore = (function () {
     return { ok: true, rows: clean, skipped: skipped };
   }
 
+  /** STOCK list rows: [{part, customer, quantity, price}] -> [[part, customer, quantity|null, price|null]] */
+  function validateStockItems(rows) {
+    if (!Array.isArray(rows) || !rows.length) return { ok: false, error: 'The file has no rows to import.' };
+    if (rows.length > 50000) return { ok: false, error: 'Too many rows (limit 50000).' };
+    var clean = [], skipped = 0;
+    rows.forEach(function (r) {
+      var part = r && (typeof r.part === 'string' || typeof r.part === 'number') ? String(r.part).trim() : '';
+      if (!part || part.length > 100 || part.charAt(0) === '=') { skipped++; return; }
+      var q = r.quantity === '' || r.quantity === null || r.quantity === undefined ? null : parsePrice(r.quantity);
+      var p = r.price === '' || r.price === null || r.price === undefined ? null : parsePrice(r.price);
+      clean.push([part, String(r.customer === undefined || r.customer === null ? '' : r.customer).slice(0, 200), q, p]);
+    });
+    if (!clean.length) return { ok: false, error: 'No valid rows were found.' };
+    return { ok: true, rows: clean, skipped: skipped };
+  }
+
   // ---- STEEL USAGE lookup check + upload ----
   var LOOKUP_KEYS = ['steel_type', 'router_bar_size', 'qty_per_bar'];
 
@@ -518,7 +534,7 @@ var SOCore = (function () {
     planUpdate: planUpdate, sameValue: sameValue,
     parseEmailList: parseEmailList, roleFor: roleFor, checkTokenInfo: checkTokenInfo,
     normalizePart: normalizePart, parsePrice: parsePrice, buildStockIndex: buildStockIndex,
-    priceCheck: priceCheck, validateStockUpload: validateStockUpload,
+    priceCheck: priceCheck, validateStockUpload: validateStockUpload, validateStockItems: validateStockItems,
     lookupChecks: lookupChecks, validateSteelUpload: validateSteelUpload, safeCellText: safeCellText,
     ROLES: ROLES, ROLE_RANK: ROLE_RANK, MAX_USERS: MAX_USERS, validateUser: validateUser, mergeUsers: mergeUsers,
     INTAKE_KEYS: INTAKE_KEYS, INTAKE_REQUIRED: INTAKE_REQUIRED, intakeInfo: intakeInfo, peopleList: peopleList, planCreate: planCreate, normSo: normSo,

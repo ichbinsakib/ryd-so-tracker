@@ -23,14 +23,14 @@ jobs:
         with:
           node-version: 22
       - run: npm test
-      # API_URL and GOOGLE_CLIENT_ID are repository *variables* (Settings > Secrets and variables > Actions > Variables).
-      # They are public values by design; no secret is needed or used here.
+      # GOOGLE_CLIENT_ID is a repository *variable*. The API URL (Supabase Edge Function) is a public value set here.
+      # No secret is needed or used. To go back to the old Apps Script backend, put its /exec URL here.
       - name: Write production config
         env:
-          API_URL: ${{ vars.API_URL }}
+          API_URL: https://clumhidxgzfkwzwrtngi.supabase.co/functions/v1/api
           GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
         run: |
-          test -n "$API_URL" && test -n "$GOOGLE_CLIENT_ID" || { echo "Set repository variables API_URL and GOOGLE_CLIENT_ID"; exit 1; }
+          test -n "$API_URL" && test -n "$GOOGLE_CLIENT_ID" || { echo "Set the repository variable GOOGLE_CLIENT_ID"; exit 1; }
           node -e "require('fs').writeFileSync('frontend/config.js','window.APP_CONFIG='+JSON.stringify({API_URL:process.env.API_URL,GOOGLE_CLIENT_ID:process.env.GOOGLE_CLIENT_ID,DEV_MODE:false})+';')"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

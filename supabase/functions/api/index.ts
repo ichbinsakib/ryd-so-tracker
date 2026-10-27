@@ -373,6 +373,22 @@ var SOCore = (function () {
     return { ok: true, rows: clean, skipped: skipped };
   }
 
+  /** STOCK list rows: [{part, customer, quantity, price}] -> [[part, customer, quantity|null, price|null]] */
+  function validateStockItems(rows) {
+    if (!Array.isArray(rows) || !rows.length) return { ok: false, error: 'The file has no rows to import.' };
+    if (rows.length > 50000) return { ok: false, error: 'Too many rows (limit 50000).' };
+    var clean = [], skipped = 0;
+    rows.forEach(function (r) {
+      var part = r && (typeof r.part === 'string' || typeof r.part === 'number') ? String(r.part).trim() : '';
+      if (!part || part.length > 100 || part.charAt(0) === '=') { skipped++; return; }
+      var q = r.quantity === '' || r.quantity === null || r.quantity === undefined ? null : parsePrice(r.quantity);
+      var p = r.price === '' || r.price === null || r.price === undefined ? null : parsePrice(r.price);
+      clean.push([part, String(r.customer === undefined || r.customer === null ? '' : r.customer).slice(0, 200), q, p]);
+    });
+    if (!clean.length) return { ok: false, error: 'No valid rows were found.' };
+    return { ok: true, rows: clean, skipped: skipped };
+  }
+
   // ---- STEEL USAGE lookup check + upload ----
   var LOOKUP_KEYS = ['steel_type', 'router_bar_size', 'qty_per_bar'];
 
@@ -521,7 +537,7 @@ var SOCore = (function () {
     planUpdate: planUpdate, sameValue: sameValue,
     parseEmailList: parseEmailList, roleFor: roleFor, checkTokenInfo: checkTokenInfo,
     normalizePart: normalizePart, parsePrice: parsePrice, buildStockIndex: buildStockIndex,
-    priceCheck: priceCheck, validateStockUpload: validateStockUpload,
+    priceCheck: priceCheck, validateStockUpload: validateStockUpload, validateStockItems: validateStockItems,
     lookupChecks: lookupChecks, validateSteelUpload: validateSteelUpload, safeCellText: safeCellText,
     ROLES: ROLES, ROLE_RANK: ROLE_RANK, MAX_USERS: MAX_USERS, validateUser: validateUser, mergeUsers: mergeUsers,
     INTAKE_KEYS: INTAKE_KEYS, INTAKE_REQUIRED: INTAKE_REQUIRED, intakeInfo: intakeInfo, peopleList: peopleList, planCreate: planCreate, normSo: normSo,
@@ -841,6 +857,10 @@ var SOService = (function () {
           if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can upload the stockroom sheet.');
           return uploadStock(adapter, auth.email, req);
 
+        case 'uploadStockItems':
+          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can upload the STOCK list.');
+          return uploadStockItems(adapter, auth.email, req);
+
         case 'uploadSteelUsage':
           if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can upload STEEL USAGE data.');
           return uploadSteelUsage(adapter, auth.email, req);
@@ -1129,6 +1149,17 @@ var SOService = (function () {
     });
   }
 
+  function uploadStockItems(adapter, email, req) {
+    if (!adapter.writeStockItems) return fail('NOT_SUPPORTED', 'This backend does not keep a STOCK list.');
+    var v = Core.validateStockItems(req.rows);
+    if (!v.ok) return fail('INVALID', v.error);
+    return adapter.withLock(function () {
+      adapter.writeStockItems(v.rows);
+      adapter.audit({ at: adapter.now(), user: email, recordId: '', row: '', field: 'STOCK LIST UPLOAD', oldValue: '', newValue: v.rows.length + ' rows' + (v.skipped ? ' (' + v.skipped + ' skipped)' : '') });
+      return { ok: true, count: v.rows.length, skipped: v.skipped };
+    });
+  }
+
   function uploadSteelUsage(adapter, email, req) {
     var v = Core.validateSteelUpload(req.rows);
     if (!v.ok) return fail('INVALID', v.error);
@@ -1140,7 +1171,7 @@ var SOService = (function () {
       if (adapter.saveSteelMeta) adapter.saveSteelMeta({ at: meta.at, by: meta.by, fileName: meta.fileName, count: v.rows.length });
       adapter.audit({
         at: meta.at, user: email, recordId: '', row: '', field: 'STEEL USAGE REPLACED',
-        oldValue: (replaced && replaced.previousRows !== undefined ? replaced.previousRows : '?') + ' old rows (kept in STEEL USAGE (previous))',
+        oldValue: (replaced && replaced.previousRows !== undefined ? replaced.previousRows : '?') + ' old rows (a copy is kept)',
         newValue: v.rows.length + ' rows' + (fileName ? ' from ' + fileName : '') + (v.skipped ? ' (' + v.skipped + ' skipped)' : '')
       });
       return { ok: true, count: v.rows.length, skipped: v.skipped, previousRows: replaced ? replaced.previousRows : undefined, meta: meta };
@@ -1290,6 +1321,7 @@ var SOPg = (function () {
       },
       writeStock: function (list, meta) { ops.push({ type: 'stock', rows: list, meta: meta }); },
       writeSteelUsage: function (list, meta) { ops.push({ type: 'steel', rows: list, meta: meta }); return { previousRows: opts.steelCount || 0 }; },
+      writeStockItems: function (list) { ops.push({ type: 'stockItems', rows: list }); },
       saveSteelMeta: function (m) { ops.push({ type: 'steelMeta', meta: m }); },
       readSteelMeta: function () { return opts.steelMeta || null; },
 
@@ -1497,6 +1529,9 @@ async function flush(ops: any[]) {
       const r = await sb.rpc('replace_stockroom_prices', { p_rows: o.rows });
       if (r.error) throw new Error(r.error.message);
       const m = await sb.from('app_meta').upsert({ key: 'stock_meta', value: o.meta }); if (m.error) throw new Error(m.error.message);
+    } else if (o.type === 'stockItems') {
+      const r = await sb.rpc('replace_stock_items', { p_rows: o.rows });
+      if (r.error) throw new Error(r.error.message);
     } else if (o.type === 'steel') {
       const r = await sb.rpc('replace_steel_usage', { p_rows: o.rows });
       if (r.error) throw new Error(r.error.message);
@@ -1551,7 +1586,7 @@ Deno.serve(async (request: Request) => {
     if (!body || body.length > 14_000_000) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
     req = JSON.parse(body);
     const big = body.length > 100_000;
-    if (big && !['uploadStock', 'uploadSteelUsage', 'uploadScan'].includes(req && req.action)) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
+    if (big && !['uploadStock', 'uploadStockItems', 'uploadSteelUsage', 'uploadScan'].includes(req && req.action)) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
   } catch (_e) {
     return reply(fail('BAD_REQUEST', 'Request is not valid JSON.'), origin);
   }
