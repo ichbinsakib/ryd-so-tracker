@@ -50,7 +50,12 @@
   const initials = (email) => email.split('@')[0].split(/[._-]+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('') || '?';
   const niceName = (email) => email.split('@')[0].split(/[._-]+/).filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join(' ');
   function store(k, v) { try { if (v === undefined) return sessionStorage.getItem(k); v === null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch (e) { return null; } }
-  function show(id) { VIEWS.forEach((v) => { $(v).hidden = v !== id; }); window.scrollTo(0, 0); }
+  function show(id) { VIEWS.forEach((v) => { $(v).hidden = v !== id; }); navSync(id); window.scrollTo(0, 0); }
+  function navSync(id) {
+    $('sidenav').hidden = id === 'view-login' || id === 'view-loading';
+    const on = id === 'view-subcon' ? (SC.section === 'leads' ? 'nav-lead' : 'nav-subcon') : 'nav-inhouse';
+    ['nav-inhouse', 'nav-subcon', 'nav-lead'].forEach((n) => { $(n).classList.toggle('on', n === on); if (n === on) $(n).setAttribute('aria-current', 'page'); else $(n).removeAttribute('aria-current'); });
+  }
   function toast(msg, isErr) {
     const t = $('toast'); t.textContent = msg; t.className = 'toast' + (isErr ? ' err' : ''); t.hidden = false;
     clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, isErr ? 8000 : 3500);
@@ -158,7 +163,7 @@
   function signOut() {
     if (state.token && !CFG.DEV_MODE) api('logout');
     state.token = null; store('tok', null); state.dash = null; state.current = null; state.dirty = false;
-    $('userchip').hidden = true; $('btn-signout').hidden = true; $('btn-pw').hidden = true; $('btn-subcon').hidden = true; $('btn-refresh').hidden = true; $('refreshed').textContent = '';
+    $('userchip').hidden = true; $('btn-signout').hidden = true; $('btn-pw').hidden = true; $('btn-refresh').hidden = true; $('refreshed').textContent = '';
     showLogin('');
   }
   async function showLogin(msg) {
@@ -178,7 +183,7 @@
     Object.assign(state, { email: r.email, role: r.role, fields: r.fields, intake: r.intake });
     state.byKey = Object.fromEntries(r.fields.map((f) => [f.key, f]));
     $('avatar').textContent = initials(r.email); $('user-name').textContent = niceName(r.email); $('user-role').textContent = r.role;
-    $('userchip').hidden = false; $('btn-signout').hidden = false; $('btn-pw').hidden = CFG.DEV_MODE; $('btn-subcon').hidden = false;
+    $('userchip').hidden = false; $('btn-signout').hidden = false; $('btn-pw').hidden = CFG.DEV_MODE;
     if (r.dashboard) {
       // admins get the dashboard in the same round trip
       state.dirty = false; state.current = null; updateSaveBar();
@@ -893,7 +898,7 @@
 
   // ---------- wiring
   // ---------- subcontract module
-  const SC = { tab: 'orders', q: '', filter: 'open', data: null };
+  const SC = { section: 'subcon', tab: 'orders', q: '', filter: 'open', data: null };
   const SC_STATE = {
     overdue: ['Overdue', 'bad'], 'due-soon': ['Due soon', 'warn'], 'on-track': ['On track', 'ok'], 'no-date': ['No date', 'muted'],
     received: ['Received', 'ok'], 'received-late': ['Received late', 'warn'], cancelled: ['Cancelled', 'muted']
@@ -901,8 +906,9 @@
   const scCanWrite = () => state.role === 'editor' || state.role === 'admin';
   const vendorName = (id) => { const v = SC.data && SC.data.vendorRows.find((x) => x.id === id); return v ? v.name : '—'; };
   const dshort = (s) => (isIso(s || '') ? shortDate(parseDate(s)) : '—');
-  async function openSubcon() {
+  async function openSubcon(section) {
     if (!(await leaveGuard())) return;
+    SC.section = section === 'leads' ? 'leads' : 'subcon'; if (SC.section === 'subcon' && SC.tab === 'leads') SC.tab = 'orders';
     show('view-subcon'); $('btn-refresh').hidden = true; banner('sc-banner', '', '');
     await loadSubcon();
   }
@@ -912,12 +918,17 @@
     SC.data = r; renderSubcon();
   }
   function renderSubcon() {
-    const d = SC.data, k = d.kpis;
+    const d = SC.data, k = d.kpis, leads = SC.section === 'leads';
+    navSync('view-subcon');
+    $('sc-title').textContent = leads ? 'Lead Time Calculation' : 'Subcontractor';
+    $('sc-sub').textContent = leads ? 'Standard and actual vendor lead times, and when a part will arrive.' : 'Parts made by vendors: promised dates, vendor performance and cost.';
+    $('sc-actions').hidden = leads; $('sc-kpis').hidden = leads; $('sc-tabs').hidden = leads;
+    if (leads) { $('sc-body').replaceChildren(scLeadCalc(), scLeadsView()); return; }
     const kp = (cls, v, l) => el('div', { class: 'kpi ' + cls }, el('div', { class: 'kv', text: String(v) }), el('div', { class: 'kl', text: l }));
     $('sc-kpis').replaceChildren(kp('info', k.open, 'Open subcontract orders'), kp(k.overdue ? 'bad' : 'ok', k.overdue, 'Overdue'), kp(k.dueSoon ? 'warn' : 'ok', k.dueSoon, 'Due in 7 days'), kp('info', k.noDate, 'No expected date yet'), kp('info', money(k.openValue), 'Open order value'));
-    const tabs = [['orders', 'Orders'], ['alerts', 'Alerts (' + (k.overdue + k.dueSoon) + ')'], ['vendors', 'Vendors'], ['leads', 'Lead times']];
+    const tabs = [['orders', 'Orders'], ['alerts', 'Alerts (' + (k.overdue + k.dueSoon) + ')'], ['vendors', 'Vendors']];
     $('sc-tabs').replaceChildren(...tabs.map(([id, label]) => el('button', { class: 'chip' + (SC.tab === id ? ' on' : ''), type: 'button', role: 'tab', 'aria-selected': String(SC.tab === id), text: label, onclick: () => { SC.tab = id; renderSubcon(); } })));
-    $('sc-body').replaceChildren(SC.tab === 'orders' ? scOrdersView(false) : SC.tab === 'alerts' ? scOrdersView(true) : SC.tab === 'vendors' ? scVendorsView() : scLeadsView());
+    $('sc-body').replaceChildren(SC.tab === 'orders' ? scOrdersView(false) : SC.tab === 'alerts' ? scOrdersView(true) : scVendorsView());
   }
   function scBadge(o) {
     const [t, c] = SC_STATE[o.state] || ['', ''];
@@ -996,6 +1007,39 @@
       scTable(head, rows, 'No lead times yet.'));
   }
 
+  function scLeadCalc() {
+    const d = SC.data;
+    const vendor = scSelect(vendorOptions(''), ''), part = scInput('text', '', { placeholder: 'Part #' }), po = scInput('date', today()), need = scInput('date', '');
+    const out = el('div', { class: 'calcout' });
+    const run = () => {
+      const vid = vendor.value, pk = part.value.trim().toUpperCase();
+      if (!vid) { out.replaceChildren(el('p', { class: 'muted', text: 'Choose a vendor and enter a part # to see the lead time.' })); return; }
+      const lt = d.leadTimes.filter((l) => l.vendor_id === vid);
+      const exact = pk ? lt.find((l) => norm(l.part_no).trim().toUpperCase() === pk) : null, dflt = lt.find((l) => !norm(l.part_no).trim());
+      const std = exact || dflt;
+      const days = d.orders.filter((o) => o.vendor_id === vid && o.status === 'RECEIVED' && o.actualDays != null);
+      const stat = (list) => (list.length ? { n: list.length, avg: Math.round(list.reduce((t, o) => t + o.actualDays, 0) / list.length), min: Math.min(...list.map((o) => o.actualDays)), max: Math.max(...list.map((o) => o.actualDays)) } : null);
+      const hp = pk ? stat(days.filter((o) => norm(o.part_no).trim().toUpperCase() === pk)) : null, hv = stat(days);
+      const add = (iso, n) => { const t = parseDate(iso); if (!t) return null; t.setDate(t.getDate() + n); return t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + '-' + String(t.getDate()).padStart(2, '0'); };
+      const rows = [];
+      const line = (label, n, note) => { const e = po.value ? add(po.value, n) : null; rows.push(el('tr', {}, el('td', { text: label }), el('td', {}, el('b', { text: n + ' days' })), el('td', { text: e ? dshort(e) : '—' }), el('td', { class: 'muted', text: note || '' }))); };
+      if (std) line('Standard' + (exact ? ' (this part)' : ' (vendor default)'), std.std_days, std.notes);
+      if (hp) line('This part, past orders: average', hp.avg, hp.n + ' orders, ' + hp.min + '–' + hp.max + ' days');
+      if (hv) line('This vendor, all parts: average', hv.avg, hv.n + ' orders, ' + hv.min + '–' + hv.max + ' days');
+      if (hp) line('This part, worst case', hp.max, 'longest past order');
+      const lines = [];
+      if (!rows.length) lines.push(el('p', { class: 'muted', text: 'No standard lead time or past orders for this vendor yet. Add one in the table below.' }));
+      else lines.push(el('div', { class: 'tablewrap card' }, el('table', { class: 'datatable' }, el('thead', {}, el('tr', {}, ['BASIS', 'LEAD TIME', 'EXPECTED ARRIVAL', 'NOTES'].map((t) => el('th', { text: t })))), el('tbody', {}, rows))));
+      const base = std ? std.std_days : (hp ? hp.avg : (hv ? hv.avg : null)), worst = hp ? hp.max : base;
+      if (need.value && base != null) lines.push(el('p', { class: 'calcnote', text: 'To have it by ' + dshort(need.value) + ', place the PO by ' + dshort(add(need.value, -base)) + (worst > base ? ' (by ' + dshort(add(need.value, -worst)) + ' to be safe, using the longest past order).' : '.') }));
+      out.replaceChildren(...lines);
+    };
+    [vendor, part, po, need].forEach((n) => { n.addEventListener('input', run); n.addEventListener('change', run); });
+    run();
+    return el('section', { class: 'card calc' }, el('h3', { text: 'Lead time calculator' }),
+      el('div', { class: 'calcform' }, scField('Vendor', vendor, 'x1'), scField('Part #', part, 'x2'), scField('PO date', po, 'x3'), scField('Needed by (optional)', need, 'x4')), out);
+  }
+
   // ---- edit dialogs: one form body, re-shown with field errors until it saves or is cancelled
   function scField(label, input, key, req) { return el('label', { class: 'scfield' }, el('span', { class: 'sclabel', text: label + (req ? ' *' : '') }), input, el('small', { class: 'fielderr', 'data-err': key })); }
   const scInput = (type, val, extra) => el('input', Object.assign({ type, value: val == null ? '' : String(val), autocomplete: 'off' }, extra || {}));
@@ -1067,7 +1111,9 @@
     const r = await scDialog(o.id ? 'Edit ' + o.sc_no : 'New subcontract order', body, collect, 'scSaveOrder');
     if (r) { toast('Subcontract order saved.'); loadSubcon(); }
   }
-  $('btn-subcon').onclick = openSubcon;
+  $('nav-inhouse').onclick = async () => { if (!state.token || !state.role) return; if (!(await leaveGuard())) return; goHome(); };
+  $('nav-subcon').onclick = () => openSubcon('subcon');
+  $('nav-lead').onclick = () => openSubcon('leads');
   $('sc-back').onclick = () => goHome();
   $('sc-new').onclick = () => { if (!scCanWrite()) { toast('Viewers cannot open subcontract orders.', true); return; } scEditOrder(null); };
 

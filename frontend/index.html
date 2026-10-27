@@ -20,12 +20,17 @@
       <span id="avatar" class="avatar" aria-hidden="true"></span>
       <span class="who"><b id="user-name"></b><small id="user-role"></small></span>
     </div>
-    <button id="btn-subcon" class="btn btn-ghost" hidden>Subcontract</button>
     <button id="btn-pw" class="btn btn-ghost" hidden>Password</button>
     <button id="btn-signout" class="btn btn-ghost" hidden>Sign out</button>
   </div>
 </header>
 
+<div class="shell">
+<aside id="sidenav" class="sidenav" aria-label="Sections" hidden>
+  <button id="nav-inhouse" class="navitem" type="button"><span class="navicon" aria-hidden="true">▦</span>Inhouse</button>
+  <button id="nav-subcon" class="navitem" type="button"><span class="navicon" aria-hidden="true">⇄</span>Subcontractor</button>
+  <button id="nav-lead" class="navitem" type="button"><span class="navicon" aria-hidden="true">⏱</span>Lead Time Calculation</button>
+</aside>
 <div class="page">
 
 <main id="view-loading" class="center">
@@ -163,8 +168,8 @@
 <!-- Subcontract: whole parts made by vendors -->
 <main id="view-subcon" hidden>
   <div class="pagehead">
-    <div><button id="sc-back" class="btn btn-ghost" type="button">← Back</button><h1>Subcontract</h1><p class="muted">Parts made by vendors: promised dates, lead times, vendor performance and cost.</p></div>
-    <div class="head-actions"><button id="sc-new" class="btn btn-primary" type="button">＋ New subcontract order</button></div>
+    <div><button id="sc-back" class="btn btn-ghost" type="button">← Back</button><h1 id="sc-title">Subcontractor</h1><p class="muted" id="sc-sub">Parts made by vendors: promised dates, vendor performance and cost.</p></div>
+    <div class="head-actions" id="sc-actions"><button id="sc-new" class="btn btn-primary" type="button">＋ New subcontract order</button></div>
   </div>
   <div id="sc-banner" role="alert"></div>
   <section id="sc-kpis" class="kpis" aria-label="Subcontract numbers"></section>
@@ -234,6 +239,7 @@
   </div>
 </main>
 
+</div>
 </div>
 
 <div id="print-sheet" aria-hidden="true"></div>
