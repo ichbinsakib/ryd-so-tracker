@@ -192,3 +192,17 @@ test('SO# is optional when opening an SO; people list comes from active users', 
   assert.equal(r.ok, true);
   assert.ok(s.auditLog.some(e => /without SO#/.test(e.newValue)));
 });
+
+test('deleteSO: editor/admin can delete an unfinished SO, closed SOs and viewers cannot', () => {
+  const s = new FakeSheet();
+  assert.equal(call(s, 'tok-viewer', { action: 'deleteSO', id: 'id-1' }).code, 'FORBIDDEN');
+  assert.equal(call(s, 'tok-editor', { action: 'deleteSO', id: 'id-3' }).code, 'CLOSED');
+  const r = call(s, 'tok-editor', { action: 'deleteSO', id: 'id-1' });
+  assert.equal(r.ok, true);
+  const row = s.rows.find(x => x.rowNumber === 3);
+  assert.equal(row.values[Core.BY_KEY.part_no.index], '');
+  assert.equal(row.values[77], '', 'record id cleared');
+  assert.equal(call(s, 'tok-editor', { action: 'deleteSO', id: 'id-1' }).code, 'NOT_FOUND');
+  assert.ok(s.auditLog.some(e => e.field === 'SO DELETED'));
+  assert.equal(call(s, 'tok-admin', { action: 'deleteSO', id: 'id-2' }).ok, true);
+});

@@ -125,6 +125,10 @@ var SOService = (function () {
           if (role === 'viewer') return fail('FORBIDDEN', 'You have read-only access.');
           return update(adapter, auth.email, req);
 
+        case 'deleteSO':
+          if (role === 'viewer') return fail('FORBIDDEN', 'You have read-only access.');
+          return deleteSO(adapter, auth.email, req);
+
         case 'uploadStock':
           if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can upload the stockroom sheet.');
           return uploadStock(adapter, auth.email, req);
@@ -181,6 +185,27 @@ var SOService = (function () {
         return { at: stamp, user: email, recordId: req.id, row: found.row.rowNumber, field: w.field.label + ' (' + w.field.col + ')', oldValue: String(w.old), newValue: String(w.value) };
       }));
       return { ok: true, record: updated, changed: plan.writes.map(function (w) { return w.key; }), refreshedAt: adapter.now() };
+    });
+  }
+
+  /** Remove an SO that is not finished: its input cells and RECORD ID are cleared (formula cells stay), so the row is free again. */
+  function deleteSO(adapter, email, req) {
+    if (!req.id) return fail('BAD_REQUEST', 'Missing id.');
+    return adapter.withLock(function () {
+      var found = findById(adapter, req.id);
+      if (!found) return fail('NOT_FOUND', 'Record not found. It may already have been deleted.');
+      var rec = Core.buildRecord(found.row, found.idIndex);
+      if (/CLOSE/i.test(String(rec.values.status || ''))) return fail('CLOSED', 'A closed SO cannot be deleted.');
+      var cells = Core.FIELDS.filter(function (f) { return !f.calc && rec.formulaLocked.indexOf(f.key) < 0; })
+        .map(function (f) { return { index: f.index, value: '', type: f.type }; });
+      cells.push({ index: found.idIndex, value: '', type: 'text' });
+      adapter.writeCells(found.row.rowNumber, cells);
+      clearDashCache(adapter);
+      adapter.audit({
+        at: adapter.now(), user: email, recordId: req.id, row: found.row.rowNumber, field: 'SO DELETED',
+        oldValue: 'SO# ' + String(rec.values.so_no || '') + ' part ' + String(rec.values.part_no || '') + ' customer ' + String(rec.values.customer || ''), newValue: ''
+      });
+      return { ok: true, deleted: req.id, refreshedAt: adapter.now() };
     });
   }
 

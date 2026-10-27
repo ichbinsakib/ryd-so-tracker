@@ -295,11 +295,22 @@
       el('td', {}, el('div', { class: 'cell2' }, el('span', { text: norm(r.part_no) }), el('small', { text: norm(r.customer) }))),
       el('td', {}, statusPill(r.status)),
       el('td', {}, dueNode(rowDue(r), rowClosed(r))),
-      el('td', {}, barNode(r.soBar)), el('td', {}, barNode(r.matBar)), el('td', { class: 'chev', text: '›' }))));
+      el('td', {}, barNode(r.soBar)), el('td', {}, barNode(r.matBar)), el('td', { class: 'chev' }, rowClosed(r) ? '' : el('button', { class: 'rowdel', type: 'button', title: 'Delete this SO', 'aria-label': 'Delete this SO', text: '🗑', onclick: (e) => { e.stopPropagation(); deleteSO(r.id, norm(r.so_no) || norm(r.part_no)); } }), ' ›'))));
     $('pg-info').textContent = 'Page ' + (state.page + 1) + ' of ' + pages;
     $('pg-prev').disabled = state.page === 0; $('pg-next').disabled = state.page >= pages - 1;
     const ls = $('list-status'); ls.className = 'statusline';
     ls.textContent = state.view.length + ' of ' + (state.dash ? state.dash.rows.length : 0) + ' SOs';
+  }
+  async function deleteSO(id, label) {
+    if (state.role === 'viewer') return;
+    if (!(await confirmDialog('Delete this SO?', el('p', { text: 'SO ' + (label || '') + ' will be permanently removed from the sheet. This cannot be undone. Only unfinished SOs can be deleted.' }), 'Delete SO', true))) return;
+    const r = await api('deleteSO', { id });
+    if (!r.ok) {
+      if (r.code === 'UNAUTHENTICATED') return showLogin(r.error);
+      toast(r.error || 'Could not delete the SO.', true); return;
+    }
+    toast('SO deleted.'); state.dirty = false; state.current = null; updateSaveBar();
+    if (state.role === 'admin') loadDashboard(true); else goHome();
   }
   async function openById(id) {
     const r = await api('get', { id });
@@ -458,6 +469,7 @@
     const closed = /CLOSE/.test(dv(rec, 'status'));
     $('detail-meta').replaceChildren(statusPill(dv(rec, 'status')), dueNode(dateOf(rec, 'due_date'), closed), barNode(norm(rec.display.so_release_status_bar)), barNode(norm(rec.display.mat_status_bar)));
     $('detail-meta').children[2].title = 'SO release'; $('detail-meta').children[3].title = 'Material';
+    $('btn-delete').hidden = !canEdit() || closed;
     renderStepper(rec); renderCallouts(rec); renderFacts(rec);
     const order = state.fields.map((f) => f.key);
     const form = $('detail-form'); form.replaceChildren();
@@ -863,6 +875,7 @@
   $('btn-save').onclick = save;
   $('btn-discard').onclick = discard;
   $('btn-print').onclick = printSheet;
+  $('btn-delete').onclick = () => { const r = state.current; if (r) deleteSO(r.id, norm(r.values.so_no) || norm(r.values.part_no)); };
   $('btn-signout').onclick = signOut;
 
   (async function init() {
