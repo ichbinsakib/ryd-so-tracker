@@ -258,3 +258,18 @@ dialog table { width: 100%; border-collapse: collapse; } dialog th { text-align:
 .calcform { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 10px; }
 .calcnote { margin: 10px 0 0; padding: 8px 12px; border-radius: 8px; background: var(--info-bg); color: var(--info); font-weight: 600; }
 @media (max-width: 800px) { .shell { display: block; } .sidenav { position: static; display: flex; overflow-x: auto; margin: 10px 14px 0; padding: 8px; } .navitem { width: auto; white-space: nowrap; } }
+
+/* subcontractor tracking v2 */
+.scbar { position: relative; height: 16px; min-width: 90px; border-radius: 8px; background: var(--line); overflow: hidden; }
+.scbar i { position: absolute; inset: 0 auto 0 0; background: var(--ok); border-radius: 8px; }
+.scbar.warn i { background: #e0a000; } .scbar.bad i { background: var(--err); }
+.scbar span { position: relative; display: block; text-align: center; font-size: 11px; line-height: 16px; font-weight: 700; color: var(--ink); mix-blend-mode: normal; }
+.sc-dot-crit { background: var(--err) !important; } .sc-dot-warn { background: #e0a000 !important; } .sc-dot-ok { background: var(--ok) !important; }
+.whycell { max-width: 260px; } .whycell .badge { display: inline-block; margin: 0 4px 4px 0; white-space: normal; }
+.actioncell { max-width: 260px; font-size: 12.5px; }
+.scsec h4 { margin: 8px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.scgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+.scorder textarea, .scaddlog textarea { width: 100%; font: inherit; }
+.scaddlog { display: grid; grid-template-columns: 150px 1fr auto; gap: 8px; align-items: start; margin-bottom: 8px; }
+.sclog { display: grid; gap: 6px; max-height: 220px; overflow: auto; } .scupd { padding: 6px 10px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); }
+@media (max-width: 800px) { .scaddlog { grid-template-columns: 1fr; } }

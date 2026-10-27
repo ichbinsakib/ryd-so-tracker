@@ -278,75 +278,104 @@ async function loadUsersAndConfig() {
 }
 
 
-// ---- Subcontract module (vendors, subcontract orders with routing steps, lead-time table)
-async function subconRaw() {
-  const [v, o, s, l] = await Promise.all([
-    sb.from('sc_vendors').select('*').order('name'), sb.from('sc_orders').select('*').order('created_at', { ascending: false }),
-    sb.from('sc_steps').select('*'), sb.from('sc_lead_times').select('*')
-  ]);
-  return { vendors: must(v as any), orders: must(o as any), steps: must(s as any), leadTimes: must(l as any) };
-}
+// ---- Subcontractor tracking (BPO lines, milestones, quantities, update log)
 async function scAudit(email: string, recordId: string, field: string, newValue: string) {
   await sb.from('app_audit').insert({ user_email: email, record_id: recordId, field, new_value: newValue });
 }
+const scDup = (e: any) => e && /duplicate key|unique/i.test(e.message || '');
+const scToday = () => new Date().toISOString().slice(0, 10);
 async function subconAction(req: any, email: string, role: string | null) {
   if (!role) return fail('FORBIDDEN', 'You are not allowed to use this app.');
   const write = role === 'editor' || role === 'admin';
   const action = req.action as string;
+  const today = SOSub.isDate(req.today) ? req.today : scToday();
   if (action === 'scList') {
-    const today = SOSub.isDate(req.today) ? req.today : new Date().toISOString().slice(0, 10);
-    const raw = await subconRaw();
-    return { ok: true, today, role, statuses: SOSub.STATUSES, vendorRows: raw.vendors, leadTimes: raw.leadTimes, ...SOSub.build(raw, today) };
+    const r = await sb.from('sc_lines').select('*').order('bpo_no').order('batch').order('so_no');
+    const built = SOSub.build(must(r as any), today);
+    return { ok: true, today, role, milestones: SOSub.MILESTONES, priorities: SOSub.PRIORITIES, blockers: SOSub.BLOCKERS, updateKinds: SOSub.UPDATE_KINDS, cfg: SOSub.CFG, ...built };
   }
-  if (!write) return fail('FORBIDDEN', 'Viewers cannot change subcontract data.');
-  const bad = (r: any) => fail('INVALID', 'Please fix the highlighted fields.', { fieldErrors: r.errors });
-  const dup = (e: any) => e && /duplicate key|unique/i.test(e.message || '');
-  if (action === 'scSaveVendor') {
-    const c = SOSub.cleanVendor(req.vendor || {}); if (!c.ok) return bad(c);
-    const r = req.vendor.id ? await sb.from('sc_vendors').update(c.value).eq('id', req.vendor.id).select('id').single() : await sb.from('sc_vendors').insert(c.value).select('id').single();
-    if (r.error) return dup(r.error) ? fail('INVALID', 'That vendor already exists.', { fieldErrors: { name: 'That vendor already exists.' } }) : fail('SERVER_ERROR', r.error.message);
-    await scAudit(email, (r.data as any).id, 'VENDOR SAVED', c.value.name);
-    return { ok: true, id: (r.data as any).id };
+  if (action === 'scUpdates') {
+    const r = await sb.from('sc_updates').select('id,at,by_user,kind,text').eq('line_id', String(req.id)).order('at', { ascending: false }).limit(100);
+    return { ok: true, updates: must(r as any) };
   }
-  if (action === 'scDeleteVendor') {
-    if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can delete vendors.');
-    const used = await sb.from('sc_orders').select('id', { count: 'exact', head: true }).eq('vendor_id', String(req.id));
-    if ((used.count || 0) > 0) return fail('INVALID', 'This vendor has subcontract orders. Mark it inactive instead of deleting.');
-    const r = await sb.from('sc_vendors').delete().eq('id', String(req.id)); if (r.error) return fail('SERVER_ERROR', r.error.message);
-    await scAudit(email, String(req.id), 'VENDOR DELETED', ''); return { ok: true };
-  }
-  if (action === 'scSaveLead') {
-    const c = SOSub.cleanLead(req.lead || {}); if (!c.ok) return bad(c);
-    const r = req.lead.id ? await sb.from('sc_lead_times').update(c.value).eq('id', req.lead.id) : await sb.from('sc_lead_times').insert(c.value);
-    if (r.error) return dup(r.error) ? fail('INVALID', 'That part and vendor already has a lead time.', { fieldErrors: { part_no: 'Already exists for this vendor.' } }) : fail('SERVER_ERROR', r.error.message);
-    return { ok: true };
-  }
-  if (action === 'scDeleteLead') {
-    const r = await sb.from('sc_lead_times').delete().eq('id', String(req.id)); if (r.error) return fail('SERVER_ERROR', r.error.message); return { ok: true };
-  }
-  if (action === 'scSaveOrder') {
-    const c = SOSub.cleanOrder(req.order || {}); if (!c.ok) return bad(c);
-    const { steps, ...fields } = c.value as any;
-    const vendorIds = [fields.vendor_id, ...steps.map((s: any) => s.vendor_id)].filter(Boolean);
-    const vr = await sb.from('sc_vendors').select('id').in('id', vendorIds);
-    if (must(vr as any).length !== new Set(vendorIds).size) return fail('INVALID', 'Please fix the highlighted fields.', { fieldErrors: { vendor_id: 'Unknown vendor.' } });
-    let id = req.order.id as string | undefined;
+  if (!write) return fail('FORBIDDEN', 'Viewers cannot change subcontractor data.');
+  const bad = (errors: any) => fail('INVALID', 'Please fix the highlighted fields.', { fieldErrors: errors });
+  const dupMsg = fail('INVALID', 'That PO # is already tracked.', { fieldErrors: { po_no: 'That PO # is already tracked.' } });
+  if (action === 'scSaveLine') {
+    const c = SOSub.cleanLine(req.line || {}); if (!c.ok) return bad(c.errors);
+    let id = req.line.id as string | undefined;
     if (id) {
-      const r = await sb.from('sc_orders').update({ ...fields, updated_at: new Date().toISOString() }).eq('id', id).select('id').single();
-      if (r.error) return dup(r.error) ? fail('INVALID', 'That subcontract # already exists.', { fieldErrors: { sc_no: 'That subcontract # already exists.' } }) : fail('SERVER_ERROR', r.error.message);
+      const r = await sb.from('sc_lines').update({ ...c.value, updated_at: new Date().toISOString() }).eq('id', id).select('id').single();
+      if (r.error) return scDup(r.error) ? dupMsg : fail('SERVER_ERROR', r.error.message);
     } else {
-      const r = await sb.from('sc_orders').insert({ ...fields, created_by: email }).select('id').single();
-      if (r.error) return dup(r.error) ? fail('INVALID', 'That subcontract # already exists.', { fieldErrors: { sc_no: 'That subcontract # already exists.' } }) : fail('SERVER_ERROR', r.error.message);
+      const r = await sb.from('sc_lines').insert({ ...c.value, created_by: email }).select('id').single();
+      if (r.error) return scDup(r.error) ? dupMsg : fail('SERVER_ERROR', r.error.message);
       id = (r.data as any).id;
     }
-    const del = await sb.from('sc_steps').delete().eq('order_id', id as string); if (del.error) return fail('SERVER_ERROR', del.error.message);
-    if (steps.length) { const ins = await sb.from('sc_steps').insert(steps.map((s: any) => ({ ...s, order_id: id }))); if (ins.error) return fail('SERVER_ERROR', ins.error.message); }
-    await scAudit(email, id as string, req.order.id ? 'SUBCON UPDATED' : 'SUBCON OPENED', fields.sc_no + ' / ' + fields.status);
+    await scAudit(email, id as string, req.line.id ? 'SUBCON LINE UPDATED' : 'SUBCON LINE ADDED', c.value.po_no + ' / SO ' + c.value.so_no);
     return { ok: true, id };
   }
-  if (action === 'scDeleteOrder') {
-    const r = await sb.from('sc_orders').delete().eq('id', String(req.id)); if (r.error) return fail('SERVER_ERROR', r.error.message);
-    await scAudit(email, String(req.id), 'SUBCON DELETED', ''); return { ok: true };
+  if (action === 'scDeleteLine') {
+    const r = await sb.from('sc_lines').delete().eq('id', String(req.id)); if (r.error) return fail('SERVER_ERROR', r.error.message);
+    await scAudit(email, String(req.id), 'SUBCON LINE DELETED', ''); return { ok: true };
+  }
+  if (action === 'scAddUpdate') {
+    const c = SOSub.cleanUpdate(req); if (!c.ok) return bad(c.errors);
+    const ins = await sb.from('sc_updates').insert({ line_id: String(req.id), by_user: email, kind: c.value.kind, text: c.value.text });
+    if (ins.error) return fail('SERVER_ERROR', ins.error.message);
+    const patch: any = { last_update: today, updated_at: new Date().toISOString() };
+    if (c.value.kind === 'ESCALATION') patch.escalated = true;
+    const u = await sb.from('sc_lines').update(patch).eq('id', String(req.id)); if (u.error) return fail('SERVER_ERROR', u.error.message);
+    return { ok: true };
+  }
+  if (action === 'scBulk') {
+    const b = req.bulk || {};
+    const patchMs: any = {}, errors: any = {};
+    for (const m of SOSub.MILESTONES) { const v = String((b.ms || {})[m.key] || '').trim(); if (!v) continue; if (!SOSub.isDate(v)) errors['ms_' + m.key] = 'Use a valid date.'; else patchMs[m.key] = v; }
+    const blockerType = String(b.blocker_type || ''), blocker = String(b.blocker || '').trim().slice(0, 500), note = String(b.note || '').trim().slice(0, 2000);
+    const revised = String(b.revised_date || '').trim();
+    if (!SOSub.BLOCKERS.includes(blockerType)) errors.blocker_type = 'Unknown blocker type.';
+    if (revised && !SOSub.isDate(revised)) errors.revised_date = 'Use a valid date.';
+    if (Object.keys(errors).length) return bad(errors);
+    if (!Object.keys(patchMs).length && !blocker && !b.clear_blocker && !note && !revised) return fail('INVALID', 'Nothing to apply: enter a date, note, blocker or revised date.');
+    const sel = await sb.from('sc_lines').select('id,ms,po_no').eq('bpo_no', String(b.bpo_no || '')).eq('batch', String(b.batch || '')).eq('closed', false).limit(300);
+    const rows = must(sel as any); if (!rows.length) return fail('NOT_FOUND', 'No open lines in that batch.');
+    const summary: string[] = [];
+    Object.keys(patchMs).forEach((k) => summary.push(SOSub.MILESTONES.find((m: any) => m.key === k).label + ' ' + patchMs[k]));
+    if (revised) summary.push('revised date ' + revised);
+    if (b.clear_blocker) summary.push('blocker cleared'); else if (blocker) summary.push('blocker: ' + blocker);
+    const text = (summary.length ? summary.join('; ') + (note ? '. ' : '') : '') + note;
+    for (const r of rows as any[]) {
+      const ms = { ...(r.ms || {}) }; for (const k of Object.keys(patchMs)) { if (b.overwrite || !ms[k]) ms[k] = patchMs[k]; }
+      const patch: any = { ms, last_update: today, updated_at: new Date().toISOString() };
+      if (b.clear_blocker) { patch.blocker = ''; patch.blocker_type = ''; } else if (blocker) { patch.blocker = blocker; patch.blocker_type = blockerType; }
+      if (revised) { patch.revised_date = revised; if (b.delay_reason) patch.delay_reason = String(b.delay_reason).trim().slice(0, 500); }
+      if (note) patch.note = note;
+      const u = await sb.from('sc_lines').update(patch).eq('id', r.id); if (u.error) return fail('SERVER_ERROR', u.error.message);
+    }
+    const ins = await sb.from('sc_updates').insert((rows as any[]).map((r) => ({ line_id: r.id, by_user: email, kind: 'CHANGE', text: 'Batch update: ' + text })));
+    if (ins.error) return fail('SERVER_ERROR', ins.error.message);
+    await scAudit(email, String(b.bpo_no) + ' ' + String(b.batch), 'SUBCON BATCH UPDATE', text.slice(0, 300));
+    return { ok: true, count: rows.length };
+  }
+  if (action === 'scImport') {
+    const list = Array.isArray(req.rows) ? req.rows.slice(0, 500) : [];
+    if (!list.length) return fail('INVALID', 'The file has no rows to import.');
+    const good: any[] = [], problems: string[] = [];
+    list.forEach((row: any, i: number) => { const c = SOSub.cleanLine(row); if (c.ok) good.push(c.value); else problems.push('Row ' + (i + 1) + ' (PO ' + (row && row.po_no || '?') + '): ' + Object.values(c.errors).join(' ')); });
+    const keys = good.map((g) => g.po_no.toUpperCase());
+    const ex = await sb.from('sc_lines').select('id,po_key').in('po_key', keys);
+    const have = new Map(must(ex as any).map((r: any) => [r.po_key, r.id]));
+    const seen = new Set<string>(); let added = 0, updated = 0;
+    const fresh: any[] = [];
+    for (const g of good) {
+      const k = g.po_no.toUpperCase(); if (seen.has(k)) { problems.push('PO ' + g.po_no + ' appears twice in the file; the first row was used.'); continue; } seen.add(k);
+      if (have.has(k)) { const u = await sb.from('sc_lines').update({ ...g, updated_at: new Date().toISOString() }).eq('id', have.get(k)); if (u.error) return fail('SERVER_ERROR', u.error.message); updated++; }
+      else fresh.push({ ...g, created_by: email });
+    }
+    if (fresh.length) { const ins = await sb.from('sc_lines').insert(fresh); if (ins.error) return fail('SERVER_ERROR', ins.error.message); added = fresh.length; }
+    await scAudit(email, '', 'SUBCON IMPORT', added + ' added, ' + updated + ' updated');
+    return { ok: true, added, updated, problems: problems.slice(0, 20), problemCount: problems.length };
   }
   return fail('BAD_REQUEST', 'Unknown action.');
 }

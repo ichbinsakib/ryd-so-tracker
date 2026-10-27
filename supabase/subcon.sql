@@ -1,70 +1,68 @@
--- Subcontract module: vendors, subcontract orders (whole part made by a vendor), routing steps, lead-time table.
+-- Subcontractor tracking for the coordinator, modelled on the "BPO Tracking" worksheet:
+-- one line per PO (SO + part + quantity) in a BPO batch, with milestone dates, quantities by outcome,
+-- blockers / next actions, and an update log. The coordinator monitors; the subcontractor team executes.
 -- Same rule as every table: RLS on, no policies, only the Edge Function (service role) touches them.
 
-create table if not exists sc_vendors (
-  id         uuid primary key default gen_random_uuid(),
-  name       text not null,
-  name_key   text generated always as (lower(btrim(name))) stored,
-  contact    text not null default '',
-  email      text not null default '',
-  phone      text not null default '',
-  notes      text not null default '',
-  active     boolean not null default true,
-  created_at timestamptz not null default now()
+-- Replace the first (vendor-based) draft. Refuses to drop it if anyone has entered data there.
+do $$
+declare n bigint;
+begin
+  if to_regclass('sc_orders') is not null then
+    execute 'select (select count(*) from sc_orders) + (select count(*) from sc_vendors) + (select count(*) from sc_lead_times)' into n;
+    if n > 0 then raise exception 'The old subcontract tables contain % rows; not dropping them.', n; end if;
+  end if;
+end $$;
+drop table if exists sc_steps, sc_lead_times, sc_orders, sc_vendors cascade;
+
+create table if not exists sc_lines (
+  id               uuid primary key default gen_random_uuid(),
+  bpo_no           text not null default '',
+  batch            text not null default '',
+  po_no            text not null default '',
+  po_key           text generated always as (upper(btrim(po_no))) stored,
+  so_no            text not null default '',
+  part_no          text not null default '',          -- CAMCO part
+  ryd_part         text not null default '',
+  description      text not null default '',
+  qty              numeric not null check (qty > 0),  -- requested
+  priority         text not null default 'NORMAL' check (priority in ('NORMAL', 'HIGH', 'LINE DOWN')),
+  owner            text not null default '',          -- who on the subcontractor team handles it
+  sent_date        date,                              -- requirement sent to the team (RFQ request date)
+  required_date    date,                              -- PO due date at CAMCO
+  customer_due_date date,
+  ms               jsonb not null default '{}'::jsonb, -- milestone dates by key, see backend/Subcon.js MILESTONES
+  qty_shipped      numeric not null default 0,
+  qty_received     numeric not null default 0,
+  qty_hold         numeric not null default 0,
+  qty_rejected     numeric not null default 0,
+  qty_stocked      numeric not null default 0,
+  blocker_type     text not null default '',
+  blocker          text not null default '',
+  next_action      text not null default '',
+  next_action_date date,
+  revised_date     date,
+  delay_reason     text not null default '',
+  escalated        boolean not null default false,
+  note             text not null default '',
+  last_update      date,
+  closed           boolean not null default false,
+  created_by       text not null default '',
+  created_at       timestamptz not null default now(),
+  updated_at       timestamptz not null default now()
 );
-create unique index if not exists sc_vendors_name_uq on sc_vendors (name_key);
+create unique index if not exists sc_lines_po_uq on sc_lines (po_key) where po_key <> '';
+create index if not exists sc_lines_batch_idx on sc_lines (bpo_no, batch);
 
-create table if not exists sc_orders (
-  id            uuid primary key default gen_random_uuid(),
-  sc_no         text not null,
-  sc_key        text generated always as (upper(btrim(sc_no))) stored,
-  so_no         text not null default '',
-  part_no       text not null default '',
-  description   text not null default '',
-  qty           numeric not null default 0,
-  vendor_id     uuid references sc_vendors (id) on delete set null,
-  status        text not null default 'QUOTING' check (status in ('QUOTING', 'PO PLACED', 'IN PROCESS', 'RECEIVED', 'CANCELLED')),
-  po_no         text not null default '',
-  quote_date    date,
-  po_date       date,
-  promised_date date,
-  received_date date,
-  quote_amt     numeric,
-  po_amt        numeric,
-  invoice_amt   numeric,
-  notes         text not null default '',
-  created_by    text not null default '',
-  created_at    timestamptz not null default now(),
-  updated_at    timestamptz not null default now()
+create table if not exists sc_updates (
+  id      uuid primary key default gen_random_uuid(),
+  line_id uuid not null references sc_lines (id) on delete cascade,
+  at      timestamptz not null default now(),
+  by_user text not null default '',
+  kind    text not null default 'NOTE' check (kind in ('NOTE', 'FOLLOW-UP', 'ESCALATION', 'CHANGE')),
+  text    text not null default ''
 );
-create unique index if not exists sc_orders_key_uq on sc_orders (sc_key);
-create index if not exists sc_orders_vendor_idx on sc_orders (vendor_id);
+create index if not exists sc_updates_line_idx on sc_updates (line_id, at desc);
 
-create table if not exists sc_steps (
-  id            uuid primary key default gen_random_uuid(),
-  order_id      uuid not null references sc_orders (id) on delete cascade,
-  seq           int not null default 1,
-  name          text not null default '',
-  vendor_id     uuid references sc_vendors (id) on delete set null,
-  sent_date     date,
-  promised_date date,
-  received_date date,
-  cost          numeric
-);
-create index if not exists sc_steps_order_idx on sc_steps (order_id, seq);
-
-create table if not exists sc_lead_times (
-  id        uuid primary key default gen_random_uuid(),
-  part_no   text not null default '',          -- blank = default for the vendor (any part)
-  vendor_id uuid references sc_vendors (id) on delete cascade,
-  std_days  int not null check (std_days >= 0),
-  notes     text not null default ''
-);
-create unique index if not exists sc_lead_uq on sc_lead_times (upper(btrim(part_no)), coalesce(vendor_id, '00000000-0000-0000-0000-000000000000'::uuid));
-
-alter table sc_vendors enable row level security;
-alter table sc_orders enable row level security;
-alter table sc_steps enable row level security;
-alter table sc_lead_times enable row level security;
-
-grant all on sc_vendors, sc_orders, sc_steps, sc_lead_times to service_role;
+alter table sc_lines enable row level security;
+alter table sc_updates enable row level security;
+grant all on sc_lines, sc_updates to service_role;
