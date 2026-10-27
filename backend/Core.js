@@ -431,7 +431,7 @@ var SOCore = (function () {
 
   // ---- Opening a new SO (intake form), dashboard rows, scan uploads ----
   var INTAKE_KEYS = ['so_no', 'part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_by', 'so_req_date', 'notes'];
-  var INTAKE_REQUIRED = ['part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_by', 'so_req_date'];
+  var INTAKE_REQUIRED = ['part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_by'];
   var NEW_SO_STATUS = '3.OPEN';
 
   /** Names offered in the Champion / Req. by dropdowns: active users from APP_USERS (name, else the part of the email before @). */
