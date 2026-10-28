@@ -124,22 +124,17 @@
 
   <section class="fresh" id="fresh-cards">
     <div class="card stat" id="card-stock">
-      <div class="stat-top"><span class="dot" aria-hidden="true"></span><h3>Stockroom price sheet</h3></div>
+      <div class="stat-top"><span class="dot" aria-hidden="true"></span><h3>Daily inventory</h3></div>
       <div class="statbig" id="stock-when">—</div>
       <div class="muted small" id="stock-sub"></div>
-      <button id="btn-upload" class="btn btn-sm">Upload new sheet</button>
+      <div class="muted small">ALL CUSTOMER INVENTORY file. One upload updates the STOCK list and the stockroom prices (PART PRICE and AVAIL (FT) on every SO).</div>
+      <button id="btn-upload" class="btn btn-sm btn-primary">Upload today's inventory</button>
     </div>
     <div class="card stat" id="card-steel">
       <div class="stat-top"><span class="dot" aria-hidden="true"></span><h3>STEEL USAGE sheet</h3></div>
       <div class="statbig" id="steel-when">—</div>
       <div class="muted small" id="steel-sub"></div>
       <button id="btn-upload-steel" class="btn btn-sm">Replace data</button>
-    </div>
-    <div class="card stat" id="card-items">
-      <div class="stat-top"><h3>STOCK list</h3></div>
-      <div class="statbig">Part price &amp; available</div>
-      <div class="muted small">Source of PART PRICE and AVAIL (FT) on every SO.</div>
-      <button id="btn-upload-items" class="btn btn-sm">Replace STOCK list</button>
     </div>
   </section>
 
@@ -274,6 +269,20 @@
 </div>
 
 <div id="print-sheet" aria-hidden="true"></div>
+
+<dialog id="dlg-inv">
+  <form method="dialog" id="inv-form">
+    <h3>Upload daily inventory</h3>
+    <p class="muted">Choose today's <b>ALL CUSTOMER INVENTORY</b> file (.xlsx or .csv). The columns are found automatically. This replaces yesterday's STOCK list and stockroom prices.</p>
+    <input id="inv-file" type="file" accept=".csv,.xlsx,.xls">
+    <div id="inv-sum" class="invsum" hidden></div>
+    <p id="inv-msg" class="error" role="alert"></p>
+    <menu>
+      <button value="cancel" class="btn">Cancel</button>
+      <button value="ok" class="btn btn-primary" id="inv-go" disabled>Upload inventory</button>
+    </menu>
+  </form>
+</dialog>
 
 <dialog id="dlg-upload">
   <form method="dialog" id="upload-form">

@@ -351,19 +351,19 @@
     $('matreq').tBodies[0].replaceChildren(...(body.length ? body : [el('tr', {}, el('td', { colspan: 10, class: 'muted', text: 'Every open SO has its material.' }))]));
     $('matreq-card').hidden = !rows.length;
   }
-  function freshness(cardId, whenId, subId, whenIso, subText, emptyText) {
+  function freshness(cardId, whenId, subId, whenIso, subText, emptyText, staleDays) {
     const card = $(cardId), w = $(whenId), s = $(subId);
     card.classList.remove('stale', 'never');
     if (!whenIso) { w.textContent = emptyText; s.textContent = 'Upload a file to enable checks.'; card.classList.add('never'); return; }
     const d = daysAgo(whenIso);
     w.textContent = fmtWhen(whenIso);
     s.textContent = (d === null ? '' : d === 0 ? 'Updated today' : 'Updated ' + d + ' day' + (d === 1 ? '' : 's') + ' ago') + (subText ? ' · ' + subText : '');
-    if (d !== null && d > 30) card.classList.add('stale');
+    if (d !== null && d > (staleDays || 30)) card.classList.add('stale');
   }
   function renderCards(r) {
     const sm = r.stock.meta || {};
     freshness('card-stock', 'stock-when', 'stock-sub', r.stock.has ? sm.uploadedAt : null,
-      r.stock.count + ' parts' + (sm.uploadedBy ? ' · by ' + sm.uploadedBy : '') + (sm.fileName ? ' · ' + sm.fileName : ''), 'Never uploaded');
+      r.stock.count.toLocaleString() + ' parts' + (sm.uploadedBy ? ' · by ' + sm.uploadedBy : '') + (sm.fileName ? ' · ' + sm.fileName : '') + (daysAgo(sm.uploadedAt) > 1 ? ' · upload today\'s file' : ''), 'Never uploaded', 1);
     const st = r.steel.meta;
     freshness('card-steel', 'steel-when', 'steel-sub', st ? st.at : null,
       st ? st.count + ' rows' + (st.by ? ' · by ' + st.by : '') + (st.fileName ? ' · ' + st.fileName : '') : '', 'Not updated through the app yet');
@@ -921,9 +921,52 @@
     $('upload-file').value = ''; $('upload-map').hidden = true; $('upload-msg').textContent = ''; $('up-go').disabled = true; up.rows = [];
     $('dlg-upload').showModal();
   }
-  $('btn-upload').onclick = () => openUpload('stock');
   $('btn-upload-steel').onclick = () => openUpload('steel');
-  $('btn-upload-items').onclick = () => openUpload('items');
+  // daily inventory: one ALL CUSTOMER INVENTORY file feeds both the STOCK list and the stockroom prices
+  const inv = { rows: [], file: '' };
+  const INV_COLS = { part: /^part/i, customer: /customer/i, quantity: /quantity|qty/i, price: /unit.?price|price/i };
+  async function invRead(file) {
+    const sheets = (await readUploadFile(file)).filter((s) => s.rows.length); let found = '';
+    for (const s of sheets) {
+      const hi = s.rows.findIndex((r) => r.filter((c) => String(c).trim() !== '').length >= 2); if (hi < 0) continue;
+      const head = s.rows[hi].map((c) => String(c).trim()); found = head.filter(Boolean).join(', ');
+      const c = {}; for (const [k, re] of Object.entries(INV_COLS)) c[k] = head.findIndex((x) => re.test(x));
+      if (Object.values(c).some((i) => i < 0)) continue;
+      const rows = []; let skipped = 0;
+      s.rows.slice(hi + 1).forEach((r) => {
+        if (r.every((x) => String(x ?? '').trim() === '')) return;
+        const part = String(r[c.part] ?? '').trim(); if (!part) { skipped++; return; }
+        rows.push({ part, customer: String(r[c.customer] ?? '').trim(), quantity: priceNum(r[c.quantity]), price: priceNum(r[c.price]) });
+      });
+      if (rows.length) return { rows, skipped };
+    }
+    throw new Error('Could not find the columns PartNumber, CustomerName, TotalQuantity and UnitPrice in this file.' + (found ? ' Columns found: ' + found + '.' : ''));
+  }
+  $('btn-upload').onclick = () => { $('inv-file').value = ''; $('inv-sum').hidden = true; $('inv-msg').textContent = ''; $('inv-go').disabled = true; inv.rows = []; $('dlg-inv').showModal(); };
+  $('inv-file').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; $('inv-msg').textContent = ''; $('inv-sum').hidden = true; $('inv-go').disabled = true; inv.rows = [];
+    if (!f) return;
+    $('inv-msg').textContent = 'Reading the file…';
+    try {
+      const { rows, skipped } = await invRead(f); inv.rows = rows; inv.file = f.name; $('inv-msg').textContent = '';
+      const stocked = rows.filter((r) => r.quantity > 0), customers = new Set(rows.map((r) => r.customer).filter(Boolean)).size;
+      const value = rows.reduce((t, r) => t + (r.quantity > 0 && r.price ? r.quantity * r.price : 0), 0);
+      const stat = (v, l) => el('div', { class: 'invstat' }, el('b', { text: v }), el('small', { text: l }));
+      $('inv-sum').replaceChildren(el('p', { class: 'invfile', text: f.name }), el('div', { class: 'invgrid' }, stat(rows.length.toLocaleString(), 'part lines'), stat(stocked.length.toLocaleString(), 'in stock now'),
+        stat(String(customers), 'customers'), stat('$' + Math.round(value).toLocaleString(), 'stock value')), skipped ? el('p', { class: 'muted small', text: skipped + ' rows without a part number will be skipped.' }) : '');
+      $('inv-sum').hidden = false; $('inv-go').disabled = false;
+    } catch (err) { $('inv-msg').textContent = err.message || 'Could not read the file.'; }
+  });
+  $('dlg-inv').addEventListener('close', async () => {
+    if ($('dlg-inv').returnValue !== 'ok' || !inv.rows.length) return;
+    const n = inv.rows.length; toast('Uploading ' + n.toLocaleString() + ' parts…');
+    const a = await api('uploadStockItems', { rows: inv.rows, fileName: inv.file });
+    if (!a.ok) { toast(a.error || 'Upload failed.', true); return; }
+    const b = await api('uploadStock', { rows: inv.rows.filter((r) => r.price !== null && r.price >= 0).map((r) => ({ part: r.part, price: r.price })), fileName: inv.file });
+    if (!b.ok) { toast('STOCK list updated, but the prices failed: ' + (b.error || 'error') + '. Upload the file again.', true); await loadList(); return; }
+    toast('Inventory updated: ' + a.count.toLocaleString() + ' parts' + (a.skipped ? ' (' + a.skipped + ' skipped)' : '') + '.'); inv.rows = [];
+    await loadList();
+  });
   $('upload-file').addEventListener('change', async (e) => {
     const file = e.target.files[0]; $('upload-msg').textContent = ''; $('upload-map').hidden = true; $('up-go').disabled = true;
     if (!file) return;
