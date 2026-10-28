@@ -60,7 +60,14 @@ a { color: var(--accent); }
 input, select, textarea { font: inherit; padding: 7px 10px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel); color: var(--ink); min-width: 0; }
 input:disabled, select:disabled, textarea:disabled { background: var(--calc); color: var(--muted); }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; }
-.login { width: 380px; max-width: 94vw; text-align: center; display: grid; justify-items: center; gap: 4px; padding: 30px 26px; }
+.login { width: 560px; max-width: 94vw; text-align: center; display: grid; justify-items: center; gap: 8px; padding: 48px 48px 40px; font-size: 16px; }
+.login h2 { font-size: 26px; line-height: 1.25; margin: 6px 0 2px; }
+.login .logo.big { width: 72px; height: 72px; font-size: 26px; border-radius: 18px; }
+#view-login .loginform { width: 100%; gap: 14px; margin: 20px 0 6px; }
+#view-login .loginform input { padding: 13px 14px; font-size: 17px; border-radius: 10px; }
+#view-login .loginform .btn { padding: 13px 22px; font-size: 17px; border-radius: 10px; width: 100%; }
+#view-login .error { font-size: 15px; }
+@media (max-width: 600px) { .login { padding: 32px 22px 28px; } .login h2 { font-size: 22px; } }
 .gsignin { margin: 12px 0 4px; min-height: 44px; display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
 .spinner { width: 30px; height: 30px; border: 3px solid var(--line-2); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; margin-bottom: 8px; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -290,3 +297,15 @@ dialog table { width: 100%; border-collapse: collapse; } dialog th { text-align:
 .r-ok .ri { background: var(--ok); color: #fff; } .r-warn .ri { background: var(--warn); color: #fff; } .r-bad .ri { background: var(--err); color: #fff; }
 .cover { margin-top: 8px; } .coverbar { height: 10px; border-radius: 6px; background: var(--line); overflow: hidden; position: relative; } .coverbar i { position: absolute; inset: 0 auto 0 0; border-radius: 6px; background: var(--ok); } .coverbar.warn i { background: #e0a000; } .coverbar.bad i { background: var(--err); } .cover small { color: var(--muted); }
 .matreq .tablewrap { min-height: 0; }
+
+/* dashboard overview */
+.dsec { margin-bottom: 8px; }
+.dgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 14px; margin-top: 8px; }
+.kpi-go { text-align: left; font: inherit; color: inherit; cursor: pointer; } .kpi-go:hover { border-color: var(--accent); }
+.dlist { display: grid; gap: 6px; }
+.ditem { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; font: inherit; color: inherit; padding: 9px 12px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; }
+.ditem:hover { border-color: var(--accent); }
+.ditem .so { font-weight: 700; min-width: 64px; }
+.ditem .dmain { display: grid; flex: 1; min-width: 0; } .ditem .dmain small { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dmore { margin-top: 8px; }
+@media (max-width: 800px) { .dgrid { grid-template-columns: 1fr; } }

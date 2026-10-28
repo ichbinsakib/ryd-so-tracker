@@ -27,6 +27,7 @@
 
 <div class="shell">
 <aside id="sidenav" class="sidenav" aria-label="Sections" hidden>
+  <button id="nav-dash" class="navitem" type="button"><span class="navicon" aria-hidden="true">◈</span>Dashboard</button>
   <button id="nav-inhouse" class="navitem" type="button"><span class="navicon" aria-hidden="true">▦</span>Inhouse</button>
   <button id="nav-subcon" class="navitem" type="button"><span class="navicon" aria-hidden="true">⇄</span>Subcontractor</button>
   <button id="nav-lead" class="navitem" type="button"><span class="navicon" aria-hidden="true">⏱</span>Lead Time Calculation</button>
@@ -78,10 +79,30 @@
   </ol>
 </main>
 
-<!-- Admin: progress + data freshness -->
+<!-- Dashboard: one-screen overview of inhouse and subcontractor work -->
+<main id="view-dash" hidden>
+  <div class="pagehead">
+    <div><h1>Dashboard</h1><p class="muted" id="dash2-sub">What needs attention across inhouse orders and subcontractors.</p></div>
+    <div class="head-actions">
+      <form id="dash2-find" class="findrow" autocomplete="off"><input id="dash2-find-input" type="text" placeholder="Find SO#" aria-label="Find SO number"><button class="btn" type="submit">Find</button></form>
+      <button id="dash2-new" class="btn btn-primary">＋ Open an SO</button>
+    </div>
+  </div>
+  <p id="dash2-status" class="statusline" role="status"></p>
+  <section class="dsec"><div class="sechead"><h3>Inhouse</h3><button id="dash2-go-in" class="btn btn-sm" type="button">Open Inhouse ›</button></div>
+    <div id="dash2-kpis-in" class="kpis"></div></section>
+  <section class="dsec"><div class="sechead"><h3>Subcontractor</h3><button id="dash2-go-sc" class="btn btn-sm" type="button">Open Subcontractor ›</button></div>
+    <div id="dash2-kpis-sc" class="kpis"></div></section>
+  <div class="dgrid">
+    <section class="card"><div class="sechead"><h3>Inhouse SOs to watch</h3><span class="muted small">Overdue or due within 7 days</span></div><div id="dash2-list-in"></div></section>
+    <section class="card"><div class="sechead"><h3>Subcontractor lines needing my action</h3><span class="muted small">Most urgent first</span></div><div id="dash2-list-sc"></div></section>
+  </div>
+</main>
+
+<!-- Inhouse: progress + data freshness -->
 <main id="view-admin" hidden>
   <div class="pagehead">
-    <div><h1 id="dash-title">Dashboard</h1><p class="muted" id="dash-sub">Progress of every sales order that is not closed.</p></div>
+    <div><h1 id="dash-title">Inhouse</h1><p class="muted" id="dash-sub">Progress of every sales order that is not closed.</p></div>
     <div class="head-actions">
       <form id="admin-find" class="findrow" autocomplete="off"><input id="admin-find-input" type="text" placeholder="Find SO#" aria-label="Find SO number"><button class="btn" type="submit">Find</button></form>
       <button id="admin-users" class="btn">Users</button>

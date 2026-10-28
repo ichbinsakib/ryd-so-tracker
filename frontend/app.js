@@ -18,7 +18,7 @@
     ['Release & prints', 'print_traveller', 'update_date'],
     ['Receiving, invoice & close', 'po_no_2', 'so_close_date']
   ];
-  const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail', 'view-subcon'];
+  const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail', 'view-subcon', 'view-dash'];
 
   // ---------- helpers
   function el(tag, attrs, ...kids) {
@@ -53,8 +53,8 @@
   function show(id) { VIEWS.forEach((v) => { $(v).hidden = v !== id; }); navSync(id); window.scrollTo(0, 0); }
   function navSync(id) {
     $('sidenav').hidden = id === 'view-login' || id === 'view-loading';
-    const on = id === 'view-subcon' ? (SC.section === 'leads' ? 'nav-lead' : 'nav-subcon') : 'nav-inhouse';
-    ['nav-inhouse', 'nav-subcon', 'nav-lead'].forEach((n) => { $(n).classList.toggle('on', n === on); if (n === on) $(n).setAttribute('aria-current', 'page'); else $(n).removeAttribute('aria-current'); });
+    const on = id === 'view-subcon' ? (SC.section === 'leads' ? 'nav-lead' : 'nav-subcon') : id === 'view-dash' ? 'nav-dash' : 'nav-inhouse';
+    ['nav-dash', 'nav-inhouse', 'nav-subcon', 'nav-lead'].forEach((n) => { $(n).classList.toggle('on', n === on); if (n === on) $(n).setAttribute('aria-current', 'page'); else $(n).removeAttribute('aria-current'); });
   }
   function toast(msg, isErr) {
     const t = $('toast'); t.textContent = msg; t.className = 'toast' + (isErr ? ' err' : ''); t.hidden = false;
@@ -184,16 +184,15 @@
     state.byKey = Object.fromEntries(r.fields.map((f) => [f.key, f]));
     $('avatar').textContent = initials(r.email); $('user-name').textContent = niceName(r.email); $('user-role').textContent = r.role;
     $('userchip').hidden = false; $('btn-signout').hidden = false; $('btn-pw').hidden = CFG.DEV_MODE;
-    if (r.dashboard) {
-      // admins get the dashboard in the same round trip
-      state.dirty = false; state.current = null; updateSaveBar();
-      show('view-admin'); $('btn-refresh').hidden = false; applyDashboard(r.dashboard);
-    } else goHome();
+    state.dirty = false; state.current = null; updateSaveBar();
+    // admins get the inhouse list in the same round trip
+    if (r.dashboard) { setDashMode(); applyDashboard(r.dashboard); }
+    openDash();
   }
   const isAdmin = () => state.role === 'admin';
   function setDashMode() {
     const admin = isAdmin();
-    $('dash-title').textContent = admin ? 'Dashboard' : 'My SOs';
+    $('dash-title').textContent = admin ? 'Inhouse' : 'My SOs';
     $('dash-sub').textContent = admin ? 'Progress of every sales order that is not closed.' : 'Sales orders you opened or are responsible for, with their progress.';
     $('fresh-cards').hidden = !admin; $('admin-users').hidden = !admin; $('admin-new').hidden = state.role === 'viewer';
     if (!admin && !state.sortSet) { state.sort = 'due'; $('sort').value = 'due'; state.sortSet = true; }
@@ -228,7 +227,57 @@
     $('dlg-price').showModal();
   }
 
-  // ---------- admin dashboard
+  // ---------- dashboard: overview of inhouse and subcontractor work
+  const DASH_LIST = 8;
+  async function openDash() {
+    if (!state.token || !state.role) return;
+    if (!(await leaveGuard())) return;
+    state.dirty = false; state.current = null; updateSaveBar(); setDashMode();
+    show('view-dash'); $('btn-refresh').hidden = false; $('dash2-new').hidden = state.role === 'viewer';
+    return loadDash(false);
+  }
+  async function loadDash(fresh) {
+    const st = $('dash2-status'); st.className = 'statusline'; st.textContent = 'Loading…';
+    $('btn-refresh').disabled = true;
+    const [inh, sc] = await Promise.all([
+      state.dash && !fresh ? Promise.resolve({ ok: true, cached: true }) : api(isAdmin() ? 'dashboard' : 'mySOs', { includeClosed: false, fresh: !!fresh }),
+      api('scList', { today: today() })]);
+    $('btn-refresh').disabled = false;
+    const bad = [inh, sc].find((x) => !x.ok);
+    if (bad && bad.code === 'UNAUTHENTICATED') return showLogin(bad.error);
+    if (inh.ok && !inh.cached) applyDashboard(inh);
+    if (sc.ok) SC.data = sc;
+    st.className = 'statusline' + (bad ? ' err' : ''); st.textContent = bad ? bad.error + ' (some data unavailable)' : '';
+    renderDash(inh.ok ? state.dash : null, sc.ok ? sc : null);
+  }
+  function renderDash(dash, sc) {
+    const kp = (cls, v, l, go) => el(go ? 'button' : 'div', { class: 'kpi ' + cls + (go ? ' kpi-go' : ''), type: go ? 'button' : undefined, onclick: go }, el('div', { class: 'kv', text: String(v) }), el('div', { class: 'kl', text: l }));
+    const rows = dash ? dash.rows.filter(rowOpen) : [];
+    const late = rows.filter((r) => { const n = daysUntil(rowDue(r)); return n !== null && n < 0; });
+    const soon = rows.filter((r) => { const n = daysUntil(rowDue(r)); return n !== null && n >= 0 && n <= 7; });
+    const short = rows.filter((r) => !r.matReceived && r.reqFt !== null && r.availFt !== null && r.availFt < r.reqFt).length;
+    const aq = rows.filter(awaitingQuote).length;
+    const toInhouse = (chip, stage) => () => { state.chip = chip; state.stage = stage || ''; state.mat = ''; goHome(); };
+    const toQueue = () => { SC.tab = 'queue'; openSubcon('subcon'); };
+    $('dash2-kpis-in').replaceChildren(...(dash ? [
+      kp('info', rows.length, 'Open SOs', toInhouse('all')), kp(late.length ? 'bad' : 'ok', late.length, 'Overdue', toInhouse('late')), kp(soon.length ? 'warn' : 'ok', soon.length, 'Due in 7 days', toInhouse('all')),
+      kp(aq ? 'warn' : 'ok', aq, 'Awaiting quote', toInhouse('quote')),
+      kp('info', rows.filter((r) => r.stage === 'Release').length, 'Ready to release', toInhouse('all', 'Release')), kp(short ? 'warn' : 'ok', short, 'Short on material', toInhouse('all'))] : [el('p', { class: 'muted', text: 'Inhouse data is unavailable.' })]));
+    const k = sc && sc.kpis;
+    $('dash2-kpis-sc').replaceChildren(...(k ? [
+      kp('info', k.open, 'Open lines', () => openSubcon('subcon')), kp(k.needsAction ? 'warn' : 'ok', k.needsAction, 'Need my action', toQueue),
+      kp(k.pastDue ? 'bad' : 'ok', k.pastDue, 'Past due', toQueue), kp(k.forecastLate ? 'warn' : 'ok', k.forecastLate, 'Forecast late', toQueue),
+      kp(k.blocked ? 'bad' : 'ok', k.blocked, 'Blocked / on hold', toQueue), kp('info', qtyFmt(k.openQty), 'Pcs still open', () => openSubcon('subcon'))] : [el('p', { class: 'muted', text: 'Subcontractor data is unavailable.' })]));
+    const watch = rows.filter((r) => { const n = daysUntil(rowDue(r)); return n !== null && n <= 7; }).sort((x, y) => rowDue(x) - rowDue(y));
+    const more = (n, f) => (n > DASH_LIST ? el('button', { class: 'btn btn-sm dmore', type: 'button', text: 'Show all ' + n + ' ›', onclick: f }) : '');
+    $('dash2-list-in').replaceChildren(!dash ? el('p', { class: 'muted', text: 'Unavailable.' }) : watch.length ? el('div', { class: 'dlist' }, ...watch.slice(0, DASH_LIST).map((r) => el('button', { class: 'ditem', type: 'button', onclick: () => openById(r.id) },
+      el('span', { class: 'so', text: norm(r.so_no) || '—' }), el('span', { class: 'dmain' }, el('b', { text: norm(r.part_no) }), el('small', { text: norm(r.customer) + ' · ' + (r.stage || '') })), dueNode(rowDue(r), false))), more(watch.length, toInhouse('late'))) : el('p', { class: 'muted', text: 'Nothing is overdue or due this week.' }));
+    const lines = sc ? sc.queue.map((id) => sc.lines.find((l) => l.id === id)).filter(Boolean) : [];
+    $('dash2-list-sc').replaceChildren(!sc ? el('p', { class: 'muted', text: 'Unavailable.' }) : lines.length ? el('div', { class: 'dlist' }, ...lines.slice(0, DASH_LIST).map((o) => el('button', { class: 'ditem', type: 'button', onclick: () => openSubcon('subcon').then(() => scEditLine(o)) },
+      el('span', { class: 'dot sc-dot-' + o.attention }), el('span', { class: 'dmain' }, el('b', { text: o.so_no + ' · ' + o.part_no }), el('small', { text: (o.reasons[0] ? o.reasons[0].text + ' · ' : '') + o.action })), el('small', { class: 'muted', text: o.stage }))), more(lines.length, toQueue)) : el('p', { class: 'muted', text: 'Nothing needs your action right now.' }));
+  }
+
+  // ---------- inhouse list
   async function loadDashboard(fresh) {
     setDashMode(); show('view-admin'); $('btn-refresh').hidden = false;
     $('grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: 'Loading…' })));
@@ -1247,12 +1296,17 @@
   }
   $('sc-new').onclick = () => { if (!scCanWrite()) { toast('Viewers cannot add lines.', true); return; } scEditLine(null); };
   $('sc-back').onclick = () => goHome();
+  $('nav-dash').onclick = openDash;
+  $('dash2-go-in').onclick = () => goHome();
+  $('dash2-go-sc').onclick = () => openSubcon('subcon');
+  $('dash2-new').onclick = openNewForm;
+  $('dash2-find').addEventListener('submit', (e) => { e.preventDefault(); findSO($('dash2-find-input').value, $('dash2-status')); });
   $('nav-inhouse').onclick = async () => { if (!state.token || !state.role) return; if (!(await leaveGuard())) return; goHome(); };
   $('nav-subcon').onclick = () => openSubcon('subcon');
   $('nav-lead').onclick = () => openSubcon('leads');
 
   window.addEventListener('beforeunload', (e) => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
-  $('btn-home').onclick = async (e) => { e.preventDefault(); if (!state.token || !state.role) return; if (!(await leaveGuard())) return; goHome(); };
+  $('btn-home').onclick = (e) => { e.preventDefault(); openDash(); };
   $('home-new').onclick = openNewForm;
   $('admin-new').onclick = openNewForm;
   $('admin-users').onclick = openUsers;
@@ -1269,6 +1323,7 @@
   $('pg-size').onchange = (e) => { state.pageSize = +e.target.value; state.page = 0; renderTable(); };
   $('btn-refresh').onclick = async () => {
     if (!$('view-admin').hidden) return loadDashboard(true);
+    if (!$('view-dash').hidden) return loadDash(true);
     if (!$('view-detail').hidden && state.current) {
       if (!(await leaveGuard())) return;
       const r = await api('get', { id: state.current.id });
