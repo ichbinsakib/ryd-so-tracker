@@ -683,6 +683,7 @@
       wrap.append(el('div', { class: 'pricehint ' + (c.state === 'ok' ? 'ok' : 'bad'), text: c.state === 'ok' ? '✓ Found in STEEL USAGE' : '! ' + c.reason }));
     }
     if (BAR_KEYS.includes(f.key)) { input.hidden = true; wrap.append(barNode(norm(rec.display[f.key]))); }
+    if (f.key === 'email_template') { input.hidden = true; wrap.append(el('button', { class: 'btn btn-sm', type: 'button', text: '✉ Send Email', title: 'Opens an email asking for a material quote', onclick: () => { window.location.href = quoteMailto(); } })); }
     if (editable) input.addEventListener('input', onEdit);
     return wrap;
   }
@@ -696,7 +697,34 @@
     });
     return ch;
   }
+  // REQ. LBS follows BAR TYPE and MATERIAL CODE while typing (same rule as the backend; saved again on Save)
+  function liveLbs() {
+    const out = $('fld-req_lbs'), rec = state.current; if (!out || !rec) return;
+    const val = (k) => { const i = $('fld-' + k); return i ? i.value : norm(rec.values[k]); };
+    const bt = val('bar_type'), ft = parseFloat(norm(rec.display.req_ft).replace(/,/g, '')), code = val('material_code').trim(), sp = code.indexOf(' ');
+    const dia = sp > 0 ? parseFloat(code.slice(0, sp)) : NaN, inches = isNaN(ft) ? NaN : ft * 12;
+    let r;
+    if (bt === 'RD' || bt === 'RD-AL') r = isNaN(dia) || isNaN(inches) ? '#VALUE!' : String(Math.round(Math.PI * Math.pow(dia / 2, 2) * inches * (bt === 'RD' ? 0.283 : 0.098)));
+    else if (bt === 'SQ') r = isNaN(dia) || isNaN(inches) ? '#VALUE!' : String(Math.round(dia * dia * inches * 0.283));
+    else if (bt === 'REC.' || bt === 'FLAT' || bt === 'TUBING') return;
+    else r = '0';
+    out.value = r;
+  }
+  // mailto link asking for a material quote, filled from the form as it is now
+  function quoteMailto() {
+    const rec = state.current; if (!rec) return 'mailto:';
+    const v = (k) => { const i = $('fld-' + k); return (i ? i.value : norm(rec.values[k])).trim(); };
+    const d = (k) => norm(rec.display[k]).trim();
+    const code = v('material_code') || d('steel_type'), qty = v('qty_requested');
+    const lines = ['Hello,', '', 'Please send a quote for the following material:', '',
+      'Material: ' + code + (d('steel_type') && d('steel_type') !== code ? ' (' + d('steel_type') + ')' : ''),
+      'Bar type: ' + (v('bar_type') || '—') + (d('router_bar_size') && d('router_bar_size') !== '-' ? ', ' + d('router_bar_size') : ''),
+      'Quantity: ' + (qty || (d('req_bar') && d('req_bar') !== '-' ? Math.ceil(parseFloat(d('req_bar'))) + ' bars (' + d('req_ft') + ' ft)' : '—')),
+      '', 'For SO ' + v('so_no') + ', part ' + v('part_no') + (v('due_date') ? ', needed by ' + v('due_date') : '') + '.', '', 'Please reply with the price and lead time.', '', 'Thank you.'];
+    return 'mailto:?subject=' + encodeURIComponent('Material quote request - SO ' + v('so_no') + ' - ' + code) + '&body=' + encodeURIComponent(lines.join('\n'));
+  }
   function onEdit(e) {
+    if (e.target.dataset.key === 'bar_type' || e.target.dataset.key === 'material_code') liveLbs();
     const wrap = e.target.closest('.field');
     wrap.classList.toggle('changed', e.target.value !== e.target.dataset.orig && !(e.target.dataset.legacy && e.target.value === ''));
     wrap.classList.remove('invalid'); wrap.querySelector('.ferr')?.remove();
