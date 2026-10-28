@@ -432,7 +432,10 @@ var SOCore = (function () {
   // ---- Opening a new SO (intake form), dashboard rows, scan uploads ----
   var INTAKE_KEYS = ['so_no', 'part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_by', 'so_req_date', 'notes'];
   var INTAKE_REQUIRED = ['part_no', 'customer', 'champion', 'so_qty', 'due_date', 'so_type', 'kanban_or_po', 'req_by'];
-  var NEW_SO_STATUS = '3.OPEN';
+  // A new SO starts as a part check (status 1. ANALYSIS): only part, customer and the possible quantity are needed until
+  // the material quote is in and the SO is requested. If every SO detail is already given it opens directly as 3.OPEN.
+  var INTAKE_CHECK_REQUIRED = ['part_no', 'customer', 'so_qty'];
+  var NEW_SO_STATUS = '3.OPEN', CHECK_STATUS = '1. ANALYSIS';
 
   /** Names offered in the Champion / Req. by dropdowns: active users from APP_USERS (name, else the part of the email before @). */
   function peopleList(users) {
@@ -445,7 +448,7 @@ var SOCore = (function () {
     return out.sort(function (a, b) { return a.toLowerCase() < b.toLowerCase() ? -1 : 1; });
   }
 
-  function intakeInfo(users) { return { keys: INTAKE_KEYS.slice(), required: INTAKE_REQUIRED.slice(), people: peopleList(users) }; }
+  function intakeInfo(users) { return { keys: INTAKE_KEYS.slice(), required: INTAKE_REQUIRED.slice(), checkRequired: INTAKE_CHECK_REQUIRED.slice(), people: peopleList(users) }; }
 
   function normSo(v) { return String(v === undefined || v === null ? '' : v).trim().toUpperCase(); }
 
@@ -465,7 +468,7 @@ var SOCore = (function () {
       var r = validateValue(f, changes[k]);
       if (!r.ok) { errors[k] = r.error; return; }
       if (r.value === '') {
-        if (INTAKE_REQUIRED.indexOf(k) >= 0) errors[k] = f.label + ' is required.';
+        if (INTAKE_CHECK_REQUIRED.indexOf(k) >= 0) errors[k] = f.label + ' is required.';
         return;
       }
       if ((k === 'champion' || k === 'req_by') && people && people.length) {
@@ -481,7 +484,9 @@ var SOCore = (function () {
       if (taken) errors.so_no = 'SO# ' + so.value + ' already exists.';
     }
     if (Object.keys(errors).length) return { ok: false, code: 'INVALID', error: 'Please fix the highlighted fields.', fieldErrors: errors };
-    writes.push({ key: 'status', field: BY_KEY.status, value: NEW_SO_STATUS });
+    var given = {}; writes.forEach(function (w) { given[w.key] = true; });
+    var complete = INTAKE_REQUIRED.every(function (k) { return given[k]; });
+    writes.push({ key: 'status', field: BY_KEY.status, value: complete ? NEW_SO_STATUS : CHECK_STATUS });
     return { ok: true, writes: writes };
   }
 
@@ -537,7 +542,7 @@ var SOCore = (function () {
     priceCheck: priceCheck, validateStockUpload: validateStockUpload, validateStockItems: validateStockItems,
     lookupChecks: lookupChecks, validateSteelUpload: validateSteelUpload, safeCellText: safeCellText,
     ROLES: ROLES, ROLE_RANK: ROLE_RANK, MAX_USERS: MAX_USERS, validateUser: validateUser, mergeUsers: mergeUsers,
-    INTAKE_KEYS: INTAKE_KEYS, INTAKE_REQUIRED: INTAKE_REQUIRED, intakeInfo: intakeInfo, peopleList: peopleList, planCreate: planCreate, normSo: normSo,
+    INTAKE_KEYS: INTAKE_KEYS, INTAKE_REQUIRED: INTAKE_REQUIRED, INTAKE_CHECK_REQUIRED: INTAKE_CHECK_REQUIRED, intakeInfo: intakeInfo, peopleList: peopleList, planCreate: planCreate, normSo: normSo,
     dashboardRow: dashboardRow, pctNum: pctNum, validateScanUpload: validateScanUpload, MAX_SCAN_BYTES: MAX_SCAN_BYTES
   };
 })();

@@ -65,7 +65,7 @@ test('planCreate: required fields, unknown fields, duplicate SO#', () => {
   assert.equal(Core.planCreate(goodForm(), []).ok, true);
   const bad = Core.planCreate({ so_no: '1' }, []);
   assert.equal(bad.ok, false);
-  for (const k of Core.INTAKE_REQUIRED.filter(k => k !== 'so_no')) assert.ok(bad.fieldErrors[k], k + ' is required');
+  for (const k of Core.INTAKE_CHECK_REQUIRED) assert.ok(bad.fieldErrors[k], k + ' is required');
   assert.equal(bad.fieldErrors.notes, undefined, 'notes optional');
   assert.ok(Core.planCreate({ ...goodForm(), status: '4.CLOSE' }, []).fieldErrors.status, 'status cannot be chosen');
   assert.ok(Core.planCreate({ ...goodForm(), part_price: '1' }, []).fieldErrors.part_price, 'calculated fields refused');
@@ -205,4 +205,16 @@ test('deleteSO: editor/admin can delete an unfinished SO, closed SOs and viewers
   assert.equal(call(s, 'tok-editor', { action: 'deleteSO', id: 'id-1' }).code, 'NOT_FOUND');
   assert.ok(s.auditLog.some(e => e.field === 'SO DELETED'));
   assert.equal(call(s, 'tok-admin', { action: 'deleteSO', id: 'id-2' }).ok, true);
+});
+
+test('a part check needs only part, customer and qty and opens as 1. ANALYSIS; the SO is requested later', () => {
+  const s = new FakeSheet();
+  const r = call(s, 'tok-editor', { action: 'createSO', changes: { part_no: 'P-CHECK', customer: 'ACME', so_qty: '40' } });
+  assert.equal(r.ok, true);
+  assert.equal(r.record.values.status, '1. ANALYSIS');
+  assert.equal(Core.planCreate(goodForm(), []).writes.find((w) => w.key === 'status').value, '3.OPEN', 'full details open the SO directly');
+  const ask = call(s, 'tok-editor', { action: 'update', id: r.record.id, baseVersion: r.record.version, changes: { status: '3.OPEN', so_no: 'R9001', due_date: '2026-12-15', so_type: 'STANDARD', kanban_or_po: 'PO', champion: 'ALPHA', req_by: 'Bravo', so_req_date: '2026-10-28' } });
+  assert.equal(ask.ok, true, JSON.stringify(ask));
+  assert.equal(ask.record.values.status, '3.OPEN');
+  assert.equal(ask.record.values.so_no, 'R9001');
 });

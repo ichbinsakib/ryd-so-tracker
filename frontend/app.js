@@ -311,8 +311,8 @@
       k(aq ? 'warn' : 'ok', aq, 'Awaiting quote'), k('info', avg('soBar'), 'Avg SO release'), k('info', avg('matBar'), 'Avg material'));
   }
   // ---------- inhouse planning: pipeline by stage, material roll-up
-  const STAGES = ['Order', 'Material', 'Quote', 'Approval', 'PO', 'Release', 'Receiving', 'Invoice'];
-  const STAGE_HINT = { Order: 'Details missing', Material: 'Steel data missing', Quote: 'Waiting for quote', Approval: 'Quote to approve', PO: 'PO to place / approve', Release: 'Ready to release', Receiving: 'Material in transit', Invoice: 'Invoice to finance' };
+  const STAGES = ['Check', 'Order', 'Material', 'Quote', 'Approval', 'PO', 'Release', 'Receiving', 'Invoice'];
+  const STAGE_HINT = { Check: 'Part check, quote pending', Order: 'Details missing', Material: 'Steel data missing', Quote: 'Waiting for quote', Approval: 'Quote to approve', PO: 'PO to place / approve', Release: 'Ready to release', Receiving: 'Material in transit', Invoice: 'Invoice to finance' };
   const rowOpen = (r) => !rowClosed(r) && r.stage !== 'Closed';
   const matKey = (r) => (r.steelType ? [r.steelType, r.barType, r.barSize].map((x) => x || '?').join(' | ') : '');
   const fmtN = (n, d) => (n === null || n === undefined ? '—' : Number(n).toLocaleString(undefined, { maximumFractionDigits: d === undefined ? 1 : d }));
@@ -328,7 +328,7 @@
     }));
   }
   function renderMatReq(rows) {
-    const need = rows.filter((r) => rowOpen(r) && !r.matReceived);
+    const need = rows.filter((r) => rowOpen(r) && !r.matReceived && r.stage !== 'Check');
     const groups = {}, nodata = [];
     need.forEach((r) => {
       const k = matKey(r); if (!k) { nodata.push(r); return; }
@@ -436,19 +436,16 @@
   $('btn-csv').onclick = exportCsv;
 
   // ---------- open a new SO
-  const NEW_GROUPS = [
-    ['Order', ['so_no', 'part_no', 'customer', 'so_qty']],
-    ['Delivery & type', ['due_date', 'so_req_date', 'so_type', 'kanban_or_po']],
-    ['People & notes', ['champion', 'req_by', 'notes']]
-  ];
+  const NEW_CHECK = ['part_no', 'customer', 'so_qty', 'notes'];
+  const NEW_SO = ['so_no', 'so_req_date', 'due_date', 'so_type', 'kanban_or_po', 'champion', 'req_by'];
   function newField(key) {
-    const f = state.byKey[key]; const req = state.intake.required.includes(key); const id = 'nf-' + key;
+    const f = state.byKey[key]; const req = state.intake.checkRequired.includes(key); const id = 'nf-' + key;
     let input;
     if (key === 'champion' || key === 'req_by') {
       const names = (state.intake.people || []).slice();
       input = el('select', { id }, ['', ...names].map((o) => el('option', { value: o, text: o === '' ? '— choose a person —' : o })));
     } else if (f.type === 'enum') input = el('select', { id }, ['', ...f.options].map((o) => el('option', { value: o, text: o === '' ? '— choose —' : o })));
-    else if (f.type === 'date') input = el('input', { id, type: 'date', value: key === 'so_req_date' ? today() : '' });
+    else if (f.type === 'date') input = el('input', { id, type: 'date', value: '' });
     else if (f.type === 'longtext') input = el('textarea', { id });
     else input = el('input', { id, type: 'text', inputmode: f.type === 'number' ? 'decimal' : 'text' });
     input.dataset.key = key;
@@ -458,15 +455,16 @@
   }
   function openNewForm() {
     state.dirty = false; updateSaveBar();
-    $('new-form').replaceChildren(...NEW_GROUPS.map(([title, keys]) => el('fieldset', {}, el('legend', { text: title }),
-      el('div', { class: 'grid' }, keys.filter((k) => state.intake.keys.includes(k)).map(newField)))));
+    const grid = (keys) => el('div', { class: 'grid' }, keys.filter((k) => state.intake.keys.includes(k)).map(newField));
+    $('new-form').replaceChildren(el('fieldset', {}, el('legend', { text: 'Part check' }), grid(NEW_CHECK)),
+      el('details', { class: 'newdetails card' }, el('summary', { text: 'Already have the SO? Add the SO details now (otherwise request the SO after the quote)' }), grid(NEW_SO)));
     banner('new-banner', '', ''); show('view-new');
-    ($('nf-so_no') || document.querySelector('#new-form input')).focus();
+    $('nf-part_no').focus();
   }
   function collectNew() { const ch = {}; $('new-form').querySelectorAll('[data-key]').forEach((i) => { ch[i.dataset.key] = i.value.trim(); }); return ch; }
   function showFieldErrors(prefix, errs) {
     Object.entries(errs || {}).forEach(([k, m]) => {
-      const i = $(prefix + k); if (!i) return; const w = i.closest('.field'); w.classList.add('invalid'); w.querySelector('.ferr')?.remove(); w.append(el('div', { class: 'ferr', text: m }));
+      const i = $(prefix + k); if (!i) return; i.closest('details')?.setAttribute('open', ''); const w = i.closest('.field'); w.classList.add('invalid'); w.querySelector('.ferr')?.remove(); w.append(el('div', { class: 'ferr', text: m }));
     });
     document.querySelector('.field.invalid')?.scrollIntoView({ block: 'center' });
   }
@@ -474,14 +472,14 @@
   async function submitNew() {
     if (creating) return;
     const ch = collectNew(); const missing = {};
-    state.intake.required.forEach((k) => { if (!ch[k]) missing[k] = state.byKey[k].label + ' is required.'; });
+    state.intake.checkRequired.forEach((k) => { if (!ch[k]) missing[k] = state.byKey[k].label + ' is required.'; });
     if (Object.keys(missing).length) { banner('new-banner', 'err', 'Please fill in all required fields.'); showFieldErrors('nf-', missing); return; }
     const table = el('table', {}, el('tbody', {}, state.intake.keys.filter((k) => ch[k]).map((k) => el('tr', {}, el('td', { text: state.byKey[k].label }), el('td', { text: ch[k] })))));
     if (!(await confirmDialog('Open this SO?', table, 'Open SO'))) return;
     creating = true; $('new-submit').disabled = true; $('new-submit').textContent = 'Opening…'; banner('new-banner', '', '');
     const r = await api('createSO', { changes: ch });
     creating = false; $('new-submit').disabled = false; $('new-submit').textContent = 'Open SO';
-    if (r.ok) { toast((norm(r.record.values.so_no) ? 'SO ' + norm(r.record.values.so_no) : 'SO') + ' opened.'); openRecord(r.record, 'ok', 'SO opened and added to the sheet. Fill in the rest of the details as they arrive, then print it and upload the scan.'); return; }
+    if (r.ok) { const chk = isCheck(r.record); toast(chk ? 'Part check opened.' : (norm(r.record.values.so_no) ? 'SO ' + norm(r.record.values.so_no) : 'SO') + ' opened.'); openRecord(r.record, 'ok', chk ? 'Part check opened. The material needed is on the left. Request the quote on the Material & quote tab, then click Request SO when it is in.' : 'SO opened and added to the sheet. Fill in the rest of the details as they arrive, then print it and upload the scan.'); return; }
     if (r.code === 'UNAUTHENTICATED') { banner('new-banner', 'err', r.error + ' Your form is still here — sign in again, then click Open SO.'); const h = el('span'); $('new-banner').append(' ', h); renderSignIn(h, (t) => { state.token = t; store('tok', t); banner('new-banner', 'ok', 'Signed in again. Click Open SO to continue.'); }); return; }
     if (r.code === 'INVALID') { banner('new-banner', 'err', r.error); showFieldErrors('nf-', r.fieldErrors); return; }
     banner('new-banner', 'err', (r.error || 'Could not open the SO.') + ' Nothing was created; your answers are still in the form.');
@@ -492,11 +490,13 @@
   const has = (rec, k) => { const v = dv(rec, k); return v !== '' && v !== '-'; };
   const dateOf = (rec, k) => { const t = norm(rec.values[k]); return isIso(t) ? parseDate(t) : parseDate(rec.display[k]); };
   const yes = (v) => /^(y|yes|true)/i.test(norm(v).trim());
+  const isCheck = (rec) => /ANALYSIS|ANR/.test(dv(rec, 'status').toUpperCase());
   function workflow(rec) {
     const quoteSkipped = dv(rec, 'req_mat_quote').toUpperCase() === 'NO';
     const lookupBad = rec.lookupChecks && Object.values(rec.lookupChecks).some((c) => c.state === 'issue');
     const closed = /CLOSE/.test(dv(rec, 'status')) || has(rec, 'so_close_date');
     const S = [];
+    S.push({ label: 'Check', raw: isCheck(rec) ? 'todo' : 'done', date: null });
     S.push({ label: 'Order', raw: has(rec, 'so_no') && has(rec, 'due_date') ? 'done' : 'todo', date: dateOf(rec, 'so_req_date') });
     S.push({ label: 'Material', raw: lookupBad ? 'issue' : (rec.lookupChecks ? 'done' : (has(rec, 'steel_type') ? 'done' : 'todo')), date: null });
     S.push({ label: quoteSkipped ? 'Quote (n/a)' : 'Quote', raw: quoteSkipped ? 'skip' : (has(rec, 'quote_receive_date') || /^(y|stock)/i.test(dv(rec, 'quote_received')) ? 'done' : (has(rec, 'mat_quote_request_date') ? 'part' : 'todo')), date: dateOf(rec, 'quote_receive_date') || dateOf(rec, 'mat_quote_request_date') });
@@ -522,6 +522,7 @@
   function nextActions(rec) {
     const out = []; const closed = /CLOSE/.test(dv(rec, 'status'));
     const add = (kind, title, text) => out.push({ kind, title, text });
+    if (isCheck(rec)) add('info', 'This is a part check, not yet an SO', 'Review the material below and get the quote. When it is in, click Request SO to enter the SO#, due date and type.');
     if (!closed) {
       const n = daysUntil(dateOf(rec, 'due_date'));
       if (n !== null && n < 0) add('bad', 'SO is ' + Math.abs(n) + ' day' + (Math.abs(n) === 1 ? '' : 's') + ' overdue', 'Due ' + shortDate(dateOf(rec, 'due_date')) + '. Check the material and release status below.');
@@ -588,6 +589,53 @@
     return el('div', { class: 'fcard ready ' + (closed || released ? 'done' : bad ? 'bad' : warn ? 'warn' : 'ok') }, el('h3', { text: 'Release readiness' }), el('div', { class: 'readyhead', text: head }),
       el('ul', { class: 'readylist' }, items.map((i) => el('li', { class: 'r-' + i.st }, el('span', { class: 'ri', text: icon[i.st] }), el('div', {}, el('b', { text: i.label }), el('small', { text: i.detail }))))));
   }
+  // Purchasing check for a part that is not an SO yet: what is needed, is it in stock, is the quote in, then request the SO.
+  function checkCard(rec) {
+    const items = [], add = (label, st, detail) => items.push({ label, st, detail });
+    const n0 = (n) => Number(n).toLocaleString(undefined, { maximumFractionDigits: 1 });
+    const matOk = has(rec, 'steel_type') && has(rec, 'router_bar_size') && has(rec, 'qty_per_bar');
+    add('Part & material data', matOk ? 'ok' : 'bad', matOk ? [dv(rec, 'steel_type'), dv(rec, 'router_bar_size'), dv(rec, 'qty_per_bar') + ' per bar'].join(' · ') : 'Not found in STEEL USAGE for this part number');
+    const qty = norm(rec.values.so_qty).trim(), bars = numOf(rec, 'req_bar'), ftReq = numOf(rec, 'req_ft'), lbs = numOf(rec, 'req_lbs'), avail = numOf(rec, 'avail_ft');
+    add('Possible quantity', qty ? 'ok' : 'bad', qty ? qty + ' pcs' + (bars !== null ? ' needs ' + Math.ceil(bars) + ' bar' + (Math.ceil(bars) === 1 ? '' : 's') + (ftReq !== null ? ' · ' + n0(ftReq) + ' ft' : '') + (lbs ? ' · ' + n0(lbs) + ' lbs' : '') : '') : 'Enter the possible SO quantity');
+    const inStock = ftReq !== null && ftReq > 0 && avail !== null && avail >= ftReq;
+    if (ftReq === null) add('Stock on hand', 'na', 'Required length unknown');
+    else add('Stock on hand', inStock ? 'ok' : avail === null ? 'warn' : 'bad', inStock ? n0(avail) + ' ft in stock for ' + n0(ftReq) + ' ft needed: no purchase needed' : (avail === null ? 'No stock figure' : 'Short by ' + n0(ftReq - avail) + ' ft') + ' (need ' + n0(ftReq) + ' ft): material has to be bought');
+    const quoteNo = dv(rec, 'req_mat_quote').toUpperCase() === 'NO', got = has(rec, 'quote_receive_date') || /^(y|stock)/i.test(dv(rec, 'quote_received'));
+    if (inStock || quoteNo) add('Material quote', 'na', inStock ? 'Not needed, stock covers it' : 'Marked as not required');
+    else if (got) add('Material quote', 'ok', 'Received' + (has(rec, 'quote_receive_date') ? ' ' + shortDate(dateOf(rec, 'quote_receive_date')) : ''));
+    else if (has(rec, 'mat_quote_request_date')) { const d = dateOf(rec, 'mat_quote_request_date'), age = d ? -daysUntil(d) : null; add('Material quote', 'warn', 'Requested ' + (d ? shortDate(d) : '') + (age ? ' (' + age + ' day' + (age === 1 ? '' : 's') + ' ago)' : '') + ', waiting for the reply'); }
+    else add('Material quote', 'bad', 'Not requested yet: use Send Email on the Material & quote tab');
+    if (got && !inStock && has(rec, 'quote_price_piece') && dv(rec, 'quote_price_piece') !== '$ 0.00') {
+      const d = parseMoney(rec.display.diff), tr = has(rec, 'traveller_mat_price_piece');
+      add('Quote price per piece', !tr || d === null ? 'warn' : Math.abs(d) < 0.005 ? 'ok' : 'warn', dv(rec, 'quote_price_piece') + (tr ? ' vs traveller ' + dv(rec, 'traveller_mat_price_piece') + (d !== null ? ' (diff ' + dv(rec, 'diff') + ')' : '') : ' · traveller price not entered'));
+    }
+    const ready = matOk && !!qty && (inStock || quoteNo || got), open = items.filter((i) => i.st === 'bad' || i.st === 'warn').length, icon = { ok: '✓', warn: '!', bad: '✕', na: '–' };
+    const ask = el('button', { class: 'btn ' + (ready ? 'btn-primary' : ''), type: 'button', text: 'Request SO ›', onclick: () => requestSO(rec, ready) });
+    return el('div', { class: 'fcard ready ' + (ready ? 'ok' : 'warn') }, el('h3', { text: 'Part check' }), el('div', { class: 'readyhead', text: ready ? 'Ready to request the SO' : 'Not ready: ' + open + ' to resolve' }),
+      el('ul', { class: 'readylist' }, items.map((i) => el('li', { class: 'r-' + i.st }, el('span', { class: 'ri', text: icon[i.st] }), el('div', {}, el('b', { text: i.label }), el('small', { text: i.detail }))))),
+      canEdit() ? el('div', { class: 'checkact' }, ask, el('button', { class: 'btn', type: 'button', text: 'Material & quote', onclick: () => selectTab(1) })) : '');
+  }
+  async function requestSO(rec, ready) {
+    if (!(await leaveGuard())) return;
+    if (!ready && !(await confirmDialog('Request the SO anyway?', el('p', { text: 'The part check is not complete yet (material data, quantity or quote). You can still request the SO now.' }), 'Request SO'))) return;
+    const opt = (k) => [['', '— choose —']].concat(state.byKey[k].options.map((o) => [o, o]));
+    const people = [['', '— choose a person —']].concat((state.intake.people || []).map((p) => [p, p])), me = (state.intake.people || []).find((p) => p.toLowerCase() === niceName(state.email).toLowerCase()) || '';
+    const f = { so_no: scInput('text', norm(rec.values.so_no)), so_req_date: dateIn(today()), due_date: dateIn(''), so_type: scSelect(opt('so_type'), ''), kanban_or_po: scSelect(opt('kanban_or_po'), ''), champion: scSelect(people, me), req_by: scSelect(people, me) };
+    const body = el('div', { class: 'scform' }, el('p', { class: 'muted', text: 'Part ' + norm(rec.values.part_no) + ' · ' + norm(rec.values.customer) + ' · ' + norm(rec.values.so_qty) + ' pcs. The status changes to 3.OPEN.' }),
+      scField('SO#', f.so_no, 'so_no'), scField('SO request date', f.so_req_date, 'so_req_date'), scField('Due date', f.due_date, 'due_date', true), scField('SO type', f.so_type, 'so_type', true),
+      scField('Kanban or PO?', f.kanban_or_po, 'kanban_or_po', true), scField('Champion', f.champion, 'champion', true), scField('Req. by', f.req_by, 'req_by', true));
+    const need = ['due_date', 'so_type', 'kanban_or_po', 'champion', 'req_by'];
+    const collect = () => { const ch = { status: '3.OPEN' }; Object.entries(f).forEach(([k, i]) => { if (i.value.trim() !== '') ch[k] = i.value.trim(); }); return { id: rec.id, baseVersion: rec.version, changes: ch }; };
+    for (;;) {
+      if (!(await confirmDialog('Request the SO', body, 'Request SO'))) return;
+      const c = collect(), miss = {}; need.forEach((k) => { if (!c.changes[k]) miss[k] = state.byKey[k].label + ' is required.'; });
+      if (Object.keys(miss).length) { scShowErrors(body, miss); toast('Please fill in the required fields.', true); continue; }
+      const r = await api('update', c);
+      if (r.ok) { state.current = r.record; state.dirty = false; renderDetail(); updateDirty(); banner('detail-banner', 'ok', 'SO requested: status is now 3.OPEN. Continue with approvals, PO and release.'); toast('SO requested.'); return; }
+      if (r.fieldErrors) { scShowErrors(body, r.fieldErrors); toast(r.error || 'Please fix the highlighted fields.', true); continue; }
+      toast(r.error || 'Could not request the SO.', true); return;
+    }
+  }
   function coverageNode(rec) {
     const req = numOf(rec, 'req_ft'), avail = numOf(rec, 'avail_ft');
     if (req === null || req <= 0 || avail === null) return '';
@@ -600,7 +648,7 @@
     const diffTone = (k) => { const n = parseMoney(rec.display[k]); return n === null ? 'none' : Math.abs(n) < 0.005 ? 'ok' : Math.abs(n) < 5 ? 'warn' : 'bad'; };
     const dateRow = (label, k, watch) => { const d = dateOf(rec, k); const n = daysUntil(d); return row(label, d ? shortDate(d) + (watch && n !== null ? (n < 0 ? ' · ' + Math.abs(n) + ' d late' : n === 0 ? ' · today' : ' · in ' + n + ' d') : '') : '', watch && n !== null && n < 0 ? 'bad' : d ? '' : 'none'); };
     $('facts').replaceChildren(
-      readinessCard(rec),
+      isCheck(rec) ? checkCard(rec) : readinessCard(rec),
       el('div', { class: 'fcard' }, el('h3', { text: 'Material needed' }),
         row('Steel type', dv(rec, 'steel_type'), null, lookupBadge(rec, 'steel_type')), row('Bar type', dv(rec, 'bar_type')),
         row('Router bar size', dv(rec, 'router_bar_size'), null, lookupBadge(rec, 'router_bar_size')), row('Qty / bar', dv(rec, 'qty_per_bar'), null, lookupBadge(rec, 'qty_per_bar')),
@@ -624,7 +672,7 @@
   function canEdit() { return state.role !== 'viewer' && state.current && state.current.id; }
   function renderDetail() {
     const rec = state.current;
-    $('detail-title').textContent = 'SO# ' + (norm(rec.values.so_no) || '(none)');
+    $('detail-title').textContent = isCheck(rec) && !norm(rec.values.so_no) ? 'Part check' : 'SO# ' + (norm(rec.values.so_no) || '(none)');
     $('detail-sub').replaceChildren('Part ' + (norm(rec.values.part_no) || '(none)'), priceBadge(rec), ' · ' + (norm(rec.values.customer) || 'no customer') + (norm(rec.values.so_qty) ? ' · ' + norm(rec.values.so_qty) + ' pcs' : ''));
     const closed = /CLOSE/.test(dv(rec, 'status'));
     $('detail-meta').replaceChildren(statusPill(dv(rec, 'status')), dueNode(dateOf(rec, 'due_date'), closed), barNode(norm(rec.display.so_release_status_bar)), barNode(norm(rec.display.mat_status_bar)));

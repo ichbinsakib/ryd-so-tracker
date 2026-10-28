@@ -340,6 +340,7 @@ var SOService = (function () {
     function txt(k) { return String(v[K[k].index] === undefined || v[K[k].index] === null ? '' : v[K[k].index]).trim(); }
     var quoteSkipped = txt('req_mat_quote').toUpperCase() === 'NO';
     if (/CLOSE/.test(txt('status')) || has('so_close_date')) return 'Closed';
+    if (/ANALYSIS|ANR/.test(txt('status').toUpperCase())) return 'Check';   // part check: waiting for the material quote before the SO is requested
     if (!(has('so_no') && has('due_date'))) return 'Order';
     if (!has('steel_type')) return 'Material';
     if (!quoteSkipped && !(has('quote_receive_date') || /^(y|stock)/i.test(txt('quote_received')))) return 'Quote';

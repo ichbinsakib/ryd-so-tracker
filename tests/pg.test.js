@@ -194,3 +194,8 @@ test('dashboard rows carry the stage and the material numbers', () => {
   assert.equal(by('103').stage, 'Material'); assert.equal(by('103').reqBar, null);
   assert.equal(by('100').matReceived, false);
 });
+
+test('dashboard stage is Check while the SO is still a part check', () => {
+  const p2 = make({ rows: [{ rowNumber: 1, id: 'id-9', data: { status: '1. ANALYSIS', part_no: 'P1', customer: 'ACME', so_qty: 10 } }] });
+  assert.equal(call(p2, { action: 'dashboard' }).rows[0].stage, 'Check');
+});
