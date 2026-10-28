@@ -154,7 +154,7 @@ test('mySOs: any role gets the dashboard rows of the snapshot (already scoped to
   assert.equal(r.mine, true);
   assert.equal(r.role, 'editor');
   assert.deepEqual(r.rows.map((x) => x.so_no), ['100']);
-  assert.equal(r.stock, undefined);
+  assert.equal(r.stock.has, true);
   const form = { part_no: 'P9', customer: 'ACME', champion: 'Bob', so_qty: '5', due_date: '2026-12-01', so_type: 'standard', kanban_or_po: 'po', req_by: 'Bob', so_req_date: '2026-10-16' };
   const c = call(bob, { action: 'createSO', changes: form });
   assert.equal(c.ok, true);

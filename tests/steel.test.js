@@ -38,10 +38,10 @@ test('validateSteelUpload cleans rows and counts skipped', () => {
   assert.equal(Core.validateSteelUpload([]).ok, false);
 });
 
-test('only admins can replace STEEL USAGE; nothing changes otherwise', () => {
+test('viewers and strangers cannot replace STEEL USAGE; nothing changes', () => {
   const s = new FakeSheet();
   const body = { action: 'uploadSteelUsage', fileName: 's.csv', rows: [{ part: 'A', steel: 'S', qty: 1, router: "12'" }] };
-  for (const t of ['tok-editor', 'tok-viewer', 'tok-stranger']) assert.equal(call(s, t, body).code, 'FORBIDDEN');
+  for (const t of ['tok-viewer', 'tok-stranger']) assert.equal(call(s, t, body).code, 'FORBIDDEN');
   assert.equal(s.steel, undefined);
   assert.equal(s.auditLog.length, 0);
 });

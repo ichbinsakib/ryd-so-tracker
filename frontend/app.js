@@ -194,7 +194,7 @@
     const admin = isAdmin();
     $('dash-title').textContent = admin ? 'Inhouse' : 'My SOs';
     $('dash-sub').textContent = admin ? 'Progress of every sales order that is not closed.' : 'Sales orders you opened or are responsible for, with their progress.';
-    $('fresh-cards').hidden = !admin; $('admin-users').hidden = !admin; $('admin-new').hidden = state.role === 'viewer';
+    $('fresh-cards').hidden = state.role === 'viewer'; $('admin-users').hidden = !admin; $('admin-new').hidden = state.role === 'viewer';
     if (!admin && !state.sortSet) { state.sort = 'due'; $('sort').value = 'due'; state.sortSet = true; }
   }
   function goHome() {
@@ -294,7 +294,7 @@
   function applyDashboard(r) {
     state.dash = r;
     $('refreshed').textContent = 'Updated ' + new Date(r.refreshedAt).toLocaleTimeString();
-    renderKpis(r.rows); renderPipeline(r.rows); renderMatReq(r.rows); if (isAdmin()) renderCards(r); buildChips(); applyView();
+    renderKpis(r.rows); renderPipeline(r.rows); renderMatReq(r.rows); if (r.stock) renderCards(r); buildChips(); applyView();
   }
   const rowClosed = (r) => /CLOSE/.test(norm(r.status));
   const rowDue = (r) => parseDate(r.due);
@@ -820,7 +820,7 @@
     window.print();
   }
 
-  // ---------- admin: uploads (stockroom prices, STEEL USAGE data)
+  // ---------- uploads (editors and admins) (stockroom prices, STEEL USAGE data)
   const SHEETJS = { src: 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js', integrity: 'sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw' };
   const UP_MODES = {
     stock: {

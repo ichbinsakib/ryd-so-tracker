@@ -43,10 +43,9 @@ test('roles: admin outranks editor and can edit', () => {
   assert.equal(Core.roleFor('e@x.com', 'e@x.com', '', 'a@x.com'), 'editor');
 });
 
-test('only admins can upload; editors and viewers are refused and nothing is stored', () => {
+test('viewers and strangers cannot upload; nothing is stored', () => {
   const s = new FakeSheet();
   const body = { action: 'uploadStock', rows: [{ part: '838-004-428', price: 11.79 }], fileName: 'stock.csv' };
-  assert.equal(call(s, 'tok-editor', body).code, 'FORBIDDEN');
   assert.equal(call(s, 'tok-viewer', body).code, 'FORBIDDEN');
   assert.equal(call(s, 'tok-stranger', body).code, 'FORBIDDEN');
   assert.equal(s.stock.length, 0);

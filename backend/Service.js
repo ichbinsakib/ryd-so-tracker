@@ -107,7 +107,8 @@ var SOService = (function () {
           // The SOs this person opened or is responsible for. Only adapters that load just those rows may serve it.
           if (!adapter.scopedToUser) return fail('NOT_SUPPORTED', 'This backend cannot list a user own SOs.');
           var mine = buildDashboard(adapter, auth.email, req);
-          mine.role = role; mine.mine = true; delete mine.stock; delete mine.steel;
+          mine.role = role; mine.mine = true;
+          if (role === 'viewer') { delete mine.stock; delete mine.steel; }
           return mine;
         }
 
@@ -143,15 +144,15 @@ var SOService = (function () {
           return deleteSO(adapter, auth.email, req);
 
         case 'uploadStock':
-          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can upload the stockroom sheet.');
+          if (role === 'viewer') return fail('FORBIDDEN', 'You have read-only access.');
           return uploadStock(adapter, auth.email, req);
 
         case 'uploadStockItems':
-          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can upload the STOCK list.');
+          if (role === 'viewer') return fail('FORBIDDEN', 'You have read-only access.');
           return uploadStockItems(adapter, auth.email, req);
 
         case 'uploadSteelUsage':
-          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can upload STEEL USAGE data.');
+          if (role === 'viewer') return fail('FORBIDDEN', 'You have read-only access.');
           return uploadSteelUsage(adapter, auth.email, req);
 
         default:
