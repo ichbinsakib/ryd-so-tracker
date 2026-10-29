@@ -1777,7 +1777,6 @@
       el('div', { class: 'calcform' }, scField('PO submitted to vendor', po, 'x1'), scField('Needed at CAMCO by (optional)', need, 'x2')), out);
   }
   $('sc-new').onclick = () => { if (!scCanWrite()) { toast('Your access (' + (state.role || 'unknown') + ') is read-only here.', true); return; } scEditLine(null); };
-  $('sc-back').onclick = () => goHome();
   $('sc-q').addEventListener('input', () => { clearTimeout(applyScView.t); applyScView.t = setTimeout(applyScView, 150); });
   $('sc-closed').addEventListener('change', (e) => { SC.showClosed = e.target.checked; renderScChips(); applyScView(); });
   $('sc-csv').onclick = () => scExportCsv(SC.view);
