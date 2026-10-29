@@ -613,6 +613,7 @@
     const ask = el('button', { class: 'btn ' + (ready ? 'btn-primary' : ''), type: 'button', text: 'Request SO ›', onclick: () => requestSO(rec, ready) });
     return el('div', { class: 'fcard ready ' + (ready ? 'ok' : 'warn') }, el('h3', { text: 'Part check' }), el('div', { class: 'readyhead', text: ready ? 'Ready to request the SO' : 'Not ready: ' + open + ' to resolve' }),
       el('ul', { class: 'readylist' }, items.map((i) => el('li', { class: 'r-' + i.st }, el('span', { class: 'ri', text: icon[i.st] }), el('div', {}, el('b', { text: i.label }), el('small', { text: i.detail }))))),
+      canEdit() ? el('p', { class: 'muted small', text: 'This part is still a check (1. ANALYSIS). Request SO opens it as a real SO (3.OPEN) once you have the SO# and due date.' }) : '',
       canEdit() ? el('div', { class: 'checkact' }, ask, el('button', { class: 'btn', type: 'button', text: 'Material & quote', onclick: () => selectTab(1) })) : '');
   }
   async function requestSO(rec, ready) {
@@ -620,8 +621,9 @@
     if (!ready && !(await confirmDialog('Request the SO anyway?', el('p', { text: 'The part check is not complete yet (material data, quantity or quote). You can still request the SO now.' }), 'Request SO'))) return;
     const opt = (k) => [['', '— choose —']].concat(state.byKey[k].options.map((o) => [o, o]));
     const people = [['', '— choose a person —']].concat((state.intake.people || []).map((p) => [p, p])), me = (state.intake.people || []).find((p) => p.toLowerCase() === niceName(state.email).toLowerCase()) || '';
-    const f = { so_no: scInput('text', norm(rec.values.so_no)), so_req_date: dateIn(today()), due_date: dateIn(''), so_type: scSelect(opt('so_type'), ''), kanban_or_po: scSelect(opt('kanban_or_po'), ''), champion: scSelect(people, me), req_by: scSelect(people, me) };
-    const body = el('div', { class: 'scform' }, el('p', { class: 'muted', text: 'Part ' + norm(rec.values.part_no) + ' · ' + norm(rec.values.customer) + ' · ' + norm(rec.values.so_qty) + ' pcs. The status changes to 3.OPEN.' }),
+    const cur = (k) => norm(rec.values[k]).trim(), iso = (k) => (isIso(cur(k)) ? cur(k) : ''), pick = (k) => (people.find(([p]) => p.toLowerCase() === cur(k).toLowerCase()) || [''])[0];
+    const f = { so_no: scInput('text', cur('so_no')), so_req_date: dateIn(iso('so_req_date') || today()), due_date: dateIn(iso('due_date')), so_type: scSelect(opt('so_type'), cur('so_type')), kanban_or_po: scSelect(opt('kanban_or_po'), cur('kanban_or_po')), champion: scSelect(people, pick('champion') || me), req_by: scSelect(people, pick('req_by') || me) };
+    const body = el('div', { class: 'scform' }, el('p', { class: 'muted', text: 'Part ' + norm(rec.values.part_no) + ' · ' + norm(rec.values.customer) + ' · ' + norm(rec.values.so_qty) + ' pcs. Check the details below (filled from this record), then click Request SO: the status changes from 1. ANALYSIS to 3.OPEN and it becomes a real SO.' }),
       scField('SO#', f.so_no, 'so_no'), scField('SO request date', f.so_req_date, 'so_req_date'), scField('Due date', f.due_date, 'due_date', true), scField('SO type', f.so_type, 'so_type', true),
       scField('Kanban or PO?', f.kanban_or_po, 'kanban_or_po', true), scField('Champion', f.champion, 'champion', true), scField('Req. by', f.req_by, 'req_by', true));
     const need = ['due_date', 'so_type', 'kanban_or_po', 'champion', 'req_by'];
