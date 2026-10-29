@@ -176,7 +176,7 @@
   // ---------- start / home
   async function start() {
     show('view-loading');
-    const r = await api('start');
+    const r = await api('start', { today: today(), includeClosed: true });
     if (!r.ok) {
       if (r.code === 'UNAUTHENTICATED') return showLogin(r.error);
       if (r.code === 'FORBIDDEN') { signOut(); return showLogin(r.error); }
@@ -188,10 +188,14 @@
     $('userchip').hidden = false; $('btn-signout').hidden = false; $('btn-pw').hidden = CFG.DEV_MODE;
     state.dirty = false; state.current = null; updateSaveBar();
     // admins get the inhouse list in the same round trip
-    if (r.dashboard) { setDashMode(); applyDashboard(r.dashboard); }
+    if (r.dashboard) { setDashMode(); state.dashAll = r.dashboard; state.dashAt = Date.now(); applyDashboard(withoutClosed(r.dashboard)); }
     openDash();
   }
   const isAdmin = () => state.role === 'admin';
+  // the dashboard data is fetched once and reused for a minute; any save, upload or delete makes it stale
+  const FRESH_MS = 60000, isFresh = (at) => !!at && Date.now() - at < FRESH_MS;
+  const staleDash = () => { state.dashAll = null; state.dashAt = 0; state.dashListAt = 0; };
+  const withoutClosed = (r) => Object.assign({}, r, { rows: r.rows.filter((x) => !/CLOSE/.test(norm(x.status))) });
   function setDashMode() {
     const admin = isAdmin();
     $('dash-title').textContent = admin ? 'Inhouse' : 'My SOs';
@@ -241,12 +245,13 @@
   async function loadDash(fresh) {
     const st = $('dash2-status'); st.className = 'statusline'; st.textContent = 'Loading…';
     $('btn-refresh').disabled = true;
-    const [inh, sc] = await Promise.all([api(isAdmin() ? 'dashboard' : 'mySOs', { includeClosed: true, fresh: !!fresh, today: today() }), api('scList', { today: today() })]);
+    const reuse = !fresh && state.dashAll && isFresh(state.dashAt);
+    const [inh, sc] = await Promise.all([reuse ? Promise.resolve(state.dashAll) : api(isAdmin() ? 'dashboard' : 'mySOs', { includeClosed: true, fresh: !!fresh, today: today() }), api('scList', { today: today() })]);
     $('btn-refresh').disabled = false;
     const bad = [inh, sc].find((x) => !x.ok);
     if (bad && bad.code === 'UNAUTHENTICATED') return showLogin(bad.error);
     if (sc.ok) SC.data = sc;
-    state.dashAll = inh.ok ? inh : null;
+    state.dashAll = inh.ok ? inh : null; if (inh.ok && !reuse) state.dashAt = Date.now();
     st.className = 'statusline' + (bad ? ' err' : ''); st.textContent = bad ? bad.error + ' (some data unavailable)' : '';
     renderDash(state.dashAll, sc.ok ? sc : null);
   }
@@ -302,6 +307,7 @@
   // ---------- inhouse list
   async function loadDashboard(fresh) {
     setDashMode(); show('view-admin'); $('btn-refresh').hidden = false;
+    if (!fresh && state.dash && isFresh(state.dashListAt) && state.dashClosed === $('incl-closed').checked) { applyDashboard(state.dash); return; }
     $('grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: 'Loading…' })));
     const ls = $('list-status'); ls.className = 'statusline'; ls.textContent = '';
     $('btn-refresh').disabled = true;
@@ -311,6 +317,7 @@
       if (r.code === 'UNAUTHENTICATED') return showLogin(r.error);
       ls.className = 'statusline err'; ls.textContent = r.error + ' (data unavailable)'; return;
     }
+    state.dashListAt = Date.now(); state.dashClosed = $('incl-closed').checked;
     applyDashboard(r);
   }
   function applyDashboard(r) {
@@ -440,7 +447,7 @@
       if (r.code === 'UNAUTHENTICATED') return showLogin(r.error);
       toast(r.error || 'Could not delete the SO.', true); return;
     }
-    toast('SO deleted.'); state.dirty = false; state.current = null; updateSaveBar();
+    staleDash(); toast('SO deleted.'); state.dirty = false; state.current = null; updateSaveBar();
     if (state.role === 'admin') loadDashboard(true); else goHome();
   }
   async function openById(id) {
@@ -448,7 +455,7 @@
     if (!r.ok) { toast(r.error || 'Could not open the SO.', true); return; }
     openRecord(r.record);
   }
-  const loadList = () => loadDashboard();
+  const loadList = () => { staleDash(); return loadDashboard(true); };
   function exportCsv() {
     const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
     const head = ['SO#', 'Part', 'Customer', 'Qty', 'Status', 'Stage', 'Steel', 'Bar', 'Bar size', 'Bars', 'Feet', 'Lbs', 'Due date', 'SO release %', 'Material %'];
@@ -503,7 +510,7 @@
     creating = true; $('new-submit').disabled = true; $('new-submit').textContent = 'Opening…'; banner('new-banner', '', '');
     const r = await api('createSO', { changes: ch });
     creating = false; $('new-submit').disabled = false; $('new-submit').textContent = 'Open SO';
-    if (r.ok) { const chk = isCheck(r.record); toast(chk ? 'Part check opened.' : (norm(r.record.values.so_no) ? 'SO ' + norm(r.record.values.so_no) : 'SO') + ' opened.'); openRecord(r.record, 'ok', chk ? 'Part check opened. The material needed is on the left. Request the quote on the Material & quote tab, then click Request SO when it is in.' : 'SO opened and added to the sheet. Fill in the rest of the details as they arrive, then print it and upload the scan.'); return; }
+    if (r.ok) { staleDash(); const chk = isCheck(r.record); toast(chk ? 'Part check opened.' : (norm(r.record.values.so_no) ? 'SO ' + norm(r.record.values.so_no) : 'SO') + ' opened.'); openRecord(r.record, 'ok', chk ? 'Part check opened. The material needed is on the left. Request the quote on the Material & quote tab, then click Request SO when it is in.' : 'SO opened and added to the sheet. Fill in the rest of the details as they arrive, then print it and upload the scan.'); return; }
     if (r.code === 'UNAUTHENTICATED') { banner('new-banner', 'err', r.error + ' Your form is still here — sign in again, then click Open SO.'); const h = el('span'); $('new-banner').append(' ', h); renderSignIn(h, (t) => { state.token = t; store('tok', t); banner('new-banner', 'ok', 'Signed in again. Click Open SO to continue.'); }); return; }
     if (r.code === 'INVALID') { banner('new-banner', 'err', r.error); showFieldErrors('nf-', r.fieldErrors); return; }
     banner('new-banner', 'err', (r.error || 'Could not open the SO.') + ' Nothing was created; your answers are still in the form.');
@@ -550,7 +557,7 @@
     if (!(await leaveGuard())) return false;
     const r = await api('update', { id: rec.id, baseVersion: rec.version, changes });
     if (!r.ok) { toast(r.error || 'Could not save.', true); return false; }
-    state.current = r.record; state.dirty = false; renderDetail(); updateDirty(); if (okMsg) toast(okMsg); return true;
+    staleDash(); state.current = r.record; state.dirty = false; renderDetail(); updateDirty(); if (okMsg) toast(okMsg); return true;
   }
   async function addLog(rec, kind, text, ref) { return api('lgAdd', { id: rec.id, kind, text, ref: ref || '' }); }
   async function decideSO(rec, needed) {
@@ -727,7 +734,7 @@
       const c = collect(), miss = {}; need.forEach((k) => { if (!c.changes[k]) miss[k] = state.byKey[k].label + ' is required.'; });
       if (Object.keys(miss).length) { scShowErrors(body, miss); toast('Please fill in the required fields.', true); continue; }
       const r = await api('update', c);
-      if (r.ok) { state.current = r.record; state.dirty = false; renderDetail(); updateDirty(); banner('detail-banner', 'ok', 'SO requested: status is now 3.OPEN. Continue with approvals, PO and release.'); toast('SO requested.'); return; }
+      if (r.ok) { staleDash(); state.current = r.record; state.dirty = false; renderDetail(); updateDirty(); banner('detail-banner', 'ok', 'SO requested: status is now 3.OPEN. Continue with approvals, PO and release.'); toast('SO requested.'); return; }
       if (r.fieldErrors) { scShowErrors(body, r.fieldErrors); toast(r.error || 'Please fix the highlighted fields.', true); continue; }
       toast(r.error || 'Could not request the SO.', true); return;
     }
@@ -933,7 +940,7 @@
     const r = await api('update', { id: rec.id, baseVersion: rec.version, changes });
     state.saving = false;
     if (r.ok) {
-      state.current = r.record; const t = state.tab; renderDetail(); selectTab(t); updateDirty(); banner('detail-banner', 'ok', 'Saved ' + r.changed.length + ' field(s) to the sheet.'); toast('Saved to the sheet.'); return;
+      staleDash(); state.current = r.record; const t = state.tab; renderDetail(); selectTab(t); updateDirty(); banner('detail-banner', 'ok', 'Saved ' + r.changed.length + ' field(s) to the sheet.'); toast('Saved to the sheet.'); return;
     }
     updateDirty();
     if (r.code === 'INVALID') { banner('detail-banner', 'err', 'Some values are invalid. Nothing was saved.'); showFieldErrors('fld-', r.fieldErrors); }

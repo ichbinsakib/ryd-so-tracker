@@ -1254,7 +1254,7 @@ var SOService = (function () {
         case 'start': {
           // One round trip at sign-in: who am I + (for admins) the dashboard.
           var base = { ok: true, email: auth.email, role: role, fields: Core.publicFields(), intake: Core.intakeInfo(users) };
-          if (role === 'admin') base.dashboard = dashboard(adapter, auth.email, {});
+          if (role === 'admin') base.dashboard = dashboard(adapter, auth.email, { includeClosed: !!req.includeClosed, today: req.today });
           return base;
         }
 
@@ -1970,12 +1970,13 @@ async function allOrderRows() {
 const toRow = (r: any) => ({ rowNumber: Number(r.row_no), id: r.id, data: r.data || {} });
 
 async function chunkedIn(table: string, cols: string, keyCol: string, keys: string[]) {
-  const out: any[] = [];
-  for (let i = 0; i < keys.length; i += 40) {
-    const part = keys.slice(i, i + 40);
-    out.push(...(must(await sb.from(table).select(cols).in(keyCol, part)) as any[]));
+  // chunks run in parallel (one round trip of latency instead of one per chunk)
+  const jobs: Promise<any[]>[] = [];
+  for (let i = 0; i < keys.length; i += 100) {
+    const part = keys.slice(i, i + 100);
+    jobs.push(sb.from(table).select(cols).in(keyCol, part).then((r: any) => must(r) as any[]));
   }
-  return out;
+  return (await Promise.all(jobs)).flat();
 }
 async function metaValue(key: string) {
   const r = must(await sb.from('app_meta').select('value').eq('key', key).limit(1)) as any[];

@@ -68,7 +68,7 @@ var SOService = (function () {
         case 'start': {
           // One round trip at sign-in: who am I + (for admins) the dashboard.
           var base = { ok: true, email: auth.email, role: role, fields: Core.publicFields(), intake: Core.intakeInfo(users) };
-          if (role === 'admin') base.dashboard = dashboard(adapter, auth.email, {});
+          if (role === 'admin') base.dashboard = dashboard(adapter, auth.email, { includeClosed: !!req.includeClosed, today: req.today });
           return base;
         }
 
