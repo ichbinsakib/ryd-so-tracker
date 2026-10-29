@@ -763,6 +763,37 @@
     else r = '0';
     out.value = r;
   }
+  // QUOTE PRICE / PIECE and DIFF follow the quote total and traveller price while typing (same rules as the backend)
+  function liveQuote() {
+    const rec = state.current, qp = $('fld-quote_price_piece'), df = $('fld-diff'); if (!rec || !qp || !df) return;
+    const val = (k) => { const i = $('fld-' + k); return i ? i.value : norm(rec.values[k]); };
+    const n = (v) => { const t = String(v).replace(/[$,\s]/g, ''); return t === '' ? 0 : /^-?\d+(\.\d+)?$/.test(t) ? parseFloat(t) : NaN; };
+    const m = (x) => (x < 0 ? '-$ ' : '$ ') + Math.abs(x).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const total = n(val('total_price_quote')), q = n(val('so_qty')), tr = n(val('traveller_mat_price_piece'));
+    const ok = !isNaN(total) && !isNaN(q) && q !== 0, per = ok ? total / q : null;
+    qp.value = ok ? m(per) : '-'; df.value = !isNaN(tr) && per !== null ? m(tr - per) : '';
+  }
+  // GAP = days from SO REQ. DATE to APPR. DATE (blank until both are filled)
+  function liveGap() {
+    const gp = $('fld-gap'); if (!gp || !state.current) return;
+    const val = (k) => { const i = $('fld-' + k); return i ? i.value : norm(state.current.values[k]); };
+    const a = parseDate(val('appr_date')), b = parseDate(val('so_req_date'));
+    gp.value = a && b ? String(Math.round((a - b) / 86400000)) : '';
+  }
+  // PO / invoice differences follow the typed prices (same rules as the backend)
+  function livePrices() {
+    const rec = state.current; if (!rec) return;
+    const val = (k) => { const i = $('fld-' + k); return i ? i.value : norm(rec.values[k]); };
+    const n = (v) => { const t = String(v).replace(/[$,\s]/g, ''); return t === '' ? 0 : /^-?\d+(\.\d+)?$/.test(t) ? parseFloat(t) : NaN; };
+    const m = (x) => (x < 0 ? '-$ ' : '$ ') + Math.abs(x).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const put = (k, v) => { const i = $('fld-' + k); if (i) i.value = v; };
+    const po = n(val('price_on_po')), quote = n(val('total_price_quote')), inv = n(val('price_on_invoice')), upd = n(val('updated_po_price'));
+    put('quote_vs_po_price', isNaN(po) || isNaN(quote) ? '-' : m(po - quote));
+    put('diff_po_invoice', isNaN(inv) || isNaN(po) ? '#VALUE!' : m(inv - po));
+    put('diff_updated_po_invoice', isNaN(upd) || isNaN(inv) ? '#VALUE!' : m(upd - inv));
+    const rt = norm(rec.display.router_bar_size), ap = rt.indexOf("'"), ft = ap > 0 ? parseFloat(rt.slice(0, ap)) : NaN, bar = n(val('po_mention_bar_size'));
+    put('router_vs_po', isNaN(ft) || isNaN(bar) ? '-' : String(Math.round((bar - ft) * 10000) / 10000));
+  }
   // mailto link asking for a material quote, filled from the form as it is now
   function quoteMailto() {
     const rec = state.current; if (!rec) return 'mailto:';
@@ -778,6 +809,9 @@
   }
   function onEdit(e) {
     if (e.target.dataset.key === 'bar_type' || e.target.dataset.key === 'material_code') liveLbs();
+    if (['total_price_quote', 'traveller_mat_price_piece', 'so_qty'].includes(e.target.dataset.key)) liveQuote();
+    if (['appr_date', 'so_req_date'].includes(e.target.dataset.key)) liveGap();
+    if (['price_on_po', 'total_price_quote', 'price_on_invoice', 'updated_po_price', 'po_mention_bar_size'].includes(e.target.dataset.key)) livePrices();
     const wrap = e.target.closest('.field');
     wrap.classList.toggle('changed', e.target.value !== e.target.dataset.orig && !(e.target.dataset.legacy && e.target.value === ''));
     wrap.classList.remove('invalid'); wrap.querySelector('.ferr')?.remove();
