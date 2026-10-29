@@ -614,16 +614,16 @@
     if (canEdit() && !done) {
       if (lc.status === 'Awaiting Decision') acts.push(el('button', { class: 'btn btn-primary', type: 'button', text: 'SO needed', onclick: () => decideSO(rec, true) }), el('button', { class: 'btn', type: 'button', text: 'Not required', onclick: () => decideSO(rec, false) }));
       if (isCheck(rec) && lc.stage >= 3) acts.push(el('button', { class: 'btn' + (lc.stage === 5 ? ' btn-primary' : ''), type: 'button', text: 'Request SO ›', onclick: () => requestSO(rec, lc.stage >= 5) }));
-      acts.push(el('button', { class: 'btn', type: 'button', text: 'Log a follow-up', onclick: () => { $('logbox').scrollIntoView({ block: 'center' }); const t = $('log-text'); if (t) t.focus(); } }),
-        el('button', { class: 'btn', type: 'button', text: 'Edit this stage', title: 'Open the tab for the current stage', onclick: () => { selectTab(tabForStage(lc.stage)); $('detail-form').scrollIntoView({ block: 'start' }); } }));
+      acts.push(el('button', { class: 'btn btn-sm', type: 'button', text: 'Log a follow-up', onclick: () => { $('logbox').scrollIntoView({ block: 'center' }); const t = $('log-text'); if (t) t.focus(); } }));
     }
     const pill = (t, cls) => el('span', { class: 'badge ' + cls, text: t });
+    const chip = (label, text) => (text ? el('span', { class: 'nchip' }, el('small', { text: label + ' ' }), el('b', { text: text })) : '');
     card.replaceChildren(
-      el('div', { class: 'nexthead' }, el('small', { text: done ? 'STATUS' : 'NEXT ACTION' }), el('h2', { text: lc.next || (done ? lc.status : 'Nothing to do right now') })),
-      el('div', { class: 'nextgrid' }, item('Status', lc.status), item(lc.owner === 'me' ? 'Who' : 'Waiting on', who), item('Do by', lc.actionDate ? shortDate(parseDate(lc.actionDate)) : ''),
-        item('Next follow-up', lc.followup ? shortDate(parseDate(lc.followup)) + (lc.followupDue ? ' (due)' : '') : ''), item('Material', lc.matStatus ? pill(lc.matStatus, lc.matStatus === 'Late' ? 'sc-bad' : lc.matStatus === 'At Risk' ? 'sc-warn' : lc.matStatus === 'Unknown' ? 'sc-muted' : 'sc-ok') : ''),
-        item('Initial workflow', lc.initial), item('Final lifecycle', lc.final)),
-      lc.reasons.length ? el('div', { class: 'nextwhy' }, lc.reasons.map((x) => el('span', { class: 'badge ' + (x.level === 'crit' ? 'sc-bad' : x.level === 'warn' ? 'sc-warn' : 'sc-muted'), text: x.text }))) : '',
+      el('div', { class: 'nextline' },
+        el('small', { class: 'nextlabel', text: done ? 'STATUS' : 'NEXT' }), el('b', { class: 'nexttxt', text: lc.next || (done ? lc.status : 'Nothing to do right now') }),
+        chip(lc.owner === 'me' ? 'Who' : 'Waiting on', who), chip('by', lc.actionDate ? shortDate(parseDate(lc.actionDate)) : ''), chip('follow-up', lc.followup ? shortDate(parseDate(lc.followup)) + (lc.followupDue ? ' (due)' : '') : ''),
+        lc.matStatus ? pill('Material: ' + lc.matStatus, lc.matStatus === 'Late' ? 'sc-bad' : lc.matStatus === 'At Risk' ? 'sc-warn' : lc.matStatus === 'Unknown' ? 'sc-muted' : 'sc-ok') : '',
+        ...lc.reasons.map((x) => el('span', { class: 'badge ' + (x.level === 'crit' ? 'sc-bad' : x.level === 'warn' ? 'sc-warn' : 'sc-muted'), text: x.text }))),
       acts.length ? el('div', { class: 'checkact' }, acts) : '');
   }
   // ---------- follow-up log
@@ -658,11 +658,6 @@
   function nextActions(rec) {
     const out = []; const closed = /CLOSE/.test(dv(rec, 'status'));
     const add = (kind, title, text) => out.push({ kind, title, text });
-    if (!closed) {
-      const n = daysUntil(dateOf(rec, 'due_date'));
-      if (n !== null && n < 0) add('bad', 'SO is ' + Math.abs(n) + ' day' + (Math.abs(n) === 1 ? '' : 's') + ' overdue', 'Due ' + shortDate(dateOf(rec, 'due_date')) + '. Check the material and release status below.');
-      else if (n !== null && n <= 7) add('warn', 'Due ' + (n === 0 ? 'today' : 'in ' + n + ' day' + (n === 1 ? '' : 's')), 'Due date is ' + shortDate(dateOf(rec, 'due_date')) + '.');
-    }
     if (rec.lookupChecks) {
       const miss = Object.entries(rec.lookupChecks).filter(([, c]) => c.state === 'issue').map(([k]) => state.byKey[k].label);
       if (miss.length) add('warn', 'Steel data missing for this part', miss.join(', ') + ' not found in STEEL USAGE — material needs cannot be calculated. Ask an admin to update STEEL USAGE.');
@@ -685,7 +680,8 @@
   }
   function renderCallouts(rec) {
     const icon = { bad: '⛔', warn: '⚠️', info: 'ℹ️', ok: '✅' };
-    $('callouts').replaceChildren(...nextActions(rec).map((a) => el('div', { class: 'callout ' + a.kind },
+    const list = nextActions(rec).filter((a) => a.kind === 'bad' || a.kind === 'warn'); $('callouts').hidden = !list.length;
+    $('callouts').replaceChildren(...list.map((a) => el('div', { class: 'callout ' + a.kind },
       el('span', { class: 'ci', text: icon[a.kind] }), el('div', {}, el('b', { text: a.title }), a.text ? el('span', { text: a.text }) : ''))));
   }
   // Release readiness: the go / no-go list an engineer walks through before releasing an SO to the floor.

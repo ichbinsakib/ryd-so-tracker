@@ -387,3 +387,10 @@ dialog table { width: 100%; border-collapse: collapse; } dialog th { text-align:
 .summarybox .facts { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: start; }
 .dmain .logbox, .dmain .scanbox { margin-top: 10px; }
 .grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+
+/* next action: one slim line */
+.nextcard { display: flex; grid-template-columns: none; grid-template-areas: none; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 5px 12px; margin-bottom: 6px; }
+.nextline { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; flex: 1; min-width: 0; }
+.nextlabel { color: var(--muted); font-weight: 700; letter-spacing: .06em; } .nexttxt { font-size: 15px; }
+.nchip small { color: var(--muted); } .nchip b { font-size: 13px; }
+.nextcard .checkact { margin: 0; flex-wrap: nowrap; }
