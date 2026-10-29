@@ -500,3 +500,58 @@ body.has-nav .topbar .brand { display: none; }
   .burger { display: inline-flex; } .burger[hidden] { display: none; }
   #nav-toggle { display: none; }
 }
+
+/* ================= light theme: mostly white, separated by lines, one accent (blue) and red for problems ================= */
+:root, :root:not([data-theme="light"]) {
+  color-scheme: light;
+  --bg: #f8f9fb; --panel: #ffffff; --panel-2: #f9fafb; --ink: #1d2939; --muted: #667085; --line: #e4e7ec; --line-2: #d0d5dd;
+  --accent: #2563c9; --accent-2: #1d4fa3; --accent-soft: #eef4ff; --accent-ink: #ffffff;
+  --ok: #475467; --ok-bg: #f2f4f7; --warn: #475467; --warn-bg: #f2f4f7; --err: #c0262d; --err-bg: #fef3f2; --info: #2563c9; --info-bg: #eef4ff;
+  --calc: #f2f4f7; --shadow: none; --shadow-lg: 0 8px 24px rgba(16,24,40,.10);
+  --sb: #ffffff; --sb-2: #f2f4f7; --sb-ink: #344054; --sb-mut: #98a2b3; --sb-on: #eef4ff;
+}
+body { background: var(--bg); color: var(--ink); }
+/* sidebar: white with a line, blue only for the active item */
+.sidenav { background: #fff; color: var(--sb-ink); box-shadow: none; border-right: 1px solid var(--line); }
+.sbrand { color: var(--ink); border-bottom: 1px solid var(--line); }
+.sbrand .logo { background: var(--accent); box-shadow: none; } .sbrand .brandtext b { color: var(--ink); } .sbrand .brandtext small { color: var(--muted); }
+.navhead { color: var(--sb-mut); } body.nav-collapsed .navhead { background: var(--line); }
+.navitem { color: var(--sb-ink); } .navitem:hover { background: var(--sb-2); color: var(--ink); }
+.navitem.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; box-shadow: none; } .navitem.on::before { background: var(--accent); }
+.navitem:focus-visible { outline-color: var(--accent); }
+.navfoot { border-top: 1px solid var(--line); }
+.navbadge { background: var(--accent-soft); color: var(--accent); } .navbadge.bad { background: var(--err-bg); color: var(--err); }
+.navitem.on .navbadge { background: #fff; }
+.topbar { background: #fff; box-shadow: none; }
+/* cards: lines, no shadows, no colour edges */
+.card, .fcard, fieldset, .kpi, .fc, .tablewrap, .callout { box-shadow: none; }
+.fc, .kpi { border-left: 1px solid var(--line); } .fc.warn, .fc.bad, .fc.ok, .fc.info, .kpi.warn, .kpi.bad, .kpi.ok, .kpi.info { border-left-color: var(--line); }
+.fc .fcn, .kpi .kv { color: var(--ink); } .fc.bad .fcn, .kpi.bad .kv { color: var(--err); } .kpi.warn .kv { color: var(--ink); }
+.fc:hover, .kpi-go:hover { transform: none; box-shadow: none; border-color: var(--accent); }
+.nextcard, .nextcard.mine, .nextcard.wait, .nextcard.done { border-left: 1px solid var(--line); } .nextcard.bad { border-left: 3px solid var(--err); }
+.callout, .callout.info, .callout.warn, .callout.ok { background: var(--panel); border-left-color: var(--line-2); } .callout.bad { background: var(--err-bg); border-left-color: var(--err); }
+.aitem.crit { border-left: 3px solid var(--err); }
+/* status marks: grey normally, red when it matters */
+.dot { background: var(--line-2); box-shadow: none; }
+.sc-dot-ok { background: var(--line-2) !important; } .sc-dot-warn { background: #98a2b3 !important; } .sc-dot-crit { background: var(--err) !important; }
+.stat.stale .dot { background: #98a2b3; box-shadow: none; } .stat.never .dot { background: var(--err); box-shadow: none; }
+.badge, .badge.sc-ok, .badge.sc-warn, .badge.sc-muted, .badge-warn { background: var(--panel-2); color: var(--sb-ink); border: 1px solid var(--line); }
+.badge.sc-bad { background: var(--err-bg); color: var(--err); border-color: #f4c7c3; }
+.stagepill, .stagepill[class*="st-"] { background: var(--accent-soft); color: var(--accent); }
+.tag-kind.in, .tag-kind.sub { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+.fdot.warn { background: #98a2b3; } .fdot.bad { background: var(--err); }
+.pill, .pill[class*="s-"] { background: var(--panel-2); color: var(--sb-ink); border: 1px solid var(--line); }
+/* stepper: blue = done / current, red = problem, grey = to do */
+.step.st-done::before, .step.st-current::before { background: var(--accent); }
+.step.st-done .sc { background: var(--accent); border-color: var(--accent); color: #fff; }
+.step.st-current .sc { border-color: var(--accent); color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.step.st-issue .sc { border-color: var(--err); background: var(--err-bg); color: var(--err); }
+.step.sel { background: var(--accent-soft); border-color: var(--accent); }
+.step .tc, .tab .tc { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
+.fstep.on, .chip.on { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: none; }
+.fstep .fsn { background: var(--panel-2); color: var(--sb-ink); border: 1px solid var(--line); } .fstep.on .fsn { background: rgba(255,255,255,.22); color: #fff; border-color: transparent; }
+.datatable tbody tr:hover { background: var(--panel-2); } .clickrow.picked, .mrow.picked { background: var(--accent-soft); }
+.toast { background: var(--panel); color: var(--ink); border: 1px solid var(--line-2); box-shadow: var(--shadow-lg); } .toast.err { background: var(--err-bg); color: var(--err); border-color: #f4c7c3; }
+#new-banner.ok, #detail-banner.ok, #scd-banner.ok { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); } #new-banner.warn, #detail-banner.warn { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); }
+.readyhead, .fcard.ready.ok, .fcard.ready.warn, .fcard.ready.done { border-left-color: var(--line-2); }
+.bar, .scbar { background: var(--calc); }
