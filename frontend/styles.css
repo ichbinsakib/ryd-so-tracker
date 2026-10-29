@@ -380,3 +380,10 @@ dialog table { width: 100%; border-collapse: collapse; } dialog th { text-align:
 .card { padding: 12px 14px; }
 .tabpanel fieldset { padding: 6px 12px 12px; }
 .pagehead { margin-bottom: 10px; } .kpis { gap: 8px; margin-bottom: 8px; } .kpi { padding: 9px 12px; } .kpi .kv { font-size: 24px; }
+
+/* no side column: checklist & summary is one collapsible panel; the form takes the full width */
+.dlayout, .dside { display: block; }
+.summarybox { margin-bottom: 8px; padding: 8px 14px; } .summarybox summary { cursor: pointer; } .summarybox[open] summary { margin-bottom: 8px; }
+.summarybox .facts { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: start; }
+.dmain .logbox, .dmain .scanbox { margin-top: 10px; }
+.grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }

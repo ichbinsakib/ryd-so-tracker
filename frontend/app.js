@@ -613,7 +613,7 @@
     const acts = [];
     if (canEdit() && !done) {
       if (lc.status === 'Awaiting Decision') acts.push(el('button', { class: 'btn btn-primary', type: 'button', text: 'SO needed', onclick: () => decideSO(rec, true) }), el('button', { class: 'btn', type: 'button', text: 'Not required', onclick: () => decideSO(rec, false) }));
-      if (lc.stage === 5) acts.push(el('button', { class: 'btn btn-primary', type: 'button', text: 'Request SO ›', onclick: () => requestSO(rec, true) }));
+      if (isCheck(rec) && lc.stage >= 3) acts.push(el('button', { class: 'btn' + (lc.stage === 5 ? ' btn-primary' : ''), type: 'button', text: 'Request SO ›', onclick: () => requestSO(rec, lc.stage >= 5) }));
       acts.push(el('button', { class: 'btn', type: 'button', text: 'Log a follow-up', onclick: () => { $('logbox').scrollIntoView({ block: 'center' }); const t = $('log-text'); if (t) t.focus(); } }),
         el('button', { class: 'btn', type: 'button', text: 'Edit this stage', title: 'Open the tab for the current stage', onclick: () => { selectTab(tabForStage(lc.stage)); $('detail-form').scrollIntoView({ block: 'start' }); } }));
     }
@@ -780,6 +780,11 @@
     return el('div', { class: 'cover', title: 'Available stock against required length' }, el('div', { class: 'coverbar ' + (pct >= 100 ? 'ok' : pct >= 50 ? 'warn' : 'bad') }, el('i', { style: 'width:' + pct + '%' })),
       el('small', { text: pct >= 100 ? 'Stock covers this SO (' + pct + '%)' : 'Stock covers ' + pct + '% · short by ' + (req - avail).toLocaleString(undefined, { maximumFractionDigits: 1 }) + ' ft' }));
   }
+  function afterFacts(rec) {
+    const c = $('facts').querySelector('.fcard.ready'), box = $('summarybox');
+    $('summary-sub').textContent = c ? '· ' + c.querySelector('.readyhead').textContent : '';
+    if (state.sumFor !== rec.id) { state.sumFor = rec.id; box.open = !!c && /(bad|warn)/.test(c.className); }
+  }
   function renderFacts(rec) {
     const row = (label, value, tone, badge) => el('div', { class: 'frow' }, el('span', { text: label }), el('span', { class: tone ? 'tone-' + tone : '' }, value === '' || value === '-' ? '—' : value, badge || ''));
     const diffTone = (k) => { const n = parseMoney(rec.display[k]); return n === null ? 'none' : Math.abs(n) < 0.005 ? 'ok' : Math.abs(n) < 5 ? 'warn' : 'bad'; };
@@ -815,7 +820,7 @@
     $('detail-meta').replaceChildren(statusPill(dv(rec, 'status')), dueNode(dateOf(rec, 'due_date'), closed), barNode(norm(rec.display.so_release_status_bar)), barNode(norm(rec.display.mat_status_bar)), el('span', { class: 'badge sc-muted', title: 'Initial workflow: opening, material, release and arrival', text: 'Initial: ' + lcOf(rec).initial }), el('span', { class: 'badge ' + (lcOf(rec).final === 'Overdue' ? 'sc-bad' : lcOf(rec).final === 'Closed — Verified' ? 'sc-ok' : 'sc-muted'), title: 'Final lifecycle: until closure is verified', text: 'Final: ' + lcOf(rec).final }));
     $('detail-meta').children[2].title = 'SO release'; $('detail-meta').children[3].title = 'Material';
     $('btn-delete').hidden = !canEdit() || closed;
-    renderStepper(rec); renderNextCard(rec); renderCallouts(rec); renderFacts(rec);
+    renderStepper(rec); renderNextCard(rec); renderCallouts(rec); renderFacts(rec); afterFacts(rec);
     const form = $('detail-form'); form.replaceChildren();
     tabList().forEach(([title, , keys], i) => {
       form.append(el('div', { class: 'tabpanel', id: 'panel-' + i, role: 'tabpanel', hidden: i !== state.tab },

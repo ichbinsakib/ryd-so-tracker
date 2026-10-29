@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Shop Order Tracking Details</title>
-<link rel="stylesheet" href="styles.css?v=b8c16da2">
+<link rel="stylesheet" href="styles.css?v=6fc52107">
 </head>
 <body>
 <header class="topbar">
@@ -241,29 +241,27 @@
   <section class="card stepper-card"><ol id="stepper" class="stepper" role="tablist" aria-label="Lifecycle stages: pick one to see and edit its fields"></ol></section>
   <section id="nextcard" class="card nextcard"></section>
   <section id="callouts" class="callouts"></section>
-  <div class="dlayout">
-    <aside class="dside">
-      <section id="facts" class="facts"></section>
-      <section class="card scanbox" id="scanbox">
-        <h3>Scanned document</h3>
-        <div id="scan-list" class="muted">No scan uploaded yet.</div>
-        <div id="scan-upload" class="scanrow">
-          <input id="scan-file" type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png">
-          <button id="scan-go" class="btn btn-primary" disabled>Upload scan</button>
-          <span id="scan-msg" class="muted"></span>
-        </div>
-        <div class="muted small">PDF, JPG or PNG, up to 7 MB. Upload the signed copy once the SO is complete.</div>
-      </section>
-    </aside>
-    <div class="dmain">
-      <form id="detail-form" autocomplete="off"></form>
-      <section class="card logbox" id="logbox">
-        <h3>Follow-up log</h3>
-        <p class="muted small">Decisions, follow-ups, escalations and where the evidence is (email subject, document link).</p>
-        <div id="log-form" class="logform"></div>
-        <div id="log-list" class="loglist"></div>
-      </section>
-    </div>
+  <details id="summarybox" class="card summarybox"><summary><b>Checklist &amp; summary</b> <span id="summary-sub" class="muted small"></span></summary>
+    <section id="facts" class="facts"></section>
+  </details>
+  <div class="dmain">
+    <form id="detail-form" autocomplete="off"></form>
+    <section class="card logbox" id="logbox">
+      <h3>Follow-up log</h3>
+      <p class="muted small">Decisions, follow-ups, escalations and where the evidence is (email subject, document link).</p>
+      <div id="log-form" class="logform"></div>
+      <div id="log-list" class="loglist"></div>
+    </section>
+    <section class="card scanbox" id="scanbox">
+      <h3>Scanned document</h3>
+      <div id="scan-list" class="muted">No scan uploaded yet.</div>
+      <div id="scan-upload" class="scanrow">
+        <input id="scan-file" type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png">
+        <button id="scan-go" class="btn btn-primary" disabled>Upload scan</button>
+        <span id="scan-msg" class="muted"></span>
+      </div>
+      <div class="muted small">PDF, JPG or PNG, up to 7 MB. Upload the signed copy once the SO is complete.</div>
+    </section>
   </div>
   <div id="savebar" class="savebar" hidden>
     <span id="dirty-flag" class="badge badge-warn">Unsaved changes</span>
@@ -327,6 +325,6 @@
 
 <script src="config.js?v=c2514725"></script>
 <script src="lifecycle.js?v=3d007b51"></script>
-<script src="app.js?v=2b66caaf"></script>
+<script src="app.js?v=c9ad8cbf"></script>
 </body>
 </html>
