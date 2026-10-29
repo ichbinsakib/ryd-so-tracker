@@ -315,7 +315,7 @@
       by[k].length ? el('div', { class: 'dlist' }, ...by[k].slice(0, state.repAll && state.repAll[k] ? by[k].length : REPORT_CAP).map((r) => reportItem(r, k)),
         by[k].length > REPORT_CAP ? el('button', { class: 'btn btn-sm dmore', type: 'button', text: state.repAll && state.repAll[k] ? 'Show fewer' : 'Show all ' + by[k].length + ' ›', onclick: () => { state.repAll = state.repAll || {}; state.repAll[k] = !state.repAll[k]; renderDash(dash, sc); } }) : '') : el('p', { class: 'muted', text: 'Nothing needs your action right now.' }))) : []));
     const kp = (cls, v, l, go) => el('button', { class: 'kpi kpi-go ' + cls, type: 'button', onclick: go }, el('div', { class: 'kv', text: String(v) }), el('div', { class: 'kl', text: l }));
-    const k = sc && sc.kpis, toQueue = () => { SC.tab = 'queue'; openSubcon('subcon'); };
+    const k = sc && sc.kpis, toQueue = () => { SC.tab = 'report'; openSubcon('subcon'); };
     $('dash2-kpis-sc').replaceChildren(...(k ? [kp('info', k.open, 'Open lines', () => openSubcon('subcon')), kp(k.needsAction ? 'warn' : 'ok', k.needsAction, 'Need my action', toQueue),
       kp(k.pastDue ? 'bad' : 'ok', k.pastDue, 'Past due', toQueue), kp(k.blocked ? 'bad' : 'ok', k.blocked, 'Blocked / on hold', toQueue)] : [el('p', { class: 'muted', text: 'Subcontractor data is unavailable.' })]));
   }
@@ -1324,7 +1324,7 @@
 
   // ---------- wiring
   // ---------- subcontractor tracking (coordinator view of the BPO lines the subcontractor team executes)
-  const SC = { section: 'subcon', tab: 'queue', q: '', filter: 'open', bpo: '', data: null };
+  const SC = { section: 'subcon', tab: 'report', q: '', filter: 'open', bpo: '', data: null, all: {} };
   const scCanWrite = () => state.role === 'editor' || state.role === 'admin';
   const dshort = (s) => (isIso(s || '') ? shortDate(parseDate(s)) : '—');
   const qtyFmt = (n) => Number(n || 0).toLocaleString();
@@ -1340,18 +1340,18 @@
     SC.data = r; renderSubcon();
   }
   function renderSubcon() {
-    const d = SC.data, k = d.kpis, leads = SC.section === 'leads';
+    const d = SC.data, D = SC.data, leads = SC.section === 'leads';
     navSync('view-subcon');
     $('sc-title').textContent = leads ? 'Lead Time Calculation' : 'Subcontractor';
-    $('sc-sub').textContent = leads ? 'How long each stage actually takes, and when a new PO should arrive.' : 'Monitor what the subcontractor team is doing: requirements sent, stage, quantities, delays, and what needs you.';
+    $('sc-sub').textContent = leads ? 'Elapsed calendar days between milestones, from your tracked orders, and when a new PO should arrive.' : 'Every part sent to the subcontractor team, from quotation to confirmed arrival at CAMCO: dates, follow-ups and what needs you.';
     $('sc-actions').hidden = leads || !scCanWrite(); $('sc-kpis').hidden = leads; $('sc-tabs').hidden = leads;
     if (leads) { $('sc-body').replaceChildren(scLeadCalc(), scLeadStats()); return; }
-    const kp = (cls, v, l) => el('div', { class: 'kpi ' + cls }, el('div', { class: 'kv', text: String(v) }), el('div', { class: 'kl', text: l }));
-    $('sc-kpis').replaceChildren(kp('info', k.open, 'Open lines'), kp(k.needsAction ? 'warn' : 'ok', k.needsAction, 'Need my action'), kp(k.pastDue ? 'bad' : 'ok', k.pastDue, 'Past due'),
-      kp(k.forecastLate ? 'warn' : 'ok', k.forecastLate, 'Forecast late'), kp(k.blocked ? 'bad' : 'ok', k.blocked, 'Blocked / on hold'), kp(k.stale ? 'warn' : 'ok', k.stale, 'No recent update'), kp('info', qtyFmt(k.openQty), 'Pcs still open'));
-    const tabs = [['queue', 'Needs my action (' + k.needsAction + ')'], ['lines', 'All lines'], ['batches', 'Batches']];
+    const secs = D.sectionDefs.map((s) => [s, d.sections[s.key].length]);
+    const tone = { immediate: 'warn', overdue: 'bad', completed: 'ok' };
+    $('sc-kpis').replaceChildren(...secs.map(([s, n]) => el('button', { class: 'kpi kpi-go ' + (n ? (tone[s.key] || 'info') : 'ok'), type: 'button', title: s.hint, onclick: () => { SC.tab = 'report'; renderSubcon(); const t = $('screp-' + s.key); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); } }, el('div', { class: 'kv', text: String(n) }), el('div', { class: 'kl', text: s.label }))));
+    const tabs = [['report', 'Report'], ['lines', 'All orders'], ['batches', 'Batches']];
     $('sc-tabs').replaceChildren(...tabs.map(([id, label]) => el('button', { class: 'chip' + (SC.tab === id ? ' on' : ''), type: 'button', role: 'tab', 'aria-selected': String(SC.tab === id), text: label, onclick: () => { SC.tab = id; renderSubcon(); } })));
-    $('sc-body').replaceChildren(SC.tab === 'queue' ? scQueueView() : SC.tab === 'lines' ? scLinesView() : scBatchesView());
+    $('sc-body').replaceChildren(SC.tab === 'report' ? scReportView() : SC.tab === 'lines' ? scLinesView() : scBatchesView());
   }
   const scBar = (pct, cls) => el('div', { class: 'scbar ' + (cls || ''), title: pct + '%' }, el('i', { style: 'width:' + pct + '%' }), el('span', { text: pct + '%' }));
   const scPrio = (p) => (p === 'NORMAL' ? '' : el('span', { class: 'badge ' + (p === 'LINE DOWN' ? 'sc-bad' : 'sc-warn'), text: p }));
@@ -1359,36 +1359,52 @@
     return el('div', { class: 'tablewrap card' }, el('table', { class: 'datatable' }, el('thead', {}, el('tr', {}, head.map((t) => el('th', { text: t })))),
       el('tbody', {}, body.length ? body : [el('tr', {}, el('td', { colspan: head.length, class: 'muted', text: emptyText }))])));
   }
-  function scLineRow(o, mode) {
-    const why = o.reasons.map((r) => el('span', { class: 'badge ' + (r.level === 'crit' ? 'sc-bad' : 'sc-warn'), text: r.text }));
-    const exp = el('td', {}, dshort(o.expected), o.projected && !(o.ms && o.ms.eta_camco) ? el('small', { class: 'muted', title: 'Projected from past lead times', text: ' ~' + dshort(o.projected) }) : '');
+  const refOf = (o) => (o.so_no ? 'SO ' + o.so_no : 'No SO yet') + (o.po_no ? ' · PO ' + o.po_no : '');
+  function scItem(o, sec) {
+    const lm = o.lastMilestone;
+    const lines = sec === 'completed' ? [['Arrived', dshort(o.ms.received_camco)], ['Elapsed', (o.spans[9].days === null ? '—' : o.spans[9].days + ' days total')]] : [
+      ['Last done', lm ? lm.label + ' · ' + dshort(lm.date) : 'nothing yet'], ['Outstanding', o.outstanding || '—'], [o.owner_role === 'me' ? 'Who' : 'Waiting on', o.owner_role === 'me' ? 'Me' : (o.waitingOn || '—')],
+      ['Action', o.next || '—'], ['Follow-up', o.followup ? dshort(o.followup) + (o.followupDue ? ' (due)' : '') : '—']];
+    return el('button', { class: 'ditem ritem', type: 'button', onclick: () => scEditLine(o) },
+      el('span', { class: 'dot sc-dot-' + o.attention, title: o.attention === 'crit' ? 'Critical' : o.attention === 'warn' ? 'Needs attention' : 'On track' }),
+      el('span', { class: 'dmain' }, el('b', { text: o.part_no + (o.revision ? ' rev ' + o.revision : '') + ' · ' + qtyFmt(o.qty) + ' pcs' }), el('small', { text: refOf(o) + ' · ' + o.stage + ' · ' + o.status }),
+        o.reasons.length ? el('span', { class: 'nextwhy' }, o.reasons.slice(0, 4).map((r) => el('span', { class: 'badge ' + (r.level === 'crit' ? 'sc-bad' : 'sc-warn'), text: r.text })), scPrio(o.priority)) : (o.priority !== 'NORMAL' ? el('span', { class: 'nextwhy' }, scPrio(o.priority)) : ''),
+        sec !== 'completed' && o.impact ? el('small', { class: 'impact', text: 'If not resolved: ' + o.impact }) : ''),
+      el('span', { class: 'rlines' }, lines.map(([k, v]) => el('span', {}, el('small', { text: k }), ' ', v))));
+  }
+  const SC_CAP = 8;
+  function scReportView() {
+    const D = SC.data, byId = new Map(D.lines.map((l) => [l.id, l]));
+    return el('div', { class: 'report' }, ...D.sectionDefs.filter((s) => D.sections[s.key].length || s.key === 'immediate').map((s) => {
+      const items = D.sections[s.key].map((id) => byId.get(id)).filter(Boolean), all = SC.all[s.key];
+      return el('section', { class: 'card rsec', id: 'screp-' + s.key }, el('div', { class: 'sechead' }, el('h3', { text: s.label }), el('span', { class: 'muted small', text: s.hint + ' · ' + items.length })),
+        items.length ? el('div', { class: 'dlist' }, ...items.slice(0, all ? items.length : SC_CAP).map((o) => scItem(o, s.key)),
+          items.length > SC_CAP ? el('button', { class: 'btn btn-sm dmore', type: 'button', text: all ? 'Show fewer' : 'Show all ' + items.length + ' ›', onclick: () => { SC.all[s.key] = !all; renderSubcon(); } }) : '') : el('p', { class: 'muted', text: 'Nothing needs your action right now.' }));
+    }));
+  }
+  function scLineRow(o) {
+    const lm = o.lastMilestone;
     const cells = [
       el('td', {}, el('span', { class: 'dot sc-dot-' + o.attention, title: o.attention === 'crit' ? 'Critical' : o.attention === 'warn' ? 'Needs attention' : 'On track' })),
-      el('td', {}, el('b', { text: o.so_no }), el('br'), el('small', { class: 'muted', text: 'PO ' + o.po_no }), ' ', scPrio(o.priority)),
-      el('td', { title: o.description || '' }, o.part_no, o.ryd_part ? el('br') : '', o.ryd_part ? el('small', { class: 'muted', text: o.ryd_part }) : ''),
-      el('td', { text: [o.bpo_no, o.batch].filter(Boolean).join(' · ') || '—' }),
-      el('td', {}, qtyFmt(o.qty_stocked + o.qty_rejected), ' / ', qtyFmt(o.qty), o.qty_hold > 0 ? el('br') : '', o.qty_hold > 0 ? el('small', { class: 'sc-bad-text', text: qtyFmt(o.qty_hold) + ' on hold' }) : ''),
-      el('td', { text: o.stage }), el('td', {}, scBar(o.progress, o.attention === 'crit' ? 'bad' : o.attention === 'warn' ? 'warn' : '')),
-      el('td', { text: dshort(o.required_date) }), exp
+      el('td', {}, el('b', { text: o.part_no }), o.revision ? el('small', { class: 'muted', text: ' rev ' + o.revision }) : '', el('br'), el('small', { class: 'muted', text: qtyFmt(o.qty) + ' pcs' }), ' ', scPrio(o.priority)),
+      el('td', { class: 'small', text: refOf(o) }),
+      el('td', {}, el('span', { class: 'stagepill', text: o.stage }), el('br'), el('small', { class: 'muted', text: o.status })),
+      el('td', { class: 'small', text: lm ? lm.label + ' · ' + dshort(lm.date) : '—' }),
+      el('td', { class: 'small' }, o.open ? (o.next || '—') : '', o.open && (o.owner_role === 'me' || o.waitingOn) ? el('br') : '', o.open && (o.owner_role === 'me' || o.waitingOn) ? el('small', { class: 'muted', text: o.owner_role === 'me' ? 'Me' : 'Waiting on ' + o.waitingOn }) : ''),
+      el('td', { text: o.open && o.followup ? dshort(o.followup) : '—' }),
+      el('td', { text: dshort(o.required_date) }), el('td', {}, dshort(o.expected), o.projected && !(o.exp && o.exp.exp_arrival) && !(o.ms && o.ms.eta_camco) ? el('small', { class: 'muted', title: 'Projected from past lead times', text: ' ~' + dshort(o.projected) }) : ''),
+      el('td', {}, o.open ? (o.reasons.length ? o.reasons.slice(0, 2).map((r) => el('span', { class: 'badge ' + (r.level === 'crit' ? 'sc-bad' : 'sc-warn'), text: r.text })) : el('span', { class: 'badge sc-ok', text: 'On track' })) : el('span', { class: 'badge sc-muted', text: o.complete ? 'Arrived' : o.notRequired ? 'Not required' : 'Closed' })),
+      el('td', {}, scCanWrite() ? el('button', { class: 'btn btn-sm', type: 'button', text: 'Log', title: 'Log a follow-up or update', onclick: (e) => { e.stopPropagation(); scEditLine(o, true); } }) : '')
     ];
-    if (mode === 'queue') cells.push(el('td', { class: 'whycell' }, why), el('td', { class: 'actioncell', text: o.action }));
-    else cells.push(el('td', { class: 'whycell' }, o.open ? (why.length ? why : el('span', { class: 'badge sc-ok', text: 'On track' })) : el('span', { class: 'badge sc-muted', text: 'Closed' })));
-    cells.push(el('td', {}, scCanWrite() ? el('button', { class: 'btn btn-sm', type: 'button', text: 'Log', title: 'Log a follow-up or update', onclick: (e) => { e.stopPropagation(); scEditLine(o, true); } }) : ''));
     return el('tr', { class: 'clickrow', onclick: () => scEditLine(o) }, cells);
   }
-  const SC_HEAD = ['', 'SO / PO', 'PART', 'BPO · BATCH', 'DONE / QTY', 'STAGE', 'PROGRESS', 'REQUIRED', 'EXPECTED'];
-  function scQueueView() {
-    const byId = new Map(SC.data.lines.map((l) => [l.id, l]));
-    const rows = SC.data.queue.map((id) => byId.get(id)).filter(Boolean).map((o) => scLineRow(o, 'queue'));
-    return el('div', {}, el('p', { class: 'muted pad', text: 'Lines that are late, blocked, on hold, not acknowledged, or have had no update. Critical first, then by priority and required date. Click a line to see everything and log what the team said.' }),
-      scTable(SC_HEAD.concat(['WHY', 'WHAT TO DO', '']), rows, 'Nothing needs your action right now.'));
-  }
+  const SC_HEAD = ['', 'PART', 'SO / PO', 'STAGE', 'LAST MILESTONE', 'NEXT ACTION', 'FOLLOW-UP', 'REQUIRED', 'EXPECTED', 'STATUS', ''];
   function scLinesView() {
     let rows = SC.data.lines;
     const f = SC.filter;
     rows = rows.filter((o) => (f === 'all' || (f === 'open' && o.open) || (f === 'closed' && !o.open)) && (!SC.bpo || o.bpo_no === SC.bpo));
     const q = SC.q.trim().toLowerCase();
-    if (q) rows = rows.filter((o) => [o.so_no, o.po_no, o.part_no, o.ryd_part, o.bpo_no, o.batch, o.stage, o.note].some((v) => norm(v).toLowerCase().includes(q)));
+    if (q) rows = rows.filter((o) => [o.so_no, o.po_no, o.part_no, o.ryd_part, o.bpo_no, o.batch, o.stage, o.status, o.team_member, o.note].some((v) => norm(v).toLowerCase().includes(q)));
     const search = el('input', { type: 'search', placeholder: 'Search SO, PO, part, stage…', 'aria-label': 'Search', value: SC.q });
     search.addEventListener('input', () => {
       SC.q = search.value; clearTimeout(scLinesView.t);
@@ -1398,11 +1414,11 @@
     const bsel = scSelect([['', 'All BPOs']].concat(bpos.map((b) => [b, b])), SC.bpo); bsel.addEventListener('change', () => { SC.bpo = bsel.value; renderSubcon(); });
     const chips = [['open', 'Open'], ['closed', 'Closed'], ['all', 'All']].map(([id, l]) => el('button', { class: 'chip' + (SC.filter === id ? ' on' : ''), type: 'button', text: l, onclick: () => { SC.filter = id; renderSubcon(); } }));
     return el('div', {}, el('div', { class: 'listhead' }, el('div', { class: 'chips' }, chips), el('div', { class: 'listtools' }, bsel, search, el('button', { class: 'btn btn-sm', type: 'button', text: 'Export CSV', onclick: () => scExportCsv(rows) }))),
-      scTable(SC_HEAD.concat(['STATUS', '']), rows.map((o) => scLineRow(o, 'lines')), 'No lines here yet. Use "Add line" or "Import BPO sheet".'));
+      scTable(SC_HEAD, rows.map((o) => scLineRow(o)), 'No orders here yet. Use "New order" or "Import BPO sheet".'));
   }
   function scExportCsv(rows) {
     const ms = SC.data.milestones.map((m) => m.key);
-    const cols = ['bpo_no', 'batch', 'po_no', 'so_no', 'part_no', 'ryd_part', 'qty', 'qty_shipped', 'qty_received', 'qty_hold', 'qty_rejected', 'qty_stocked', 'priority', 'owner', 'sent_date', 'required_date', 'expected', 'stage', 'progress', 'blocker_type', 'blocker', 'next_action', 'next_action_date', 'revised_date', 'delay_reason', 'last_update', 'note'];
+    const cols = ['part_no', 'revision', 'description', 'so_required', 'sub_required', 'team_member', 'bpo_no', 'batch', 'po_no', 'so_no', 'ryd_part', 'qty', 'qty_shipped', 'qty_received', 'qty_hold', 'qty_rejected', 'qty_stocked', 'priority', 'owner', 'review_status', 'required_date', 'expected', 'stage', 'status', 'followup', 'progress', 'blocker_type', 'blocker', 'next_action', 'next_action_date', 'revised_date', 'delay_reason', 'last_update', 'note'];
     const esc = (v) => { v = norm(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
     const lines = [cols.concat(ms).join(',')].concat(rows.map((o) => cols.map((c) => esc(o[c])).concat(ms.map((k) => esc(o.ms && o.ms[k]))).join(',')));
     const a = el('a', { href: URL.createObjectURL(new Blob([lines.join('\r\n')], { type: 'text/csv' })), download: 'subcontractor-lines-' + today() + '.csv' });
@@ -1421,7 +1437,7 @@
   }
 
   // ---- dialogs: one form body, re-shown with field errors until it saves or is cancelled
-  function scField(label, input, key, req) { return el('label', { class: 'scfield' }, el('span', { class: 'sclabel', text: label + (req ? ' *' : '') }), input, el('small', { class: 'fielderr', 'data-err': key })); }
+  function scField(label, input, key, req, hint) { return el('label', { class: 'scfield' }, el('span', { class: 'sclabel', text: label + (req ? ' *' : '') }), input, hint ? el('small', { class: 'scorig', text: hint }) : '', el('small', { class: 'fielderr', 'data-err': key })); }
   const scInput = (type, val, extra) => el('input', Object.assign({ type, value: val == null ? '' : String(val), autocomplete: 'off' }, extra || {}));
   function scSelect(options, val) { const s = el('select', {}, options.map(([v, l]) => el('option', { value: v, text: l }))); s.value = val == null ? '' : val; return s; }
   function scShowErrors(body, errors) { body.querySelectorAll('[data-err]').forEach((n) => { n.textContent = (errors && errors[n.getAttribute('data-err')]) || ''; }); }
@@ -1450,17 +1466,20 @@
     if (r) { toast('Updated ' + r.count + ' lines.'); loadSubcon(); }
   }
   async function scDeleteLine(o) {
-    if (!(await confirmDialog('Delete line', el('p', { text: 'Delete PO ' + o.po_no + ' (SO ' + o.so_no + ')? Its update log is deleted too and this cannot be undone.' }), 'Delete', true))) return false;
-    const r = await api('scDeleteLine', { id: o.id }); if (!r.ok) { toast(r.error, true); return false; } toast('Deleted PO ' + o.po_no + '.'); return true;
+    if (!(await confirmDialog('Delete line', el('p', { text: 'Delete the order for part ' + o.part_no + (o.po_no ? ' (PO ' + o.po_no + ')' : '') + '? Its update log is deleted too and this cannot be undone.' }), 'Delete', true))) return false;
+    const r = await api('scDeleteLine', { id: o.id }); if (!r.ok) { toast(r.error, true); return false; } toast('Deleted the order for ' + o.part_no + '.'); return true;
   }
   async function scEditLine(o, focusLog) {
     o = o || {};
-    const D = SC.data, ro = !scCanWrite(), isNew = !o.id;
+    const D = SC.data, ro = !scCanWrite(), isNew = !o.id, orig = o.origDates || {};
+    const ynp = [['PENDING', 'Pending'], ['YES', 'Yes'], ['NO', 'No']];
     const f = {
-      bpo_no: scInput('text', o.bpo_no, { placeholder: 'e.g. BPO-003' }), batch: scInput('text', o.batch, { placeholder: 'e.g. 2nd Batch' }), po_no: scInput('text', o.po_no), so_no: scInput('text', o.so_no),
-      part_no: scInput('text', o.part_no), ryd_part: scInput('text', o.ryd_part), description: scInput('text', o.description), qty: scInput('number', o.qty, { min: 0, step: 'any' }),
-      priority: scSelect(D.priorities.map((p) => [p, p]), o.priority || 'NORMAL'), owner: scInput('text', o.owner, { placeholder: 'Person on the team' }),
-      sent_date: dateIn(o.sent_date || (isNew ? today() : '')), required_date: dateIn(o.required_date), customer_due_date: dateIn(o.customer_due_date),
+      so_required: scSelect(ynp, o.so_required || 'PENDING'), sub_required: scSelect(ynp, o.sub_required || 'PENDING'), decision_note: scInput('text', o.decision_note, { placeholder: 'Reason, especially when the answer is No' }),
+      part_no: scInput('text', o.part_no), revision: scInput('text', o.revision), description: scInput('text', o.description), qty: scInput('number', o.qty, { min: 0, step: 'any' }),
+      priority: scSelect(D.priorities.map((p) => [p, p]), o.priority || 'NORMAL'), required_date: dateIn(o.required_date), customer_due_date: dateIn(o.customer_due_date),
+      team_member: scInput('text', o.team_member, { placeholder: 'Person on the subcontractor team' }), owner: scInput('text', o.owner, { placeholder: 'Who must act next' }), comm_ref: scInput('text', o.comm_ref, { placeholder: 'Email subject or link' }),
+      so_no: scInput('text', o.so_no), po_no: scInput('text', o.po_no), bpo_no: scInput('text', o.bpo_no, { placeholder: 'e.g. BPO-003' }), batch: scInput('text', o.batch), ryd_part: scInput('text', o.ryd_part), sent_date: dateIn(o.sent_date),
+      review_status: scSelect(D.reviewStatuses.map((x) => [x, x ? x.charAt(0) + x.slice(1).toLowerCase() : '— not submitted —']), o.review_status || ''),
       qty_shipped: scInput('number', o.qty_shipped, { min: 0, step: 'any' }), qty_received: scInput('number', o.qty_received, { min: 0, step: 'any' }), qty_hold: scInput('number', o.qty_hold, { min: 0, step: 'any' }),
       qty_rejected: scInput('number', o.qty_rejected, { min: 0, step: 'any' }), qty_stocked: scInput('number', o.qty_stocked, { min: 0, step: 'any' }),
       blocker_type: scSelect(D.blockers.map((x) => [x, x || '— none —']), o.blocker_type || ''), blocker: scInput('text', o.blocker), next_action: scInput('text', o.next_action), next_action_date: dateIn(o.next_action_date),
@@ -1468,14 +1487,17 @@
       escalated: el('input', { type: 'checkbox' }), closed: el('input', { type: 'checkbox' }), note: el('textarea', { rows: 2 })
     };
     f.escalated.checked = !!o.escalated; f.closed.checked = !!o.closed; f.note.value = o.note || '';
-    ['po_no', 'so_no', 'part_no', 'qty'].forEach((k) => f[k].classList.add('mandatory-in'));
+    ['part_no', 'qty'].forEach((k) => f[k].classList.add('mandatory-in'));
     const mf = {}; D.milestones.forEach((m) => { mf[m.key] = dateIn(o.ms && o.ms[m.key]); });
-    const remaining = el('b', { text: o.id ? qtyFmt(o.remaining) : '—' });
-    const info = o.id ? el('div', { class: 'scinfo' }, el('span', { class: 'badge ' + (o.attention === 'crit' ? 'sc-bad' : o.attention === 'warn' ? 'sc-warn' : 'sc-ok'), text: o.stage }), ' ', o.reasons.map((r) => [el('span', { class: 'badge ' + (r.level === 'crit' ? 'sc-bad' : 'sc-warn'), text: r.text }), ' ']),
-      o.action ? el('div', { class: 'calcnote', text: 'Suggested: ' + o.action }) : '') : '';
-    const log = el('div', { class: 'sclog' }), logKind = scSelect(D.updateKinds.map((k) => [k, k]), 'FOLLOW-UP'), logText = el('textarea', { rows: 2, placeholder: 'What you asked / what the team replied' });
+    const ef = {}; D.expected.forEach((e) => { ef[e.key] = dateIn(o.exp && o.exp[e.key]); });
+    // a changed date keeps its first value visible
+    const dateField = (label, input, key, origKey) => scField(label, input, key, false, orig[origKey] && o.id ? 'Originally ' + dshort(orig[origKey]) : '');
+    const info = o.id ? el('div', { class: 'scinfo' }, el('span', { class: 'badge sc-muted', text: o.stage }), ' ', el('b', { text: o.status }), ' ', ...o.reasons.flatMap((r) => [el('span', { class: 'badge ' + (r.level === 'crit' ? 'sc-bad' : 'sc-warn'), text: r.text }), ' ']),
+      o.open ? el('div', { class: 'calcnote' }, o.next ? 'Next: ' + o.next + ' · ' : '', o.owner_role === 'me' ? 'Who: me' : (o.waitingOn ? 'Waiting on ' + o.waitingOn : ''), o.followup ? ' · follow-up ' + dshort(o.followup) : '') : '',
+      o.open && o.impact ? el('div', { class: 'calcnote', text: 'If not resolved: ' + o.impact }) : '') : '';
+    const log = el('div', { class: 'sclog' }), logKind = scSelect(D.updateKinds.map((k) => [k, k]), 'FOLLOW-UP'), logText = el('textarea', { rows: 2, placeholder: 'What you asked / what the team or vendor replied' });
     const loadLog = async () => {
-      if (isNew) { log.replaceChildren(el('p', { class: 'muted', text: 'Save the line first, then log follow-ups here.' })); return; }
+      if (isNew) { log.replaceChildren(el('p', { class: 'muted', text: 'Save the order first, then log follow-ups here.' })); return; }
       const r = await api('scUpdates', { id: o.id });
       log.replaceChildren(...(r.ok && r.updates.length ? r.updates.map((u) => el('div', { class: 'scupd' }, el('b', { text: u.kind }), el('span', { class: 'muted', text: '  ' + fmtWhen(u.at) + ' · ' + niceName(u.by_user || '') }), el('div', { text: u.text }))) : [el('p', { class: 'muted', text: 'No updates logged yet.' })]));
     };
@@ -1485,26 +1507,34 @@
       logText.value = ''; toast('Logged. Latest update set to today.'); await loadLog(); loadSubcon();
     } });
     const section = (t, ...kids) => el('div', { class: 'scwide scsec' }, el('h4', { text: t }), el('div', { class: 'scgrid' }, kids));
-    const msFields = D.milestones.map((m) => scField(m.label + (m.estimate ? ' (est.)' : ''), mf[m.key], 'ms_' + m.key));
+    const groups = [...new Set(D.milestones.map((m) => m.group))];
+    const msSection = (g, extra) => section(g, ...D.milestones.filter((m) => m.group === g).map((m) => dateField(m.label + (m.estimate ? ' (est.)' : ''), mf[m.key], 'ms_' + m.key, m.key)), ...(extra || []));
+    const spans = o.id ? el('div', { class: 'scwide scsec' }, el('h4', { text: 'Elapsed calendar days' }), el('div', { class: 'scspans' }, o.spans.map((s) => el('div', { class: 'scspan' }, el('small', { text: s.label }), el('b', { text: s.days === null ? '—' : s.days + ' d' }))))) : '';
     const body = el('div', { class: 'scform scorder' }, info,
-      section('Requirement sent', scField('SO #', f.so_no, 'so_no', true), scField('PO #', f.po_no, 'po_no', true), scField('BPO #', f.bpo_no, 'bpo_no'), scField('Batch', f.batch, 'batch'),
-        scField('Part # (CAMCO)', f.part_no, 'part_no', true), scField('Part # (customer / RYD)', f.ryd_part, 'ryd_part'), scField('Description', f.description, 'description'), scField('Qty requested', f.qty, 'qty', true),
-        scField('Priority', f.priority, 'priority'), scField('Team owner', f.owner, 'owner'), scField('Date sent to team', f.sent_date, 'sent_date'), scField('Required at CAMCO', f.required_date, 'required_date'), scField('Customer due / line-down date', f.customer_due_date, 'customer_due_date')),
-      section('Milestones (fill a date when it happens)', msFields),
-      section('Quantities', scField('Shipped', f.qty_shipped, 'qty_shipped'), scField('Received at CAMCO', f.qty_received, 'qty_received'), scField('On quality hold', f.qty_hold, 'qty_hold'), scField('Rejected / scrapped', f.qty_rejected, 'qty_rejected'),
-        scField('Moved to stock', f.qty_stocked, 'qty_stocked'), el('div', { class: 'scfield' }, el('span', { class: 'sclabel', text: 'Still open' }), remaining)),
-      section('Follow-up', scField('Blocker type', f.blocker_type, 'blocker_type'), scField('Blocker / reason it is stuck', f.blocker, 'blocker'), scField('Next action', f.next_action, 'next_action'), scField('Next action by', f.next_action_date, 'next_action_date'),
-        scField('Revised completion date', f.revised_date, 'revised_date'), scField('Reason for delay', f.delay_reason, 'delay_reason'), scField('Latest update from team', f.last_update, 'last_update'),
+      section('1 · Decision', scField('SO required?', f.so_required, 'so_required'), scField('Subcontracting required?', f.sub_required, 'sub_required'), scField('Reason / note', f.decision_note, 'decision_note')),
+      section('Order', scField('Part # (CAMCO)', f.part_no, 'part_no', true), scField('Revision', f.revision, 'revision'), scField('Description', f.description, 'description'), scField('Qty required', f.qty, 'qty', true),
+        scField('Priority', f.priority, 'priority'), scField('Required at CAMCO', f.required_date, 'required_date'), scField('Customer due / line-down date', f.customer_due_date, 'customer_due_date'),
+        scField('Subcontractor team member', f.team_member, 'team_member'), scField('Responsible person (next action)', f.owner, 'owner'), scField('Communication reference', f.comm_ref, 'comm_ref'),
+        scField('SO #', f.so_no, 'so_no'), scField('PO #', f.po_no, 'po_no'), scField('BPO #', f.bpo_no, 'bpo_no'), scField('Batch', f.batch, 'batch'), scField('Part # (customer / RYD)', f.ryd_part, 'ryd_part')),
+      msSection(groups[0], [scField('Review status (Rich / team)', f.review_status, 'review_status')]),
+      msSection(groups[1]), msSection(groups[2]),
+      msSection(groups[3], D.expected.map((e) => dateField(e.label, ef[e.key], 'exp_' + e.key, e.key))),
+      msSection(groups[4]),
+      section('Quantities', scField('Shipped', f.qty_shipped, 'qty_shipped'), scField('Received at CAMCO', f.qty_received, 'qty_received'), scField('On quality hold', f.qty_hold, 'qty_hold'), scField('Rejected / scrapped', f.qty_rejected, 'qty_rejected'), scField('Moved to stock', f.qty_stocked, 'qty_stocked')),
+      section('Follow-up', scField('Blocker type', f.blocker_type, 'blocker_type'), scField('Outstanding issue', f.blocker, 'blocker'), scField('Next action', f.next_action, 'next_action'), scField('Next follow-up date', f.next_action_date, 'next_action_date'),
+        scField('Revised completion date', f.revised_date, 'revised_date'), scField('Reason for delay', f.delay_reason, 'delay_reason'), scField('Last update from team', f.last_update, 'last_update'),
         el('label', { class: 'inline' }, f.escalated, ' Escalated'), scField('Current note', f.note, 'note')),
+      spans,
       el('div', { class: 'scwide scsec' }, el('h4', { text: 'Follow-up log' }), isNew || ro ? '' : el('div', { class: 'scaddlog' }, logKind, logText, addLog), log),
-      el('div', { class: 'scwide' }, el('label', { class: 'inline' }, f.closed, ' Verified complete: close this line'), el('small', { class: 'fielderr', 'data-err': 'closed' })));
+      el('div', { class: 'scwide' }, el('label', { class: 'inline' }, f.closed, ' Arrival confirmed: close this order'), el('small', { class: 'fielderr', 'data-err': 'closed' })));
     loadLog();
-    if (ro) { body.querySelectorAll('input,select,textarea,button').forEach((n) => { n.disabled = true; }); await confirmDialog('PO ' + o.po_no, body, 'Close'); return; }
+    const title = isNew ? 'New subcontractor order' : o.part_no + ' · ' + refOf(o);
+    if (ro) { body.querySelectorAll('input,select,textarea,button').forEach((n) => { n.disabled = true; }); await confirmDialog(title, body, 'Close'); return; }
     if (focusLog) setTimeout(() => logText.focus(), 120);
-    const collect = () => ({ line: Object.assign({ id: o.id }, Object.fromEntries(Object.keys(f).filter((k) => !['escalated', 'closed'].includes(k)).map((k) => [k, f[k].value])), { escalated: f.escalated.checked, closed: f.closed.checked, ms: Object.fromEntries(Object.keys(mf).map((k) => [k, mf[k].value])) }) });
-    const extra = o.id ? el('button', { class: 'btn btn-danger btn-sm', type: 'button', text: 'Delete line', onclick: async () => { if (await scDeleteLine(o)) { $('dlg').close('cancel'); loadSubcon(); } } }) : null;
+    const collect = () => ({ line: Object.assign({ id: o.id }, Object.fromEntries(Object.keys(f).filter((k) => !['escalated', 'closed'].includes(k)).map((k) => [k, f[k].value])), { escalated: f.escalated.checked, closed: f.closed.checked, ms: Object.fromEntries(Object.keys(mf).map((k) => [k, mf[k].value])), exp: Object.fromEntries(Object.keys(ef).map((k) => [k, ef[k].value])) }) });
+    const extra = o.id ? el('button', { class: 'btn btn-danger btn-sm', type: 'button', text: 'Delete order', onclick: async () => { if (await scDeleteLine(o)) { $('dlg').close('cancel'); loadSubcon(); } } }) : null;
     if (extra) body.append(el('div', { class: 'scwide' }, extra));
-    const r = await scDialog(isNew ? 'Add subcontractor line' : 'SO ' + o.so_no + ' · PO ' + o.po_no, body, collect, 'scSaveLine');
+    const r = await scDialog(title, body, collect, 'scSaveLine');
     if (r) { toast('Saved.'); loadSubcon(); }
   }
 
@@ -1563,9 +1593,9 @@
   function scLeadStats() {
     const rows = SC.data.leadStats.map((s) => el('tr', {}, el('td', { text: s.label }), el('td', { text: String(s.n) }), el('td', {}, s.avg == null ? '—' : el('b', { text: s.avg + ' d' })), el('td', { text: s.median == null ? '—' : s.median + ' d' }),
       el('td', { text: s.min == null ? '—' : s.min + '–' + s.max + ' d' }), el('td', { class: 'muted', text: s.skipped ? s.skipped + ' skipped (dates out of order)' : '' })));
-    return el('div', {}, el('h3', { class: 'pad', text: 'Actual time per stage (from your tracked lines)' }), el('div', { class: 'tablewrap card' }, el('table', { class: 'datatable' },
-      el('thead', {}, el('tr', {}, ['STAGE', 'LINES', 'AVERAGE', 'MEDIAN', 'FASTEST–SLOWEST', ''].map((t) => el('th', { text: t })))), el('tbody', {}, rows))),
-      el('p', { class: 'muted small pad', text: 'Counts only lines that have both dates for that stage. Import or fill in the milestone dates and these numbers get more reliable.' }));
+    return el('div', {}, el('h3', { class: 'pad', text: 'Elapsed calendar days between milestones (from your tracked orders)' }), el('div', { class: 'tablewrap card' }, el('table', { class: 'datatable' },
+      el('thead', {}, el('tr', {}, ['MILESTONES', 'ORDERS', 'AVERAGE', 'MEDIAN', 'FASTEST–SLOWEST', ''].map((t) => el('th', { text: t })))), el('tbody', {}, rows))),
+      el('p', { class: 'muted small pad', text: 'Calendar days (weekends included), actual dates only. An interval is left out when either date is missing or the dates are out of order.' }));
   }
   function scLeadCalc() {
     const st = SC.data.leadStats, chain = st.slice(0, 4), enough = chain.every((s) => s.n >= 3);

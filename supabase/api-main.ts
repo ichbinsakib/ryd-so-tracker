@@ -319,7 +319,7 @@ async function subconAction(req: any, email: string, role: string | null) {
   if (action === 'scList') {
     const r = await sb.from('sc_lines').select('*').order('bpo_no').order('batch').order('so_no');
     const built = SOSub.build(must(r as any), today);
-    return { ok: true, today, role, milestones: SOSub.MILESTONES, priorities: SOSub.PRIORITIES, blockers: SOSub.BLOCKERS, updateKinds: SOSub.UPDATE_KINDS, cfg: SOSub.CFG, ...built };
+    return { ok: true, today, role, milestones: SOSub.MILESTONES, expected: SOSub.EXPECTED, stages: SOSub.STAGES, sectionDefs: SOSub.SECTIONS, decisions: SOSub.DECISIONS, reviewStatuses: SOSub.REVIEW_STATUSES, priorities: SOSub.PRIORITIES, blockers: SOSub.BLOCKERS, updateKinds: SOSub.UPDATE_KINDS, cfg: SOSub.CFG, ...built };
   }
   if (action === 'scUpdates') {
     const r = await sb.from('sc_updates').select('id,at,by_user,kind,text').eq('line_id', String(req.id)).order('at', { ascending: false }).limit(100);
@@ -332,8 +332,15 @@ async function subconAction(req: any, email: string, role: string | null) {
     const c = SOSub.cleanLine(req.line || {}); if (!c.ok) return bad(c.errors);
     let id = req.line.id as string | undefined;
     if (id) {
-      const r = await sb.from('sc_lines').update({ ...c.value, updated_at: new Date().toISOString() }).eq('id', id).select('id').single();
+      // a date that changes keeps its first value in `orig` and the change is logged, so history is never overwritten
+      const prevRows = must(await sb.from('sc_lines').select('ms,exp,orig').eq('id', id).limit(1) as any) as any[];
+      const prev = prevRows[0] || {}, orig: any = { ...(prev.orig || {}) }, changed: string[] = [];
+      const track = (key: string, label: string, a: any, b: any) => { if (a && a !== b) { if (!orig[key]) orig[key] = a; changed.push(label + ': ' + a + ' → ' + (b || 'cleared')); } };
+      SOSub.MILESTONES.forEach((x: any) => track(x.key, x.label, (prev.ms || {})[x.key], (c.value.ms as any)[x.key]));
+      SOSub.EXPECTED.forEach((x: any) => track(x.key, x.label, (prev.exp || {})[x.key], (c.value.exp as any)[x.key]));
+      const r = await sb.from('sc_lines').update({ ...c.value, orig, updated_at: new Date().toISOString() }).eq('id', id).select('id').single();
       if (r.error) return scDup(r.error) ? dupMsg : fail('SERVER_ERROR', r.error.message);
+      if (changed.length) await sb.from('sc_updates').insert({ line_id: id, by_user: email, kind: 'CHANGE', text: changed.join('; ').slice(0, 1900) });
     } else {
       const r = await sb.from('sc_lines').insert({ ...c.value, created_by: email }).select('id').single();
       if (r.error) return scDup(r.error) ? dupMsg : fail('SERVER_ERROR', r.error.message);
@@ -389,7 +396,7 @@ async function subconAction(req: any, email: string, role: string | null) {
     const list = Array.isArray(req.rows) ? req.rows.slice(0, 500) : [];
     if (!list.length) return fail('INVALID', 'The file has no rows to import.');
     const good: any[] = [], problems: string[] = [];
-    list.forEach((row: any, i: number) => { const c = SOSub.cleanLine(row); if (c.ok) good.push(c.value); else problems.push('Row ' + (i + 1) + ' (PO ' + (row && row.po_no || '?') + '): ' + Object.values(c.errors).join(' ')); });
+    list.forEach((row: any, i: number) => { const c = SOSub.cleanLine(row); if (c.ok && !c.value.po_no) { problems.push('Row ' + (i + 1) + ': PO # is required to import a line.'); return; } if (c.ok) good.push(c.value); else problems.push('Row ' + (i + 1) + ' (PO ' + (row && row.po_no || '?') + '): ' + Object.values(c.errors).join(' ')); });
     const keys = good.map((g) => g.po_no.toUpperCase());
     const ex = await sb.from('sc_lines').select('id,po_key').in('po_key', keys);
     const have = new Map(must(ex as any).map((r: any) => [r.po_key, r.id]));

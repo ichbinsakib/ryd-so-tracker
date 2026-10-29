@@ -394,3 +394,9 @@ dialog table { width: 100%; border-collapse: collapse; } dialog th { text-align:
 .nextlabel { color: var(--muted); font-weight: 700; letter-spacing: .06em; } .nexttxt { font-size: 15px; }
 .nchip small { color: var(--muted); } .nchip b { font-size: 13px; }
 .nextcard .checkact { margin: 0; flex-wrap: nowrap; }
+
+/* subcontractor workflow */
+.ritem .impact { display: block; color: var(--muted); font-size: 12px; margin-top: 4px; white-space: normal; }
+.scorig { color: var(--warn); font-size: 11.5px; } .scspans { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 14px; }
+.scspan { display: grid; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); } .scspan small { color: var(--muted); } .scspan b { font-size: 16px; }
+#sc-kpis { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
