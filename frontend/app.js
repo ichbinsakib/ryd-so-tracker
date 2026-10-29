@@ -703,7 +703,11 @@
     const val = rec.values[f.key];
     const id = 'fld-' + f.key;
     let input;
-    if (f.type === 'enum') {
+    if (f.editable && (f.key === 'champion' || f.key === 'req_by')) {
+      const people = (state.intake && state.intake.people) || [], cur = norm(val).trim(), opts = ['', ...people]; if (cur && !people.some((p) => p.toLowerCase() === cur.toLowerCase())) opts.push(cur);
+      input = el('select', { id }, opts.map((p) => el('option', { value: p, text: p === '' ? '— choose a person —' : people.includes(p) || p === '' ? p : p + ' (existing)' })));
+      input.value = (people.find((p) => p.toLowerCase() === cur.toLowerCase())) || cur;
+    } else if (f.type === 'enum') {
       const opts = ['', ...f.options]; if (norm(val) && !f.options.includes(norm(val))) opts.push(norm(val));
       input = el('select', { id }, opts.map((o) => el('option', { value: o, text: o === '' ? '—' : (f.options.includes(o) || o === '' ? o : o + ' (existing)') })));
       input.value = norm(val);
@@ -715,6 +719,7 @@
     else if (f.editable) { input = el('input', { id, type: 'text', value: norm(val) }); }
     else { input = el('input', { id, type: 'text', value: norm(rec.display[f.key]) }); }
     input.dataset.key = f.key; input.dataset.orig = f.editable ? norm(val) : '';
+    if (f.editable && (f.key === 'champion' || f.key === 'req_by')) input.dataset.orig = input.value;
     if (!editable) input.disabled = true;
     const wrap = el('div', { class: 'field' + (f.required ? ' mandatory' : '') + (editable ? '' : ' ro') + (f.type === 'longtext' ? ' wide' : '') },
       el('label', { for: id }, f.label, f.required ? el('span', { class: 'req', title: 'Required', text: ' *' }) : '', el('span', { class: 'col', text: '(' + f.col + ')' }),
