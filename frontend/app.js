@@ -11,14 +11,30 @@
   const LOOKUP_KEYS = ['steel_type', 'router_bar_size', 'qty_per_bar'];
   const BAR_KEYS = ['so_release_status_bar', 'mat_status_bar'];
   // Editable sections of an SO, grouped the way a buyer works through it.
-  const TABS = [
-    ['Order', 'notes', 'so_no'],
-    ['Material & quote', 'steel_type', 'update_mat_cost_date'],
-    ['Approvals & PO', 'kanban_or_po', 'po_approve_date'],
-    ['Release & prints', 'print_traveller', 'update_date'],
-    ['Receiving, invoice & close', 'po_no_2', 'so_close_date'],
-    ['Workflow', 'so_required', 'blocker']
+  // Tabs mirror the lifecycle stepper: [title, stages covered, fields (a..b = a field range in column order)]
+  const TAB_DEFS = [
+    ['Decide & quantity', [1, 2], ['notes', 'status', 'so_required', 'so_required_note', 'champion', 'customer', 'part_no', 'part_rev', 'part_price', 'so_qty', 'due_date']],
+    ['Quote', [3, 4], ['steel_type..update_mat_cost_date', 'supplier', 'quote_expected_date', 'quote_valid_until', 'quote_analysis', 'quote_approve_date']],
+    ['SO request & number', [5, 6], ['kanban_or_po', 'so_type', 'so_req_date', 'req_by', 'appr_date', 'gap', 'so_no', 'so_no_received_date']],
+    ['PO & acknowledgment', [7, 8], ['po_receive_date', 'po_no_1', 'po_mention_bar_size', 'router_vs_po', 'price_on_po', 'quote_vs_po_price', 'po_approve_date', 'ack_status', 'ack_date', 'ack_note']],
+    ['Documents & release', [9, 10], ['print_traveller..update_date']],
+    ['Material arrival', [11, 11], ['po_no_2', 'po_due_date', 'mat_required_date', 'mat_receive_date_stockroom', 'verify_date', 'qty_in_stockroom']],
+    ['Invoice & closure', [12, 13], ['invoice_received_finance..diff_updated_po_invoice', 'invoice_checked_by', 'note', 'expected_closure_date', 'so_close_date', 'closure_verified_date', 'closure_note']],
+    ['Follow-up', [], ['owner', 'last_followup_date', 'next_followup_date', 'escalated', 'blocker']]
   ];
+  let tabCache = null;
+  function tabList() {
+    if (tabCache && tabCache.n === state.fields.length) return tabCache.list;
+    const order = state.fields.map((f) => f.key), used = new Set();
+    const list = TAB_DEFS.map(([title, stages, items]) => {
+      const keys = [];
+      items.forEach((it) => { const [a, b] = it.split('..'); const i = order.indexOf(a), j = b ? order.indexOf(b) : i; if (i >= 0) order.slice(i, j + 1).forEach((k) => { if (!used.has(k)) { used.add(k); keys.push(k); } }); });
+      return [title, stages, keys];
+    });
+    const rest = order.filter((k) => !used.has(k) && k !== 'record_id'); list[list.length - 1][2].push(...rest);   // anything unlisted lands on the last tab
+    tabCache = { n: state.fields.length, list }; return list;
+  }
+  const tabForStage = (n) => { const i = tabList().findIndex((t) => t[1].includes(n)); return i < 0 ? 0 : i; };
   const PEOPLE_KEYS = ['champion', 'req_by', 'owner'];
   const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail', 'view-subcon', 'view-dash'];
 
@@ -546,7 +562,7 @@
     return S;
   }
   function renderStepper(rec) {
-    $('stepper').replaceChildren(...lcOf(rec).steps.map((s, i) => el('li', { class: 'step st-' + s.state, 'aria-current': s.state === 'current' || s.state === 'issue' ? 'step' : null },
+    $('stepper').replaceChildren(...lcOf(rec).steps.map((s, i) => el('li', { class: 'step st-' + s.state, title: 'Open the ' + tabList()[tabForStage(i + 1)][0] + ' tab', onclick: () => selectTab(tabForStage(i + 1)), 'aria-current': s.state === 'current' || s.state === 'issue' ? 'step' : null },
       el('span', { class: 'sc', text: s.state === 'done' ? '✓' : s.state === 'issue' ? '!' : s.state === 'skip' ? '–' : String(i + 1) }),
       el('b', { text: s.label }), el('small', { text: s.date ? shortDate(parseDate(s.date)) : (s.state === 'current' || s.state === 'issue' ? 'now' : s.state === 'skip' ? 'n/a' : '') }))));
   }
@@ -581,7 +597,7 @@
       if (lc.status === 'Awaiting Decision') acts.push(el('button', { class: 'btn btn-primary', type: 'button', text: 'SO needed', onclick: () => decideSO(rec, true) }), el('button', { class: 'btn', type: 'button', text: 'Not required', onclick: () => decideSO(rec, false) }));
       if (lc.stage === 5) acts.push(el('button', { class: 'btn btn-primary', type: 'button', text: 'Request SO ›', onclick: () => requestSO(rec, true) }));
       acts.push(el('button', { class: 'btn', type: 'button', text: 'Log a follow-up', onclick: () => { $('logbox').scrollIntoView({ block: 'center' }); const t = $('log-text'); if (t) t.focus(); } }),
-        el('button', { class: 'btn', type: 'button', text: 'Workflow details', onclick: () => { selectTab(TABS.length - 1); $('tabs').scrollIntoView({ block: 'start' }); } }));
+        el('button', { class: 'btn', type: 'button', text: 'Edit this stage', title: 'Open the tab for the current stage', onclick: () => { selectTab(tabForStage(lc.stage)); $('tabs').scrollIntoView({ block: 'start' }); } }));
     }
     const pill = (t, cls) => el('span', { class: 'badge ' + cls, text: t });
     card.replaceChildren(
@@ -715,7 +731,7 @@
     return el('div', { class: 'fcard ready ' + (ready ? 'ok' : 'warn') }, el('h3', { text: 'Part check' }), el('div', { class: 'readyhead', text: ready ? 'Ready to request the SO' : 'Not ready: ' + open + ' to resolve' }),
       el('ul', { class: 'readylist' }, items.map((i) => el('li', { class: 'r-' + i.st }, el('span', { class: 'ri', text: icon[i.st] }), el('div', {}, el('b', { text: i.label }), el('small', { text: i.detail }))))),
       canEdit() ? el('p', { class: 'muted small', text: 'This part is still a check (1. ANALYSIS). Request SO opens it as a real SO (3.OPEN) once you have the SO# and due date.' }) : '',
-      canEdit() ? el('div', { class: 'checkact' }, ask, el('button', { class: 'btn', type: 'button', text: 'Material & quote', onclick: () => selectTab(1) })) : '');
+      canEdit() ? el('div', { class: 'checkact' }, ask, el('button', { class: 'btn', type: 'button', text: 'Quote details', onclick: () => selectTab(1) })) : '');
   }
   async function requestSO(rec, ready) {
     if (!(await leaveGuard())) return;
@@ -768,7 +784,7 @@
 
   // ---------- one SO: page, tabs, editing
   function openRecord(rec, kind, msg) {
-    state.current = rec; state.dirty = false; state.scans = []; state.tab = 0;
+    state.current = rec; state.dirty = false; state.scans = []; state.tab = tabForStage(lcOf(rec).stage);
     renderDetail(); show('view-detail'); banner('detail-banner', kind || '', msg || ''); updateDirty();
     renderScans(); loadScans(); state.log = []; loadLog();
   }
@@ -782,10 +798,8 @@
     $('detail-meta').children[2].title = 'SO release'; $('detail-meta').children[3].title = 'Material';
     $('btn-delete').hidden = !canEdit() || closed;
     renderStepper(rec); renderNextCard(rec); renderCallouts(rec); renderFacts(rec);
-    const order = state.fields.map((f) => f.key);
     const form = $('detail-form'); form.replaceChildren();
-    TABS.forEach(([title, from, to], i) => {
-      const keys = order.slice(order.indexOf(from), order.indexOf(to) + 1);
+    tabList().forEach(([title, , keys], i) => {
       form.append(el('div', { class: 'tabpanel', id: 'panel-' + i, role: 'tabpanel', hidden: i !== state.tab },
         el('fieldset', {}, el('legend', { text: title }), el('div', { class: 'grid' }, keys.map((k) => fieldNode(state.byKey[k], rec))))));
     });
@@ -794,10 +808,11 @@
     if (!canEdit() && !$('detail-banner').textContent) banner('detail-banner', 'warn', state.role === 'viewer' ? 'You have read-only access.' : 'This SO has no RECORD ID yet, so it cannot be edited.');
   }
   function buildTabs() {
-    $('tabs').replaceChildren(...TABS.map(([title], i) => el('button', { class: 'tab', type: 'button', role: 'tab', 'aria-selected': String(i === state.tab), onclick: () => selectTab(i) }, title, el('span', { class: 'tc', id: 'tc-' + i, hidden: true }))));
+    const now = state.current ? lcOf(state.current).stage : 0;
+    $('tabs').replaceChildren(...tabList().map(([title, stages], i) => el('button', { class: 'tab' + (stages.includes(now) ? ' tab-now' : ''), type: 'button', role: 'tab', 'aria-selected': String(i === state.tab), title: stages.length ? 'Stage' + (stages[0] !== stages[stages.length - 1] ? 's ' + stages[0] + '–' + stages[stages.length - 1] : ' ' + stages[0]) + (stages.includes(now) ? ' (where this SO is now)' : '') : 'Follow-ups, owner and issues', onclick: () => selectTab(i) }, stages.length ? el('span', { class: 'tstg', text: stages[0] === stages[stages.length - 1] ? String(stages[0]) : stages[0] + '–' + stages[stages.length - 1] }) : '', title, el('span', { class: 'tc', id: 'tc-' + i, hidden: true }))));
   }
   function selectTab(i) {
-    state.tab = i; TABS.forEach((_, j) => { $('panel-' + j).hidden = j !== i; });
+    state.tab = i; tabList().forEach((_, j) => { $('panel-' + j).hidden = j !== i; });
     [...$('tabs').children].forEach((t, j) => t.setAttribute('aria-selected', String(j === i)));
   }
   function fieldNode(f, rec) {
@@ -926,7 +941,7 @@
     $('btn-save').disabled = !state.dirty || state.saving; $('btn-discard').disabled = !state.dirty || state.saving;
     $('btn-save').textContent = state.saving ? 'Saving…' : 'Save changes' + (n ? ' (' + n + ')' : '');
     $('dirty-flag').textContent = n ? n + ' unsaved change' + (n === 1 ? '' : 's') : 'Saving…';
-    TABS.forEach((_, i) => { const c = $('panel-' + i) ? $('panel-' + i).querySelectorAll('.field.changed').length : 0; const b = $('tc-' + i); if (b) { b.hidden = !c; b.textContent = String(c); } });
+    tabList().forEach((_, i) => { const c = $('panel-' + i) ? $('panel-' + i).querySelectorAll('.field.changed').length : 0; const b = $('tc-' + i); if (b) { b.hidden = !c; b.textContent = String(c); } });
     $('savebar').hidden = !(state.dirty || state.saving);
   }
   async function save() {
@@ -1016,8 +1031,8 @@
   function printSheet() {
     if (state.dirty) { toast('Save your changes first so the printout is up to date.', true); return; }
     const rec = state.current; const order = state.fields.map((f) => f.key); const box = $('print-sheet');
-    const sections = TABS.map(([title, from, to]) => {
-      const rows = order.slice(order.indexOf(from), order.indexOf(to) + 1).map((k) => state.byKey[k])
+    const sections = tabList().map(([title, , keys]) => {
+      const rows = keys.map((k) => state.byKey[k])
         .filter((f) => norm(rec.display[f.key]).trim() !== '' && norm(rec.display[f.key]).trim() !== '-')
         .map((f) => el('tr', {}, el('th', { text: f.label }), el('td', { text: norm(rec.display[f.key]) })));
       return rows.length ? el('div', { class: 'ps-sec' }, el('h3', { text: title }), el('table', {}, el('tbody', {}, rows))) : null;
