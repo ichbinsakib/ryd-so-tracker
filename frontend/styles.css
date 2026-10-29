@@ -351,3 +351,32 @@ dialog table { width: 100%; border-collapse: collapse; } dialog th { text-align:
 .step:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .pipeline { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
 .datacard { margin-top: 16px; } .datacard summary { cursor: pointer; } .datacard .fresh { margin: 12px 0 0; } .tone-bad { color: var(--err); font-weight: 600; }
+
+/* ---- use the whole screen: slim icon rail, full-width page, compact SO header, dense forms ---- */
+.topbar { padding: 8px 16px; }
+.page { max-width: none; padding: 12px 18px 80px; }
+.sidenav { flex: 0 0 74px; margin: 10px 0 0 10px; padding: 8px 4px; gap: 2px; }
+.navitem { flex-direction: column; gap: 3px; padding: 9px 2px; font-size: 11px; line-height: 1.2; text-align: center; justify-content: center; font-weight: 600; }
+.navitem .navicon { font-size: 18px; line-height: 1; }
+@media (max-width: 800px) { .sidenav { flex: none; margin: 8px 12px 0; padding: 6px; } .navitem { flex-direction: row; font-size: 13px; padding: 8px 12px; } }
+
+.dhead { flex-wrap: nowrap; gap: 12px; margin-bottom: 8px; align-items: center; }
+.dtitle { min-width: 0; } .dtitle h1 { font-size: 22px; line-height: 1.2; }
+.dmeta { flex-wrap: wrap; justify-content: flex-end; gap: 6px; } .dhead .head-actions { flex-wrap: nowrap; }
+.stepper-card { padding: 6px 8px; margin-bottom: 8px; }
+.step { padding: 5px 4px 4px; min-width: 96px; gap: 2px; } .step .sc { width: 26px; height: 26px; }
+
+.nextcard { display: grid; grid-template-columns: minmax(260px, 1.15fr) 2fr; grid-template-areas: "head grid" "why acts"; gap: 6px 22px; align-items: center; padding: 8px 14px; margin-bottom: 8px; }
+.nextcard > .nexthead { grid-area: head; } .nextcard > .nextgrid { grid-area: grid; } .nextcard > .nextwhy { grid-area: why; margin-top: 0; } .nextcard > .checkact { grid-area: acts; margin-top: 0; justify-content: flex-end; }
+.nexthead h2 { margin: 0; font-size: 17px; line-height: 1.25; } .nexthead small { display: block; }
+.nextgrid { gap: 4px 16px; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); } .nitem b { font-size: 13px; }
+@media (max-width: 1000px) { .nextcard { grid-template-columns: 1fr; grid-template-areas: "head" "grid" "why" "acts"; } .dhead { flex-wrap: wrap; } }
+
+.callouts { grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 6px; margin-bottom: 8px; }
+.callout { padding: 6px 12px; } .callout b { display: inline; margin-right: 6px; } .callout span { font-size: 13px; }
+.dlayout { grid-template-columns: 300px minmax(0, 1fr); gap: 12px; } .dside { gap: 8px; top: 56px; max-height: calc(100vh - 70px); }
+.facts { gap: 8px; } .fcard { padding: 9px 12px; }
+.grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 12px; }
+.card { padding: 12px 14px; }
+.tabpanel fieldset { padding: 6px 12px 12px; }
+.pagehead { margin-bottom: 10px; } .kpis { gap: 8px; margin-bottom: 8px; } .kpi { padding: 9px 12px; } .kpi .kv { font-size: 24px; }
