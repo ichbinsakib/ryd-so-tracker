@@ -285,6 +285,31 @@ async function scAudit(email: string, recordId: string, field: string, newValue:
 }
 const scDup = (e: any) => e && /duplicate key|unique/i.test(e.message || '');
 const scToday = () => new Date().toISOString().slice(0, 10);
+// SO lifecycle follow-up log (decisions, follow-ups, escalations, evidence references)
+const LOG_KINDS = ['NOTE', 'FOLLOW-UP', 'ESCALATION', 'DECISION', 'EVIDENCE'];
+async function logAction(req: any, email: string, role: string | null) {
+  if (!role) return fail('FORBIDDEN', 'You are not allowed to use this app.');
+  const id = String(req.id || '');
+  if (!UUID.test(id)) return fail('BAD_REQUEST', 'Missing SO.');
+  if (req.action === 'lgList') {
+    const r = await sb.from('so_log').select('id,at,by_user,kind,text,ref').eq('record_id', id).order('at', { ascending: false }).limit(200);
+    return { ok: true, log: must(r as any) };
+  }
+  if (req.action === 'lgAdd') {
+    if (role !== 'editor' && role !== 'admin') return fail('FORBIDDEN', 'You have read-only access.');
+    const kind = String(req.kind || 'NOTE'), text = String(req.text || '').trim(), ref = String(req.ref || '').trim();
+    const errors: any = {};
+    if (!LOG_KINDS.includes(kind)) errors.kind = 'Choose a type.';
+    if (!text) errors.text = 'Write what happened.'; else if (text.length > 2000) errors.text = 'Keep it under 2000 characters.';
+    if (ref.length > 500) errors.ref = 'Keep the reference under 500 characters.';
+    if (Object.keys(errors).length) return fail('INVALID', 'Please fix the highlighted fields.', { fieldErrors: errors });
+    const ins = await sb.from('so_log').insert({ record_id: id, by_user: email, kind, text, ref });
+    if (ins.error) return fail('SERVER_ERROR', ins.error.message);
+    return { ok: true };
+  }
+  return fail('BAD_REQUEST', 'Unknown action.');
+}
+
 async function subconAction(req: any, email: string, role: string | null) {
   if (!role) return fail('FORBIDDEN', 'You are not allowed to use this app.');
   const write = role === 'editor' || role === 'admin';
@@ -393,6 +418,7 @@ async function handleRequest(req: any) {
   if (req.action === 'changePassword' && role) return await changePassword(email, req);
 
   if (typeof req.action === 'string' && req.action.startsWith('sc')) return await subconAction(req, email, role);
+  if (typeof req.action === 'string' && req.action.startsWith('lg')) return await logAction(req, email, role);
 
   const opts = await prefetch(req, email, role, users, cfg);
   const snap = SOPg.create(opts);

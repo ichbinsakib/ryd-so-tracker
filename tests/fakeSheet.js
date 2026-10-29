@@ -2,7 +2,7 @@
 // All data here is synthetic. Never put real operational data in the repository.
 const Core = require('../backend/Core.js');
 
-const NCOLS = 78; // A..BY (77 columns) + RECORD ID
+const NCOLS = 100; // A..BY (77 columns) + RECORD ID + lifecycle columns CA..CT
 const ID_INDEX = 77;
 
 function emptyRow() { return new Array(NCOLS).fill(''); }

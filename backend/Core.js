@@ -90,7 +90,28 @@ var SOCore = (function () {
     ['BV', 'qty_in_stockroom', 'QTY. IN STOCKROOM', 'text'],
     ['BW', 'invoice_checked_by', 'Invoice checked by', 'text'],
     ['BX', 'note', 'NOTE', 'longtext'],
-    ['BY', 'so_close_date', 'SO CLOSE DATE', 'date']
+    ['BY', 'so_close_date', 'SO CLOSE DATE', 'date'],
+    // ---- lifecycle tracking (not in the original sheet; stored with the record, columns after RECORD ID) ----
+    ['CA', 'so_required', 'SO REQUIRED?', 'enum', { options: ['YES', 'NO', 'PENDING'] }],
+    ['CB', 'so_required_note', 'REASON IF NOT REQUIRED / PENDING', 'text'],
+    ['CC', 'part_rev', 'PART REVISION', 'text'],
+    ['CD', 'supplier', 'MATERIAL SUPPLIER', 'text'],
+    ['CE', 'quote_expected_date', 'QUOTE EXPECTED BY', 'date'],
+    ['CF', 'quote_analysis', 'QUOTE ANALYSIS / RECOMMENDED OPTION', 'longtext'],
+    ['CG', 'quote_valid_until', 'QUOTE VALID UNTIL', 'date'],
+    ['CH', 'so_no_received_date', 'SO# RECEIVED DATE', 'date'],
+    ['CI', 'ack_status', 'SUPPLIER ACKNOWLEDGMENT', 'enum', { options: ['PENDING', 'RECEIVED', 'DISCREPANCY'] }],
+    ['CJ', 'ack_date', 'ACKNOWLEDGMENT DATE', 'date'],
+    ['CK', 'ack_note', 'ACKNOWLEDGMENT NOTE', 'text'],
+    ['CL', 'mat_required_date', 'MATERIAL REQUIRED BY', 'date'],
+    ['CM', 'expected_closure_date', 'EXPECTED CLOSURE DATE', 'date'],
+    ['CN', 'closure_verified_date', 'CLOSURE VERIFIED DATE', 'date'],
+    ['CO', 'closure_note', 'CLOSURE NOTE / EVIDENCE', 'text'],
+    ['CP', 'owner', 'RESPONSIBLE PERSON', 'text'],
+    ['CQ', 'last_followup_date', 'LAST FOLLOW-UP', 'date'],
+    ['CR', 'next_followup_date', 'NEXT FOLLOW-UP', 'date'],
+    ['CS', 'escalated', 'ESCALATED?', 'enum', { options: YN }],
+    ['CT', 'blocker', 'OUTSTANDING ISSUE', 'text']
   ];
 
   function colToIndex(letters) {

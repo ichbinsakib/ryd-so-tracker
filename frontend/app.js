@@ -16,8 +16,10 @@
     ['Material & quote', 'steel_type', 'update_mat_cost_date'],
     ['Approvals & PO', 'kanban_or_po', 'po_approve_date'],
     ['Release & prints', 'print_traveller', 'update_date'],
-    ['Receiving, invoice & close', 'po_no_2', 'so_close_date']
+    ['Receiving, invoice & close', 'po_no_2', 'so_close_date'],
+    ['Workflow', 'so_required', 'blocker']
   ];
+  const PEOPLE_KEYS = ['champion', 'req_by', 'owner'];
   const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail', 'view-subcon', 'view-dash'];
 
   // ---------- helpers
@@ -239,42 +241,62 @@
   async function loadDash(fresh) {
     const st = $('dash2-status'); st.className = 'statusline'; st.textContent = 'Loading…';
     $('btn-refresh').disabled = true;
-    const [inh, sc] = await Promise.all([
-      state.dash && !fresh ? Promise.resolve({ ok: true, cached: true }) : api(isAdmin() ? 'dashboard' : 'mySOs', { includeClosed: false, fresh: !!fresh }),
-      api('scList', { today: today() })]);
+    const [inh, sc] = await Promise.all([api(isAdmin() ? 'dashboard' : 'mySOs', { includeClosed: true, fresh: !!fresh, today: today() }), api('scList', { today: today() })]);
     $('btn-refresh').disabled = false;
     const bad = [inh, sc].find((x) => !x.ok);
     if (bad && bad.code === 'UNAUTHENTICATED') return showLogin(bad.error);
-    if (inh.ok && !inh.cached) applyDashboard(inh);
     if (sc.ok) SC.data = sc;
+    state.dashAll = inh.ok ? inh : null;
     st.className = 'statusline' + (bad ? ' err' : ''); st.textContent = bad ? bad.error + ' (some data unavailable)' : '';
-    renderDash(inh.ok ? state.dash : null, sc.ok ? sc : null);
+    renderDash(state.dashAll, sc.ok ? sc : null);
+  }
+  const REPORT_CAP = 8;
+  const SECTIONS = [['A', 'Immediate actions', 'Needs you now', 'warn'], ['B', 'Blocked shop orders', 'Waiting on someone else', 'info'], ['C', 'Material and production risks', 'Late or at-risk material', 'bad'],
+    ['D', 'Upcoming SO due dates', 'Due within 14 days, in monitoring', 'info'], ['E', 'Overdue SOs', 'Past due without verified closure', 'bad'], ['F', 'Completed', 'Verified closures, last 14 days', 'ok']];
+  function reportSections(dash) {
+    const by = {}; SECTIONS.forEach(([k]) => { by[k] = []; });
+    (dash ? dash.rows : []).forEach((r) => {
+      const lc = r.lc; if (!lc || !lc.section) return;
+      if (lc.section === 'F') { const n = lc.closedOn ? daysUntil(parseDate(lc.closedOn)) : null; if (n === null || n < -14) return; }
+      by[lc.section].push(r);
+    });
+    Object.values(by).forEach((a) => a.sort((x, y) => x.lc.rank - y.lc.rank));
+    return by;
+  }
+  const soLabel = (r) => (norm(r.so_no) ? 'SO ' + norm(r.so_no) : 'Part check');
+  function reportItem(r, sec) {
+    const lc = r.lc;
+    const lines = sec === 'F' ? [['Closed', dshort(lc.closedOn)]] : [['Action', lc.next || '—'], [lc.owner === 'me' ? 'Who' : 'Waiting on', lc.owner === 'me' ? 'Me' : (lc.waitingOn || '—')], ['Do by', lc.actionDate ? dshort(lc.actionDate) : '—'], ['Follow-up', lc.followup ? dshort(lc.followup) : '—']];
+    return el('button', { class: 'ditem ritem', type: 'button', onclick: () => openById(r.id) },
+      el('span', { class: 'so', text: soLabel(r) }),
+      el('span', { class: 'dmain' }, el('b', { text: norm(r.part_no) + ' · ' + norm(r.customer) + (norm(r.qty) ? ' · ' + norm(r.qty) + ' pcs' : '') }), el('small', { text: r.stage + ' · ' + lc.status + (norm(r.due) ? ' · due ' + dshort(toIso(norm(r.due))) : '') }),
+        lc.reasons.length ? el('span', { class: 'nextwhy' }, lc.reasons.slice(0, 4).map((x) => el('span', { class: 'badge ' + (x.level === 'crit' ? 'sc-bad' : x.level === 'warn' ? 'sc-warn' : 'sc-muted'), text: x.text }))) : ''),
+      el('span', { class: 'rlines' }, lines.map(([k, v]) => el('span', {}, el('small', { text: k }), ' ', v))));
+  }
+  const toIso = (s) => { const d = parseDate(s); return d ? d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') : ''; };
+  function reportText() {
+    const by = reportSections(state.dashAll), out = ['SHOP ORDER REPORT: ' + today(), ''];
+    SECTIONS.forEach(([k, title]) => {
+      out.push(k + '. ' + title.toUpperCase() + ' (' + by[k].length + ')');
+      if (!by[k].length) out.push('  none');
+      by[k].forEach((r) => { const lc = r.lc; out.push('- ' + [norm(r.part_no), soLabel(r), r.stage + ' / ' + lc.status, k === 'F' ? 'closed ' + lc.closedOn : 'Action: ' + (lc.next || '—'), lc.owner === 'me' ? 'Who: me' : lc.waitingOn ? 'Waiting on: ' + lc.waitingOn : '', lc.actionDate ? 'By: ' + lc.actionDate : '', lc.followup ? 'Follow-up: ' + lc.followup : '', lc.reasons.length ? 'Issues: ' + lc.reasons.map((x) => x.text).join('; ') : ''].filter(Boolean).join(' | ')); });
+      out.push('');
+    });
+    return out.join('\n');
   }
   function renderDash(dash, sc) {
-    const kp = (cls, v, l, go) => el(go ? 'button' : 'div', { class: 'kpi ' + cls + (go ? ' kpi-go' : ''), type: go ? 'button' : undefined, onclick: go }, el('div', { class: 'kv', text: String(v) }), el('div', { class: 'kl', text: l }));
-    const rows = dash ? dash.rows.filter(rowOpen) : [];
-    const late = rows.filter((r) => { const n = daysUntil(rowDue(r)); return n !== null && n < 0; });
-    const soon = rows.filter((r) => { const n = daysUntil(rowDue(r)); return n !== null && n >= 0 && n <= 7; });
-    const short = rows.filter((r) => !r.matReceived && r.reqFt !== null && r.availFt !== null && r.availFt < r.reqFt).length;
-    const aq = rows.filter(awaitingQuote).length;
-    const toInhouse = (chip, stage) => () => { state.chip = chip; state.stage = stage || ''; state.mat = ''; goHome(); };
-    const toQueue = () => { SC.tab = 'queue'; openSubcon('subcon'); };
-    $('dash2-kpis-in').replaceChildren(...(dash ? [
-      kp('info', rows.length, 'Open SOs', toInhouse('all')), kp(late.length ? 'bad' : 'ok', late.length, 'Overdue', toInhouse('late')), kp(soon.length ? 'warn' : 'ok', soon.length, 'Due in 7 days', toInhouse('all')),
-      kp(aq ? 'warn' : 'ok', aq, 'Awaiting quote', toInhouse('quote')),
-      kp('info', rows.filter((r) => r.stage === 'Release').length, 'Ready to release', toInhouse('all', 'Release')), kp(short ? 'warn' : 'ok', short, 'Short on material', toInhouse('all'))] : [el('p', { class: 'muted', text: 'Inhouse data is unavailable.' })]));
-    const k = sc && sc.kpis;
-    $('dash2-kpis-sc').replaceChildren(...(k ? [
-      kp('info', k.open, 'Open lines', () => openSubcon('subcon')), kp(k.needsAction ? 'warn' : 'ok', k.needsAction, 'Need my action', toQueue),
-      kp(k.pastDue ? 'bad' : 'ok', k.pastDue, 'Past due', toQueue), kp(k.forecastLate ? 'warn' : 'ok', k.forecastLate, 'Forecast late', toQueue),
-      kp(k.blocked ? 'bad' : 'ok', k.blocked, 'Blocked / on hold', toQueue), kp('info', qtyFmt(k.openQty), 'Pcs still open', () => openSubcon('subcon'))] : [el('p', { class: 'muted', text: 'Subcontractor data is unavailable.' })]));
-    const watch = rows.filter((r) => { const n = daysUntil(rowDue(r)); return n !== null && n <= 7; }).sort((x, y) => rowDue(x) - rowDue(y));
-    const more = (n, f) => (n > DASH_LIST ? el('button', { class: 'btn btn-sm dmore', type: 'button', text: 'Show all ' + n + ' ›', onclick: f }) : '');
-    $('dash2-list-in').replaceChildren(!dash ? el('p', { class: 'muted', text: 'Unavailable.' }) : watch.length ? el('div', { class: 'dlist' }, ...watch.slice(0, DASH_LIST).map((r) => el('button', { class: 'ditem', type: 'button', onclick: () => openById(r.id) },
-      el('span', { class: 'so', text: norm(r.so_no) || '—' }), el('span', { class: 'dmain' }, el('b', { text: norm(r.part_no) }), el('small', { text: norm(r.customer) + ' · ' + (r.stage || '') })), dueNode(rowDue(r), false))), more(watch.length, toInhouse('late'))) : el('p', { class: 'muted', text: 'Nothing is overdue or due this week.' }));
-    const lines = sc ? sc.queue.map((id) => sc.lines.find((l) => l.id === id)).filter(Boolean) : [];
-    $('dash2-list-sc').replaceChildren(!sc ? el('p', { class: 'muted', text: 'Unavailable.' }) : lines.length ? el('div', { class: 'dlist' }, ...lines.slice(0, DASH_LIST).map((o) => el('button', { class: 'ditem', type: 'button', onclick: () => openSubcon('subcon').then(() => scEditLine(o)) },
-      el('span', { class: 'dot sc-dot-' + o.attention }), el('span', { class: 'dmain' }, el('b', { text: o.so_no + ' · ' + o.part_no }), el('small', { text: (o.reasons[0] ? o.reasons[0].text + ' · ' : '') + o.action })), el('small', { class: 'muted', text: o.stage }))), more(lines.length, toQueue)) : el('p', { class: 'muted', text: 'Nothing needs your action right now.' }));
+    const by = reportSections(dash);
+    const tile = (k, title, sub, tone) => el('button', { class: 'kpi kpi-go ' + (by[k].length ? tone : 'ok'), type: 'button', onclick: () => { const t = $('rep-' + k); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
+      el('div', { class: 'kv', text: String(by[k].length) }), el('div', { class: 'kl', text: k + '. ' + title }));
+    $('dash2-tiles').replaceChildren(...(dash ? SECTIONS.map(([k, t, s, tone]) => tile(k, t, s, tone)) : [el('p', { class: 'muted', text: 'Shop order data is unavailable.' })]));
+    $('dash2-report').replaceChildren(...(dash ? SECTIONS.filter(([k]) => by[k].length || k === 'A').map(([k, title, sub]) => el('section', { class: 'card rsec', id: 'rep-' + k },
+      el('div', { class: 'sechead' }, el('h3', { text: k + '. ' + title }), el('span', { class: 'muted small', text: sub + ' · ' + by[k].length })),
+      by[k].length ? el('div', { class: 'dlist' }, ...by[k].slice(0, state.repAll && state.repAll[k] ? by[k].length : REPORT_CAP).map((r) => reportItem(r, k)),
+        by[k].length > REPORT_CAP ? el('button', { class: 'btn btn-sm dmore', type: 'button', text: state.repAll && state.repAll[k] ? 'Show fewer' : 'Show all ' + by[k].length + ' ›', onclick: () => { state.repAll = state.repAll || {}; state.repAll[k] = !state.repAll[k]; renderDash(dash, sc); } }) : '') : el('p', { class: 'muted', text: 'Nothing needs your action right now.' }))) : []));
+    const kp = (cls, v, l, go) => el('button', { class: 'kpi kpi-go ' + cls, type: 'button', onclick: go }, el('div', { class: 'kv', text: String(v) }), el('div', { class: 'kl', text: l }));
+    const k = sc && sc.kpis, toQueue = () => { SC.tab = 'queue'; openSubcon('subcon'); };
+    $('dash2-kpis-sc').replaceChildren(...(k ? [kp('info', k.open, 'Open lines', () => openSubcon('subcon')), kp(k.needsAction ? 'warn' : 'ok', k.needsAction, 'Need my action', toQueue),
+      kp(k.pastDue ? 'bad' : 'ok', k.pastDue, 'Past due', toQueue), kp(k.blocked ? 'bad' : 'ok', k.blocked, 'Blocked / on hold', toQueue)] : [el('p', { class: 'muted', text: 'Subcontractor data is unavailable.' })]));
   }
 
   // ---------- inhouse list
@@ -283,7 +305,7 @@
     $('grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: 'Loading…' })));
     const ls = $('list-status'); ls.className = 'statusline'; ls.textContent = '';
     $('btn-refresh').disabled = true;
-    const r = await api(isAdmin() ? 'dashboard' : 'mySOs', { includeClosed: $('incl-closed').checked, fresh: !!fresh });
+    const r = await api(isAdmin() ? 'dashboard' : 'mySOs', { includeClosed: $('incl-closed').checked, fresh: !!fresh, today: today() });
     $('btn-refresh').disabled = false;
     if (!r.ok) {
       if (r.code === 'UNAUTHENTICATED') return showLogin(r.error);
@@ -311,9 +333,9 @@
       k(aq ? 'warn' : 'ok', aq, 'Awaiting quote'), k('info', avg('soBar'), 'Avg SO release'), k('info', avg('matBar'), 'Avg material'));
   }
   // ---------- inhouse planning: pipeline by stage, material roll-up
-  const STAGES = ['Check', 'Order', 'Material', 'Quote', 'Approval', 'PO', 'Release', 'Receiving', 'Invoice'];
-  const STAGE_HINT = { Check: 'Part check, quote pending', Order: 'Details missing', Material: 'Steel data missing', Quote: 'Waiting for quote', Approval: 'Quote to approve', PO: 'PO to place / approve', Release: 'Ready to release', Receiving: 'Material in transit', Invoice: 'Invoice to finance' };
-  const rowOpen = (r) => !rowClosed(r) && r.stage !== 'Closed';
+  const STAGES = SOLife.STAGES.map((s) => s[1]);
+  const STAGE_HINT = { Decide: 'Is an SO needed?', Quantity: 'Qty and requirements', 'Quote request': 'Ask for the quote', 'Quote analysis': 'Analyze and approve', 'SO request': 'Request the SO', 'SO number': 'Costing manager', PO: 'Purchase the material', Acknowledgment: 'Supplier to confirm', Documents: 'Release documents', Release: 'Release to production', 'Material arrival': 'Material in transit', Monitoring: 'Until the due date', Closure: 'Verify the closure' };
+  const rowOpen = (r) => !rowClosed(r) && !(r.lc && (r.lc.status === 'Closed — Verified' || r.lc.status === 'Cancelled / Not Required'));
   const matKey = (r) => (r.steelType ? [r.steelType, r.barType, r.barSize].map((x) => x || '?').join(' | ') : '');
   const fmtN = (n, d) => (n === null || n === undefined ? '—' : Number(n).toLocaleString(undefined, { maximumFractionDigits: d === undefined ? 1 : d }));
   function renderPipeline(rows) {
@@ -328,7 +350,7 @@
     }));
   }
   function renderMatReq(rows) {
-    const need = rows.filter((r) => rowOpen(r) && !r.matReceived && r.stage !== 'Check');
+    const need = rows.filter((r) => rowOpen(r) && !r.matReceived && !(r.lc && r.lc.stage < 6));
     const groups = {}, nodata = [];
     need.forEach((r) => {
       const k = matKey(r); if (!k) { nodata.push(r); return; }
@@ -368,9 +390,10 @@
     freshness('card-steel', 'steel-when', 'steel-sub', st ? st.at : null,
       st ? st.count + ' rows' + (st.by ? ' · by ' + st.by : '') + (st.fileName ? ' · ' + st.fileName : '') : '', 'Not updated through the app yet');
   }
-  const CHIPS = [['all', 'All'], ['1. ANALYSIS', 'Analysis'], ['3.OPEN', 'Open'], ['5.HOLD', 'On hold'], ['late', 'Overdue'], ['quote', 'Awaiting quote'], ['4.CLOSE', 'Closed']];
+  const CHIPS = [['all', 'All'], ['mine', 'Needs my action'], ['blocked', 'Blocked'], ['1. ANALYSIS', 'Analysis'], ['3.OPEN', 'Open'], ['5.HOLD', 'On hold'], ['late', 'Overdue'], ['quote', 'Awaiting quote'], ['4.CLOSE', 'Closed']];
   function chipMatch(r, c) {
     if (c === 'all') return true; if (c === 'late') { const n = daysUntil(rowDue(r)); return !rowClosed(r) && n !== null && n < 0; }
+    if (c === 'mine') return rowOpen(r) && !!r.lc && r.lc.owner === 'me'; if (c === 'blocked') return rowOpen(r) && !!r.lc && r.lc.section === 'B';
     if (c === 'quote') return !rowClosed(r) && awaitingQuote(r); return norm(r.status).trim() === c;
   }
   function buildChips() {
@@ -389,16 +412,17 @@
     state.view = rows; state.page = 0; renderTable();
   }
   function renderTable() {
-    $('grid').tHead.replaceChildren(el('tr', {}, ['SO#', 'Part / customer', 'Stage', 'Material', 'Due', 'SO release', 'Mat. status', ''].map((h) => el('th', { text: h }))));
+    $('grid').tHead.replaceChildren(el('tr', {}, ['SO#', 'Part / customer', 'Stage', 'Next action', 'Material', 'Due', 'SO release', 'Mat. status', ''].map((h) => el('th', { text: h }))));
     const pages = Math.max(1, Math.ceil(state.view.length / state.pageSize));
     state.page = Math.min(state.page, pages - 1);
     const slice = state.view.slice(state.page * state.pageSize, (state.page + 1) * state.pageSize);
     const body = $('grid').tBodies[0];
-    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 8, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : (isAdmin() ? 'No open SOs.' : 'You have no open SOs yet. Use Open an SO, or find one by its number.') })));
+    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 9, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : (isAdmin() ? 'No open SOs.' : 'You have no open SOs yet. Use Open an SO, or find one by its number.') })));
     else body.replaceChildren(...slice.map((r) => el('tr', { tabindex: 0, onclick: () => openById(r.id), onkeydown: (e) => { if (e.key === 'Enter') openById(r.id); } },
       el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'so', text: norm(r.so_no) || '—' }), el('small', { text: norm(r.qty) ? norm(r.qty) + ' pcs' : '' }))),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { text: norm(r.part_no) }), el('small', { text: norm(r.customer) }))),
-      el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill st-' + norm(r.stage).toLowerCase(), text: r.stage || '—' }), el('small', { text: norm(r.status) }))),
+      el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill', text: r.stage || '—' }), el('small', { text: r.lc ? r.lc.status : norm(r.status) }))),
+      el('td', {}, el('div', { class: 'cell2' }, el('span', { text: r.lc && r.lc.next ? r.lc.next : '—' }), el('small', { text: r.lc ? (r.lc.owner === 'me' ? 'Me' + (r.lc.actionDate ? ' · by ' + dshort(r.lc.actionDate) : '') : r.lc.waitingOn ? 'Waiting on ' + r.lc.waitingOn + (r.lc.followup ? ' · follow up ' + dshort(r.lc.followup) : '') : '') : '' }))),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { text: r.steelType ? [r.steelType, r.barType].filter(Boolean).join(' ') : 'no steel data' }), el('small', { text: r.steelType ? [r.barSize, r.reqBar !== null ? fmtN(Math.ceil(r.reqBar), 0) + ' bars' : ''].filter(Boolean).join(' · ') : '' }))),
       el('td', {}, dueNode(rowDue(r), rowClosed(r))),
       el('td', {}, barNode(r.soBar)), el('td', {}, barNode(r.matBar)), el('td', { class: 'chev' }, rowClosed(r) ? '' : el('button', { class: 'rowdel', type: 'button', title: 'Delete this SO', 'aria-label': 'Delete this SO', text: '🗑', onclick: (e) => { e.stopPropagation(); deleteSO(r.id, norm(r.so_no) || norm(r.part_no)); } }), ' ›'))));
@@ -515,14 +539,84 @@
     return S;
   }
   function renderStepper(rec) {
-    $('stepper').replaceChildren(...workflow(rec).map((s, i) => el('li', { class: 'step st-' + s.state, 'aria-current': s.state === 'current' ? 'step' : null },
+    $('stepper').replaceChildren(...lcOf(rec).steps.map((s, i) => el('li', { class: 'step st-' + s.state, 'aria-current': s.state === 'current' || s.state === 'issue' ? 'step' : null },
       el('span', { class: 'sc', text: s.state === 'done' ? '✓' : s.state === 'issue' ? '!' : s.state === 'skip' ? '–' : String(i + 1) }),
-      el('b', { text: s.label }), el('small', { text: s.date ? shortDate(s.date) : (s.state === 'current' ? 'next step' : '') }))));
+      el('b', { text: s.label }), el('small', { text: s.date ? shortDate(parseDate(s.date)) : (s.state === 'current' || s.state === 'issue' ? 'now' : s.state === 'skip' ? 'n/a' : '') }))));
+  }
+  // ---------- lifecycle: the rules live in lifecycle.js (same file the server uses)
+  const lcInput = (rec) => { const d = {}; state.fields.forEach((f) => { d[f.key] = norm(f.editable ? rec.values[f.key] : rec.display[f.key]).trim(); }); return d; };
+  const lcOf = (rec) => SOLife.describe(lcInput(rec), today());
+  async function quickUpdate(rec, changes, okMsg) {
+    if (!(await leaveGuard())) return false;
+    const r = await api('update', { id: rec.id, baseVersion: rec.version, changes });
+    if (!r.ok) { toast(r.error || 'Could not save.', true); return false; }
+    state.current = r.record; state.dirty = false; renderDetail(); updateDirty(); if (okMsg) toast(okMsg); return true;
+  }
+  async function addLog(rec, kind, text, ref) { return api('lgAdd', { id: rec.id, kind, text, ref: ref || '' }); }
+  async function decideSO(rec, needed) {
+    let note = '';
+    if (!needed) {
+      const ta = el('textarea', { rows: 3, placeholder: 'Why is no SO needed? (for example: covered by stock, customer cancelled)' });
+      if (!(await confirmDialog('SO not required', el('div', {}, el('p', { text: 'The part will be marked Cancelled / Not Required and leave your action list.' }), ta), 'Mark not required'))) return;
+      note = ta.value.trim(); if (!note) { toast('Enter the reason.', true); return; }
+    }
+    const ok = await quickUpdate(rec, needed ? { so_required: 'YES' } : { so_required: 'NO', so_required_note: note }, needed ? 'Marked: SO needed.' : 'Marked: not required.');
+    if (ok) { await addLog(rec, 'DECISION', needed ? 'SO required: yes' : 'SO not required: ' + note); loadLog(); }
+  }
+  function renderNextCard(rec) {
+    const lc = lcOf(rec), card = $('nextcard');
+    const done = lc.status === 'Closed — Verified' || lc.status === 'Cancelled / Not Required', crit = lc.reasons.some((x) => x.level === 'crit');
+    card.className = 'card nextcard ' + (done ? 'done' : crit ? 'bad' : lc.owner === 'me' ? 'mine' : 'wait');
+    const item = (label, node) => (node === '' || node === null || node === undefined ? '' : el('div', { class: 'nitem' }, el('small', { text: label }), el('b', {}, node)));
+    const who = lc.owner === 'me' ? 'Me' : lc.waitingOn;
+    const acts = [];
+    if (canEdit() && !done) {
+      if (lc.status === 'Awaiting Decision') acts.push(el('button', { class: 'btn btn-primary', type: 'button', text: 'SO needed', onclick: () => decideSO(rec, true) }), el('button', { class: 'btn', type: 'button', text: 'Not required', onclick: () => decideSO(rec, false) }));
+      if (lc.stage === 5) acts.push(el('button', { class: 'btn btn-primary', type: 'button', text: 'Request SO ›', onclick: () => requestSO(rec, true) }));
+      acts.push(el('button', { class: 'btn', type: 'button', text: 'Log a follow-up', onclick: () => { $('logbox').scrollIntoView({ block: 'center' }); const t = $('log-text'); if (t) t.focus(); } }),
+        el('button', { class: 'btn', type: 'button', text: 'Workflow details', onclick: () => { selectTab(TABS.length - 1); $('tabs').scrollIntoView({ block: 'start' }); } }));
+    }
+    const pill = (t, cls) => el('span', { class: 'badge ' + cls, text: t });
+    card.replaceChildren(
+      el('div', { class: 'nexthead' }, el('small', { text: done ? 'STATUS' : 'NEXT ACTION' }), el('h2', { text: lc.next || (done ? lc.status : 'Nothing to do right now') })),
+      el('div', { class: 'nextgrid' }, item('Status', lc.status), item(lc.owner === 'me' ? 'Who' : 'Waiting on', who), item('Do by', lc.actionDate ? shortDate(parseDate(lc.actionDate)) : ''),
+        item('Next follow-up', lc.followup ? shortDate(parseDate(lc.followup)) + (lc.followupDue ? ' (due)' : '') : ''), item('Material', lc.matStatus ? pill(lc.matStatus, lc.matStatus === 'Late' ? 'sc-bad' : lc.matStatus === 'At Risk' ? 'sc-warn' : lc.matStatus === 'Unknown' ? 'sc-muted' : 'sc-ok') : ''),
+        item('Initial workflow', lc.initial), item('Final lifecycle', lc.final)),
+      lc.reasons.length ? el('div', { class: 'nextwhy' }, lc.reasons.map((x) => el('span', { class: 'badge ' + (x.level === 'crit' ? 'sc-bad' : x.level === 'warn' ? 'sc-warn' : 'sc-muted'), text: x.text }))) : '',
+      acts.length ? el('div', { class: 'checkact' }, acts) : '');
+  }
+  // ---------- follow-up log
+  async function loadLog() {
+    const rec = state.current; if (!rec || !rec.id) { state.log = []; renderLog(); return; }
+    const r = await api('lgList', { id: rec.id });
+    if (!state.current || state.current.id !== rec.id) return;
+    state.log = r.ok ? r.log : []; renderLog(r.ok ? '' : (r.error || 'Could not load the log.'));
+  }
+  function renderLog(err) {
+    const rec = state.current; if (!rec) return;
+    const kind = el('select', { id: 'log-kind' }, [['FOLLOW-UP', 'Follow-up'], ['NOTE', 'Note'], ['DECISION', 'Decision'], ['ESCALATION', 'Escalation'], ['EVIDENCE', 'Evidence']].map(([v, l]) => el('option', { value: v, text: l })));
+    const text = el('textarea', { id: 'log-text', rows: 2, placeholder: 'What happened? Who did you contact, what did they say?' });
+    const ref = el('input', { id: 'log-ref', type: 'text', placeholder: 'Link or reference to the email / document (optional)' });
+    const nxt = el('input', { id: 'log-next', type: 'date', 'aria-label': 'Next follow-up date' });
+    const msg = el('span', { class: 'error', id: 'log-msg' });
+    const go = el('button', { class: 'btn btn-primary', type: 'button', text: 'Add to log' });
+    go.onclick = async () => {
+      msg.textContent = ''; if (!text.value.trim()) { msg.textContent = 'Write what happened.'; return; }
+      go.disabled = true; const r = await addLog(rec, kind.value, text.value.trim(), ref.value.trim()); go.disabled = false;
+      if (!r.ok) { msg.textContent = (r.fieldErrors && Object.values(r.fieldErrors)[0]) || r.error || 'Could not save.'; return; }
+      const ch = {}; if (kind.value === 'FOLLOW-UP' || kind.value === 'ESCALATION') ch.last_followup_date = today(); if (kind.value === 'ESCALATION') ch.escalated = 'YES'; if (nxt.value) ch.next_followup_date = nxt.value;
+      if (Object.keys(ch).length && !state.dirty) await quickUpdate(state.current, ch); else if (Object.keys(ch).length) toast('Logged. Save your edits, then set the follow-up dates on the Workflow tab.');
+      toast('Added to the log.'); loadLog();
+    };
+    $('log-form').replaceChildren(...(canEdit() ? [el('div', { class: 'logrow' }, kind, el('label', { class: 'lognext' }, 'Next follow-up ', nxt)), text, ref, el('div', { class: 'logrow' }, go, msg)] : [el('p', { class: 'muted', text: 'You have read-only access.' })]));
+    const log = state.log || [];
+    $('log-list').replaceChildren(...(err ? [el('p', { class: 'error', text: err })] : log.length ? log.map((e) => el('div', { class: 'logitem k-' + e.kind.toLowerCase() },
+      el('div', { class: 'loghead' }, el('span', { class: 'badge ' + (e.kind === 'ESCALATION' ? 'sc-bad' : e.kind === 'DECISION' ? 'sc-warn' : 'sc-muted'), text: e.kind.toLowerCase() }), el('small', { class: 'muted', text: new Date(e.at).toLocaleString() + ' · ' + niceName(e.by_user) })),
+      el('div', { text: e.text }), e.ref ? (/^https?:\/\//i.test(e.ref) ? el('a', { href: e.ref, target: '_blank', rel: 'noopener noreferrer', text: e.ref }) : el('small', { class: 'muted', text: 'Ref: ' + e.ref })) : '')) : [el('p', { class: 'muted', text: 'Nothing logged yet.' })]));
   }
   function nextActions(rec) {
     const out = []; const closed = /CLOSE/.test(dv(rec, 'status'));
     const add = (kind, title, text) => out.push({ kind, title, text });
-    if (isCheck(rec)) add('info', 'This is a part check, not yet an SO', 'Review the material below and get the quote. When it is in, click Request SO to enter the SO#, due date and type.');
     if (!closed) {
       const n = daysUntil(dateOf(rec, 'due_date'));
       if (n !== null && n < 0) add('bad', 'SO is ' + Math.abs(n) + ' day' + (Math.abs(n) === 1 ? '' : 's') + ' overdue', 'Due ' + shortDate(dateOf(rec, 'due_date')) + '. Check the material and release status below.');
@@ -627,7 +721,7 @@
       scField('SO#', f.so_no, 'so_no'), scField('SO request date', f.so_req_date, 'so_req_date'), scField('Due date', f.due_date, 'due_date', true), scField('SO type', f.so_type, 'so_type', true),
       scField('Kanban or PO?', f.kanban_or_po, 'kanban_or_po', true), scField('Champion', f.champion, 'champion', true), scField('Req. by', f.req_by, 'req_by', true));
     const need = ['due_date', 'so_type', 'kanban_or_po', 'champion', 'req_by'];
-    const collect = () => { const ch = { status: '3.OPEN' }; Object.entries(f).forEach(([k, i]) => { if (i.value.trim() !== '') ch[k] = i.value.trim(); }); return { id: rec.id, baseVersion: rec.version, changes: ch }; };
+    const collect = () => { const ch = { status: '3.OPEN', so_required: 'YES' }; Object.entries(f).forEach(([k, i]) => { if (i.value.trim() !== '') ch[k] = i.value.trim(); }); if (ch.so_no && !norm(rec.values.so_no_received_date)) ch.so_no_received_date = today(); return { id: rec.id, baseVersion: rec.version, changes: ch }; };
     for (;;) {
       if (!(await confirmDialog('Request the SO', body, 'Request SO'))) return;
       const c = collect(), miss = {}; need.forEach((k) => { if (!c.changes[k]) miss[k] = state.byKey[k].label + ' is required.'; });
@@ -669,7 +763,7 @@
   function openRecord(rec, kind, msg) {
     state.current = rec; state.dirty = false; state.scans = []; state.tab = 0;
     renderDetail(); show('view-detail'); banner('detail-banner', kind || '', msg || ''); updateDirty();
-    renderScans(); loadScans();
+    renderScans(); loadScans(); state.log = []; loadLog();
   }
   function canEdit() { return state.role !== 'viewer' && state.current && state.current.id; }
   function renderDetail() {
@@ -677,10 +771,10 @@
     $('detail-title').textContent = isCheck(rec) && !norm(rec.values.so_no) ? 'Part check' : 'SO# ' + (norm(rec.values.so_no) || '(none)');
     $('detail-sub').replaceChildren('Part ' + (norm(rec.values.part_no) || '(none)'), priceBadge(rec), ' · ' + (norm(rec.values.customer) || 'no customer') + (norm(rec.values.so_qty) ? ' · ' + norm(rec.values.so_qty) + ' pcs' : ''));
     const closed = /CLOSE/.test(dv(rec, 'status'));
-    $('detail-meta').replaceChildren(statusPill(dv(rec, 'status')), dueNode(dateOf(rec, 'due_date'), closed), barNode(norm(rec.display.so_release_status_bar)), barNode(norm(rec.display.mat_status_bar)));
+    $('detail-meta').replaceChildren(statusPill(dv(rec, 'status')), dueNode(dateOf(rec, 'due_date'), closed), barNode(norm(rec.display.so_release_status_bar)), barNode(norm(rec.display.mat_status_bar)), el('span', { class: 'badge sc-muted', title: 'Initial workflow: opening, material, release and arrival', text: 'Initial: ' + lcOf(rec).initial }), el('span', { class: 'badge ' + (lcOf(rec).final === 'Overdue' ? 'sc-bad' : lcOf(rec).final === 'Closed — Verified' ? 'sc-ok' : 'sc-muted'), title: 'Final lifecycle: until closure is verified', text: 'Final: ' + lcOf(rec).final }));
     $('detail-meta').children[2].title = 'SO release'; $('detail-meta').children[3].title = 'Material';
     $('btn-delete').hidden = !canEdit() || closed;
-    renderStepper(rec); renderCallouts(rec); renderFacts(rec);
+    renderStepper(rec); renderNextCard(rec); renderCallouts(rec); renderFacts(rec);
     const order = state.fields.map((f) => f.key);
     const form = $('detail-form'); form.replaceChildren();
     TABS.forEach(([title, from, to], i) => {
@@ -705,7 +799,7 @@
     const val = rec.values[f.key];
     const id = 'fld-' + f.key;
     let input;
-    if (f.editable && (f.key === 'champion' || f.key === 'req_by')) {
+    if (f.editable && PEOPLE_KEYS.includes(f.key)) {
       const people = (state.intake && state.intake.people) || [], cur = norm(val).trim(), opts = ['', ...people]; if (cur && !people.some((p) => p.toLowerCase() === cur.toLowerCase())) opts.push(cur);
       input = el('select', { id }, opts.map((p) => el('option', { value: p, text: p === '' ? '— choose a person —' : people.includes(p) || p === '' ? p : p + ' (existing)' })));
       input.value = (people.find((p) => p.toLowerCase() === cur.toLowerCase())) || cur;
@@ -721,7 +815,7 @@
     else if (f.editable) { input = el('input', { id, type: 'text', value: norm(val) }); }
     else { input = el('input', { id, type: 'text', value: norm(rec.display[f.key]) }); }
     input.dataset.key = f.key; input.dataset.orig = f.editable ? norm(val) : '';
-    if (f.editable && (f.key === 'champion' || f.key === 'req_by')) input.dataset.orig = input.value;
+    if (f.editable && PEOPLE_KEYS.includes(f.key)) input.dataset.orig = input.value;
     if (!editable) input.disabled = true;
     const wrap = el('div', { class: 'field' + (f.required ? ' mandatory' : '') + (editable ? '' : ' ro') + (f.type === 'longtext' ? ' wide' : '') },
       el('label', { for: id }, f.label, f.required ? el('span', { class: 'req', title: 'Required', text: ' *' }) : '', el('span', { class: 'col', text: '(' + f.col + ')' }),
@@ -1457,7 +1551,7 @@
   $('sc-new').onclick = () => { if (!scCanWrite()) { toast('Viewers cannot add lines.', true); return; } scEditLine(null); };
   $('sc-back').onclick = () => goHome();
   $('nav-dash').onclick = openDash;
-  $('dash2-go-in').onclick = () => goHome();
+  $('dash2-copy').onclick = async () => { if (!state.dashAll) return; try { await navigator.clipboard.writeText(reportText()); toast('Report copied.'); } catch (e) { toast('Could not copy. Select the text from the page instead.', true); } };
   $('dash2-go-sc').onclick = () => openSubcon('subcon');
   $('dash2-new').onclick = openNewForm;
   $('dash2-find').addEventListener('submit', (e) => { e.preventDefault(); findSO($('dash2-find-input').value, $('dash2-status')); });

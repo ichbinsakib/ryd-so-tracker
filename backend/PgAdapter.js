@@ -25,7 +25,7 @@ var SOPg = (function () {
   }
 
   var ID_INDEX = 77;
-  var WIDTH = 78;
+  var WIDTH = 100;   // A..BY, RECORD ID (77), then the lifecycle columns CA..CT
 
   function create(opts) {
     bind();

@@ -82,21 +82,19 @@
 <!-- Dashboard: one-screen overview of inhouse and subcontractor work -->
 <main id="view-dash" hidden>
   <div class="pagehead">
-    <div><h1>Dashboard</h1><p class="muted" id="dash2-sub">What needs attention across inhouse orders and subcontractors.</p></div>
+    <div><h1>Dashboard</h1><p class="muted" id="dash2-sub">The SO lifecycle: what needs you, who is blocking, material risks, due dates and verified closures.</p></div>
     <div class="head-actions">
       <form id="dash2-find" class="findrow" autocomplete="off"><input id="dash2-find-input" type="text" placeholder="Find SO#" aria-label="Find SO number"><button class="btn" type="submit">Find</button></form>
+      <button id="dash2-copy" class="btn" type="button" title="Copy the report as text to paste into an email or chat">Copy report</button>
       <button id="dash2-new" class="btn btn-primary">＋ Open an SO</button>
     </div>
   </div>
   <p id="dash2-status" class="statusline" role="status"></p>
-  <section class="dsec"><div class="sechead"><h3>Inhouse</h3><button id="dash2-go-in" class="btn btn-sm" type="button">Open Inhouse ›</button></div>
-    <div id="dash2-kpis-in" class="kpis"></div></section>
+  <section class="dsec"><div class="sechead"><h3>Shop orders that need attention</h3><span class="muted small">Only what needs a decision, a follow-up or a watch. Click a tile to jump to it.</span></div>
+    <div id="dash2-tiles" class="kpis"></div></section>
+  <div id="dash2-report" class="report"></div>
   <section class="dsec"><div class="sechead"><h3>Subcontractor</h3><button id="dash2-go-sc" class="btn btn-sm" type="button">Open Subcontractor ›</button></div>
     <div id="dash2-kpis-sc" class="kpis"></div></section>
-  <div class="dgrid">
-    <section class="card"><div class="sechead"><h3>Inhouse SOs to watch</h3><span class="muted small">Overdue or due within 7 days</span></div><div id="dash2-list-in"></div></section>
-    <section class="card"><div class="sechead"><h3>Subcontractor lines needing my action</h3><span class="muted small">Most urgent first</span></div><div id="dash2-list-sc"></div></section>
-  </div>
 </main>
 
 <!-- Inhouse: progress + data freshness -->
@@ -237,6 +235,7 @@
     <div class="head-actions"><button id="btn-print" class="btn">🖨 Print details</button> <button id="btn-delete" class="btn btn-danger" type="button" hidden>🗑 Delete SO</button></div>
   </div>
   <section class="card stepper-card"><ol id="stepper" class="stepper" aria-label="Order workflow"></ol></section>
+  <section id="nextcard" class="card nextcard"></section>
   <section id="callouts" class="callouts"></section>
   <div class="dlayout">
     <aside class="dside">
@@ -255,6 +254,12 @@
     <div class="dmain">
       <nav id="tabs" class="tabs" role="tablist" aria-label="Sections"></nav>
       <form id="detail-form" autocomplete="off"></form>
+      <section class="card logbox" id="logbox">
+        <h3>Follow-up log</h3>
+        <p class="muted small">Decisions, follow-ups, escalations and where the evidence is (email subject, document link).</p>
+        <div id="log-form" class="logform"></div>
+        <div id="log-list" class="loglist"></div>
+      </section>
     </div>
   </div>
   <div id="savebar" class="savebar" hidden>
@@ -318,6 +323,7 @@
 </dialog>
 
 <script src="config.js"></script>
+<script src="lifecycle.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -20,6 +20,7 @@ var SOService = (function () {
     var c = (typeof SOCore !== 'undefined') ? SOCore : require('./Core.js');
     for (var k in c) Core[k] = c[k];
   }
+  function lifecycle() { return (typeof SOLife !== 'undefined') ? SOLife : require('./Lifecycle.js'); }
 
   function fail(code, error, extra) {
     var r = { ok: false, code: code, error: error };
@@ -334,24 +335,6 @@ var SOService = (function () {
   function dashText(x) { var t = String(x === undefined || x === null ? '' : x).trim(); return t === '-' || t.charAt(0) === '#' ? '' : t; }
   function dashNum(x) { var t = dashText(x).replace(/[$,\s]/g, ''); if (t === '' || !/^-?\d+(\.\d+)?$/.test(t)) return null; return parseFloat(t); }
 
-  // The workflow step an SO is waiting on, from its display values (mirrors the stepper on the SO page).
-  function stageOf(v, K) {
-    function has(k) { var t = String(v[K[k].index] === undefined || v[K[k].index] === null ? '' : v[K[k].index]).trim(); return t !== '' && t !== '-'; }
-    function txt(k) { return String(v[K[k].index] === undefined || v[K[k].index] === null ? '' : v[K[k].index]).trim(); }
-    var quoteSkipped = txt('req_mat_quote').toUpperCase() === 'NO';
-    if (/CLOSE/.test(txt('status')) || has('so_close_date')) return 'Closed';
-    if (/ANALYSIS|ANR/.test(txt('status').toUpperCase())) return 'Check';   // part check: waiting for the material quote before the SO is requested
-    if (!(has('so_no') && has('due_date'))) return 'Order';
-    if (!has('steel_type')) return 'Material';
-    if (!quoteSkipped && !(has('quote_receive_date') || /^(y|stock)/i.test(txt('quote_received')))) return 'Quote';
-    if (!quoteSkipped && !has('quote_approve_date')) return 'Approval';
-    if (!has('po_approve_date')) return 'PO';
-    if (!has('charllete_jay_release_date')) return 'Release';
-    if (!has('mat_receive_date_stockroom')) return 'Receiving';
-    if (!(/^(y|yes|true)/i.test(txt('invoice_received_finance')) || has('invoice_no'))) return 'Invoice';
-    return 'Closed';
-  }
-
   function buildDashboard(adapter, email, req) {
     var K = Core.BY_KEY;
     var idIndex = adapter.getIdIndex();
@@ -360,20 +343,25 @@ var SOService = (function () {
     var DASH_KEYS = ['status', 'so_release_status_bar', 'mat_status_bar', 'customer', 'part_no', 'so_qty', 'due_date', 'so_no', 'req_mat_quote', 'quote_received',
       'steel_type', 'bar_type', 'router_bar_size', 'qty_per_bar', 'req_bar', 'req_ft', 'req_lbs', 'avail_ft', 'champion', 'so_type', 'kanban_or_po', 'po_due_date',
       'quote_receive_date', 'quote_approve_date', 'po_approve_date', 'po_receive_date', 'po_no_1', 'date_of_send', 'charllete_jay_release_date', 'mat_receive_date_stockroom',
-      'invoice_received_finance', 'invoice_no', 'so_close_date'];
+      'invoice_received_finance', 'invoice_no', 'so_close_date',
+      'so_req_date', 'mat_quote_request_date', 'print_traveller', 'print_router', 'print_part_prints', 'print_req_po', 'verify_by_sakib', 'avail_ft',
+      'so_required', 'supplier', 'quote_expected_date', 'quote_valid_until', 'so_no_received_date', 'ack_status', 'ack_date', 'mat_required_date', 'expected_closure_date',
+      'closure_verified_date', 'next_followup_date', 'escalated', 'blocker', 'owner', 'last_followup_date'];
     var idxs = DASH_KEYS.map(function (k) { return K[k].index; });
     if (idIndex >= 0) idxs.push(idIndex);
-    var rows = [];
+    var rows = [], life = lifecycle(), today = /^d{4}-d{2}-d{2}$/.test(String(req.today || '')) ? req.today : String(adapter.now()).slice(0, 10);
     adapter.readColumns(idxs, true).forEach(function (r) {
       var v = r.values;
       if (blank(v[K.part_no.index]) && blank(v[K.so_no.index])) return;
       var status = String(v[K.status.index] || '').trim();
       if (!req.includeClosed && status === '4.CLOSE') return;
+      var dd = {}; DASH_KEYS.forEach(function (k) { dd[k] = dashText(v[K[k].index]); });
+      var lc = life.describe(dd, today);
       rows.push({
         id: idIndex >= 0 ? v[idIndex] || null : null, so_no: v[K.so_no.index], part_no: v[K.part_no.index], customer: v[K.customer.index],
         status: status, soBar: Core.pctNum(v[K.so_release_status_bar.index]), matBar: Core.pctNum(v[K.mat_status_bar.index]),
         due: v[K.due_date.index], qty: v[K.so_qty.index], reqQuote: v[K.req_mat_quote.index], quoteReceived: v[K.quote_received.index],
-        stage: stageOf(v, K), steelType: dashText(v[K.steel_type.index]), barType: dashText(v[K.bar_type.index]), barSize: dashText(v[K.router_bar_size.index]),
+        stage: lc.stageLabel, lc: { stage: lc.stage, status: lc.status, initial: lc.initial, final: lc.final, next: lc.next, owner: lc.owner, waitingOn: lc.waitingOn, actionDate: lc.actionDate, followup: lc.followup, followupDue: lc.followupDue, matStatus: lc.matStatus, reasons: lc.reasons, section: lc.section, closedOn: lc.closedOn, daysToDue: lc.daysToDue, rank: lc.rank }, steelType: dashText(v[K.steel_type.index]), barType: dashText(v[K.bar_type.index]), barSize: dashText(v[K.router_bar_size.index]),
         qtyPerBar: dashNum(v[K.qty_per_bar.index]), reqBar: dashNum(v[K.req_bar.index]), reqFt: dashNum(v[K.req_ft.index]), reqLbs: dashNum(v[K.req_lbs.index]), availFt: dashNum(v[K.avail_ft.index]),
         champion: dashText(v[K.champion.index]), soType: dashText(v[K.so_type.index]), kanbanOrPo: dashText(v[K.kanban_or_po.index]), poDue: dashText(v[K.po_due_date.index]),
         matReceived: !blank(v[K.mat_receive_date_stockroom.index]) && v[K.mat_receive_date_stockroom.index] !== '-'

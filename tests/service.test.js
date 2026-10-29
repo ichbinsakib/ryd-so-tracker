@@ -25,7 +25,7 @@ test('list returns record rows with ids, versions and the field catalogue', () =
   assert.equal(r.writable, true);
   assert.ok(r.records[0].version);
   assert.equal(r.records[0].values.so_no, 25712);
-  assert.equal(r.fields.length, 77);
+  assert.equal(r.fields.length, 97);
 });
 
 test('editing saves, bumps version, and writes an audit entry', () => {

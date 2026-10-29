@@ -9,9 +9,9 @@ test('column letters map to the inspected sheet layout', () => {
   assert.equal(Core.colToIndex('BY'), 76);
   const expect = { so_no: 'K', part_no: 'G', status: 'B', due_date: 'J', so_close_date: 'BY', invoice_no: 'BO' };
   for (const [k, c] of Object.entries(expect)) assert.equal(Core.BY_KEY[k].col, c);
-  assert.equal(Core.FIELDS.length, 77);
-  assert.equal(new Set(Core.FIELDS.map(f => f.key)).size, 77, 'keys unique');
-  assert.equal(new Set(Core.FIELDS.map(f => f.index)).size, 77, 'indexes unique');
+  assert.equal(Core.FIELDS.length, 97);
+  assert.equal(new Set(Core.FIELDS.map(f => f.key)).size, 97, 'keys unique');
+  assert.equal(new Set(Core.FIELDS.map(f => f.index)).size, 97, 'indexes unique');
 });
 
 test('formula columns are read-only', () => {

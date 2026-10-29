@@ -187,15 +187,15 @@ test('dashboard rows carry the stage and the material numbers', () => {
   ] });
   const d = call(p, { action: 'dashboard' });
   const by = (so) => d.rows.find((r) => r.so_no === so);
-  assert.equal(by('100').stage, 'Quote');
+  assert.equal(by('100').stage, 'PO');
   assert.equal(by('100').steelType, '4140'); assert.equal(by('100').barType, 'RD'); assert.equal(by('100').barSize, "12' x 1.5"); assert.equal(by('100').qtyPerBar, 10);
   assert.equal(by('100').reqBar, 2.5);
-  assert.equal(by('102').stage, 'Release');
-  assert.equal(by('103').stage, 'Material'); assert.equal(by('103').reqBar, null);
+  assert.equal(by('102').stage, 'Acknowledgment');
+  assert.equal(by('103').stage, 'PO'); assert.equal(by('103').reqBar, null);
   assert.equal(by('100').matReceived, false);
 });
 
-test('dashboard stage is Check while the SO is still a part check', () => {
+test('dashboard stage is Decide while the SO is still a part check', () => {
   const p2 = make({ rows: [{ rowNumber: 1, id: 'id-9', data: { status: '1. ANALYSIS', part_no: 'P1', customer: 'ACME', so_qty: 10 } }] });
-  assert.equal(call(p2, { action: 'dashboard' }).rows[0].stage, 'Check');
+  assert.equal(call(p2, { action: 'dashboard' }).rows[0].stage, 'Decide');
 });
