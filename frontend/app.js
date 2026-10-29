@@ -69,8 +69,14 @@
   const niceName = (email) => email.split('@')[0].split(/[._-]+/).filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join(' ');
   function store(k, v) { try { if (v === undefined) return sessionStorage.getItem(k); v === null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch (e) { return null; } }
   function show(id) { VIEWS.forEach((v) => { $(v).hidden = v !== id; }); navSync(id); window.scrollTo(0, 0); }
+  const CRUMBS = { 'view-dash': 'Dashboard', 'view-admin': 'Inhouse', 'view-detail': 'Inhouse › Shop order', 'view-new': 'Inhouse › Open an SO', 'view-users': 'Administration › Users', 'view-home': 'Home', 'view-scdetail': 'Subcontractor › Order' };
+  // sidebar badges: how many things need you in each area
+  function navBadge(id, n, tone) { const b = $(id); if (!b) return; b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n || ''); b.className = 'navbadge ' + (tone || 'warn'); }
+  function setNavCollapsed(on) { document.body.classList.toggle('nav-collapsed', on); try { localStorage.setItem('navCollapsed', on ? '1' : '0'); } catch (e) { /* private mode */ } const t = $('nav-toggle'); t.title = on ? 'Expand the menu' : 'Collapse the menu'; }
   function navSync(id) {
-    $('sidenav').hidden = id === 'view-login' || id === 'view-loading';
+    const hide = id === 'view-login' || id === 'view-loading';
+    $('sidenav').hidden = hide; document.body.classList.toggle('has-nav', !hide); $('nav-burger').hidden = hide; document.body.classList.remove('nav-open');
+    $('crumb').textContent = hide ? '' : id === 'view-subcon' ? (SC.section === 'leads' ? 'Planning › Lead Time Calculation' : 'Subcontractor') : (CRUMBS[id] || '');
     const on = id === 'view-scdetail' ? 'nav-subcon' : id === 'view-subcon' ? (SC.section === 'leads' ? 'nav-lead' : 'nav-subcon') : id === 'view-dash' ? 'nav-dash' : 'nav-inhouse';
     ['nav-dash', 'nav-inhouse', 'nav-subcon', 'nav-lead'].forEach((n) => { $(n).classList.toggle('on', n === on); if (n === on) $(n).setAttribute('aria-current', 'page'); else $(n).removeAttribute('aria-current'); });
   }
@@ -181,7 +187,7 @@
   function signOut() {
     if (state.token && !CFG.DEV_MODE) api('logout');
     state.token = null; store('tok', null); state.dash = null; state.current = null; state.dirty = false;
-    $('userchip').hidden = true; $('btn-signout').hidden = true; $('btn-pw').hidden = true; $('btn-refresh').hidden = true; $('refreshed').textContent = '';
+    ['nb-dash', 'nb-inhouse', 'nb-subcon'].forEach((n) => navBadge(n, 0)); $('userchip').hidden = true; $('btn-signout').hidden = true; $('btn-pw').hidden = true; $('btn-refresh').hidden = true; $('refreshed').textContent = '';
     showLogin('');
   }
   async function showLogin(msg) {
@@ -346,6 +352,7 @@
     const risk = rows.filter(matRisk), lateMat = risk.filter((r) => r.lc.matStatus === 'Late').length;
     const soonIn = rows.filter((r) => dueWithin(r, 14)).length, soonSc = open.filter((o) => within(o.expected, 14)).length;
     const actions = dashActions(dash, sc), upcoming = dashUpcoming(dash, sc), done = dashDone(dash, sc);
+    navBadge('nb-dash', actions.length, actions.some((a) => a.crit) ? 'bad' : 'warn'); navBadge('nb-inhouse', mineIn); navBadge('nb-subcon', mineSc);
     $('dash2-sub').textContent = LONG_DATE() + (actions.length ? ' · ' + actions.length + ' thing' + (actions.length === 1 ? '' : 's') + ' need you' : ' · nothing needs you right now');
     const fc = (tone, n, label, sub, go) => el('button', { class: 'fc ' + tone, type: 'button', onclick: go }, el('span', { class: 'fcn', text: String(n) }), el('span', { class: 'fcl', text: label }), el('small', { text: sub }));
     const jump = (id) => () => { const t = $(id); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
@@ -411,6 +418,7 @@
   function renderKpis(rows) {
     const open = rows.filter(rowOpen), mine = open.filter(isMine), waiting = open.filter(isWaiting), risk = open.filter(matRisk), soon = open.filter((r) => dueWithin(r, 14)), late = open.filter((r) => r.lc && r.lc.daysToDue !== null && r.lc.daysToDue < 0);
     const pcs = open.reduce((t, r) => t + (parseFloat(norm(r.qty).replace(/,/g, '')) || 0), 0), plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+    navBadge('nb-inhouse', mine.length);
     $('dash-sub').textContent = isAdmin() ? open.length ? plural(open.length, 'open SO') + ' · ' + fmtN(pcs, 0) + ' pcs · ' + mine.length + ' need your action' : 'No open SOs.' : 'Sales orders you opened or are responsible for.';
     const fc = (tone, n, label, sub, go) => el('button', { class: 'fc ' + tone, type: 'button', onclick: go }, el('span', { class: 'fcn', text: String(n) }), el('span', { class: 'fcl', text: label }), el('small', { text: sub }));
     const go = (c) => () => { state.chip = c; state.stage = ''; state.mat = ''; renderPipeline(state.dash.rows); renderMatReq(state.dash.rows); buildChips(); applyView(); $('grid').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
@@ -1423,6 +1431,7 @@
   function renderScKpis() {
     const D = SC.data, open = scOpen(), k = D.kpis, waiting = open.filter((o) => o.owner_role && o.owner_role !== 'me' && o.owner_role !== 'none');
     const pcs = open.reduce((t, o) => t + (o.remaining || 0), 0), plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+    navBadge('nb-subcon', k.needsAction);
     $('sc-sub').textContent = open.length ? plural(open.length, 'open order') + ' · ' + qtyFmt(pcs) + ' pcs · ' + k.needsAction + ' need your action' : 'No open orders yet.';
     const fc = (tone, n, label, sub, go) => el('button', { class: 'fc ' + tone, type: 'button', onclick: go }, el('span', { class: 'fcn', text: String(n) }), el('span', { class: 'fcl', text: label }), el('small', { text: sub }));
     const go = (c) => () => { SC.chip = c; SC.stage = ''; SC.bpo = ''; renderScChips(); renderScPipeline(); applyScView(); $('sc-grid').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
@@ -1785,6 +1794,9 @@
   $('scd-discard').onclick = () => { state.dirty = false; scEditLine(SCD.o.id ? SC.data.lines.find((l) => l.id === SCD.o.id) || SCD.o : null); };
   $('scd-delete').onclick = async () => { if (await scDeleteLine(SCD.o)) { state.dirty = false; openSubcon('subcon'); } };
   $('nav-dash').onclick = openDash;
+  $('nav-toggle').onclick = () => setNavCollapsed(!document.body.classList.contains('nav-collapsed'));
+  $('nav-burger').onclick = () => document.body.classList.toggle('nav-open');
+  try { if (localStorage.getItem('navCollapsed') === '1') setNavCollapsed(true); } catch (e) { /* private mode */ }
   $('dash2-copy').onclick = async () => { if (!state.dashAll) return; try { await navigator.clipboard.writeText(reportText()); toast('Report copied.'); } catch (e) { toast('Could not copy. Select the text from the page instead.', true); } };
   $('dash2-new').onclick = openNewForm;
   $('dash2-find').addEventListener('submit', (e) => { e.preventDefault(); findSO($('dash2-find-input').value, $('dash2-status')); });
