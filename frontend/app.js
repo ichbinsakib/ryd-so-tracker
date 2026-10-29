@@ -1388,7 +1388,7 @@
   // ---------- wiring
   // ---------- subcontractor tracking (coordinator view of the BPO lines the subcontractor team executes)
   const SC = { section: 'subcon', chip: 'all', stage: '', q: '', bpo: '', showClosed: false, data: null, view: [] };
-  const scCanWrite = () => state.role === 'editor' || state.role === 'admin';
+  const scCanWrite = () => !!state.role && state.role !== 'viewer';   // the server decides for real (editor or admin)
   const dshort = (s) => (isIso(s || '') ? shortDate(parseDate(s)) : '—');
   const qtyFmt = (n) => Number(n || 0).toLocaleString();
   async function openSubcon(section) {
@@ -1776,7 +1776,7 @@
     return el('section', { class: 'card calc' }, el('h3', { text: 'When will a new PO arrive?' }), el('p', { class: 'muted', text: 'Uses the average, fastest and slowest time your past lines took from PO submitted to the vendor until received at CAMCO.' }),
       el('div', { class: 'calcform' }, scField('PO submitted to vendor', po, 'x1'), scField('Needed at CAMCO by (optional)', need, 'x2')), out);
   }
-  $('sc-new').onclick = () => { if (!scCanWrite()) { toast('Viewers cannot add lines.', true); return; } scEditLine(null); };
+  $('sc-new').onclick = () => { if (!scCanWrite()) { toast('Your access (' + (state.role || 'unknown') + ') is read-only here.', true); return; } scEditLine(null); };
   $('sc-back').onclick = () => goHome();
   $('sc-q').addEventListener('input', () => { clearTimeout(applyScView.t); applyScView.t = setTimeout(applyScView, 150); });
   $('sc-closed').addEventListener('change', (e) => { SC.showClosed = e.target.checked; renderScChips(); applyScView(); });
