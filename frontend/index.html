@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Shop Order Tracking Details</title>
-<link rel="stylesheet" href="styles.css?v=342160df">
+<link rel="stylesheet" href="styles.css?v=e4fba2ee">
 </head>
 <body>
 <header class="topbar">
@@ -82,7 +82,7 @@
 <!-- Dashboard: one-screen overview of inhouse and subcontractor work -->
 <main id="view-dash" hidden>
   <div class="pagehead">
-    <div><h1>Dashboard</h1><p class="muted" id="dash2-sub">The SO lifecycle: what needs you, who is blocking, material risks, due dates and verified closures.</p></div>
+    <div><h1>Dashboard</h1><p class="muted" id="dash2-sub"></p></div>
     <div class="head-actions">
       <form id="dash2-find" class="findrow" autocomplete="off"><input id="dash2-find-input" type="text" placeholder="Find SO#" aria-label="Find SO number"><button class="btn" type="submit">Find</button></form>
       <button id="dash2-copy" class="btn" type="button" title="Copy the report as text to paste into an email or chat">Copy report</button>
@@ -90,18 +90,22 @@
     </div>
   </div>
   <p id="dash2-status" class="statusline" role="status"></p>
-  <section class="dsec"><div class="sechead"><h3>Shop orders that need attention</h3><span class="muted small">Only what needs a decision, a follow-up or a watch. Click a tile to jump to it.</span></div>
-    <div id="dash2-tiles" class="kpis"></div></section>
-  <div id="dash2-report" class="report"></div>
-  <section class="dsec"><div class="sechead"><h3>Subcontractor</h3><button id="dash2-go-sc" class="btn btn-sm" type="button">Open Subcontractor ›</button></div>
-    <div id="dash2-kpis-sc" class="kpis"></div></section>
-  <div id="dash2-sc-lists" class="report"></div>
+  <section id="dash2-tiles" class="focus" aria-label="What needs attention"></section>
+  <div class="duo2">
+    <section class="card" id="dash2-actions"></section>
+    <section class="card" id="dash2-coming"></section>
+  </div>
+  <div class="duo2 even">
+    <section class="card" id="dash2-inh"></section>
+    <section class="card" id="dash2-sc"></section>
+  </div>
+  <section class="card" id="dash2-done"></section>
 </main>
 
 <!-- Inhouse: progress + data freshness -->
 <main id="view-admin" hidden>
   <div class="pagehead">
-    <div><h1 id="dash-title">Inhouse</h1><p class="muted" id="dash-sub">Progress of every sales order that is not closed.</p></div>
+    <div><h1 id="dash-title">Inhouse</h1><p class="muted" id="dash-sub"></p></div>
     <div class="head-actions">
       <form id="admin-find" class="findrow" autocomplete="off"><input id="admin-find-input" type="text" placeholder="Find SO#" aria-label="Find SO number"><button class="btn" type="submit">Find</button></form>
       <button id="admin-users" class="btn">Users</button>
@@ -109,19 +113,9 @@
     </div>
   </div>
 
-  <section id="kpis" class="kpis" aria-label="Key numbers"></section>
+  <section id="kpis" class="focus" aria-label="What needs attention"></section>
 
-  <section class="card pipeline-card" id="pipeline-card">
-    <div class="sechead"><h3>Pipeline</h3><span class="muted small">Where every open SO is in the lifecycle. Click a stage to list those SOs.</span></div>
-    <ol id="pipeline" class="pipeline"></ol>
-  </section>
-
-  <details class="card matreq" id="matreq-card">
-    <summary><b>Material requirements</b> <span class="muted small" id="matreq-sub"></span></summary>
-    <div class="tablewrap"><table id="matreq" class="datatable"><thead></thead><tbody></tbody></table></div>
-  </details>
-
-
+  <ol id="pipeline" class="flow" aria-label="Stage flow"></ol>
 
   <section class="listhead">
     <h2>Open SOs</h2>
@@ -130,7 +124,7 @@
       <input id="q" type="search" placeholder="Search SO#, part or customer…" aria-label="Search">
       <button id="btn-csv" class="btn btn-sm" type="button" title="Download the SOs shown as a CSV file">Export CSV</button>
       <select id="sort" aria-label="Sort">
-        <option value="progress">Lowest progress first</option>
+        <option value="progress">Needs attention first</option>
         <option value="due">Due date (soonest)</option>
         <option value="so">SO# (newest)</option>
       </select>
@@ -146,8 +140,10 @@
     <label class="muted small">Rows <select id="pg-size"><option>25</option><option selected>50</option><option>100</option></select></label>
   </nav>
 
-  <details class="card datacard" id="data-card"><summary><b>Data uploads</b> <span class="muted small" id="data-sub"></span></summary>
-  <section class="fresh" id="fresh-cards">
+  <div class="duo">
+    <section class="card matreq" id="matreq-card"><div class="sechead"><h3>Material to buy</h3><span id="matreq-sub" class="muted small"></span></div><div id="matreq-list"></div></section>
+    <section class="card datacard" id="data-card"><div class="sechead"><h3>Data</h3><span id="data-sub" class="small muted"></span></div>
+<section class="fresh" id="fresh-cards">
     <div class="card stat" id="card-stock">
       <div class="stat-top"><span class="dot" aria-hidden="true"></span><h3>Daily inventory</h3></div>
       <div class="statbig" id="stock-when">—</div>
@@ -162,8 +158,218 @@
       <button id="btn-upload-steel" class="btn btn-sm">Replace data</button>
     </div>
   </section>
-  </details>
+    </section>
+  </div>
 </main>
+
+<!-- Admin: who can sign in -->
+<main id="view-users" hidden>
+  <div class="pagehead">
+    <div><button id="users-back" class="btn btn-ghost" type="button">← Back</button><h1>Users</h1><p class="muted">Who can sign in, and what they can do.</p></div>
+    <span id="users-count" class="muted"></span>
+  </div>
+  <div id="users-banner" role="alert"></div>
+  <section class="card userbox">
+    <h3>Add a user</h3>
+    <form id="user-add" class="userform" autocomplete="off">
+      <input id="ua-email" type="email" placeholder="Email (their sign-in name)" required>
+      <input id="ua-name" type="text" placeholder="Name">
+      <input id="ua-eid" type="text" placeholder="Employee ID">
+      <input id="ua-pw" type="text" placeholder="Password (min 8, optional now)" autocomplete="off">
+      <select id="ua-role"><option value="viewer">viewer</option><option value="editor">editor</option><option value="admin">admin</option></select>
+      <button class="btn btn-primary" type="submit">Add user</button>
+    </form>
+    <h3>Import from a CSV file</h3>
+    <div class="scanrow">
+      <input id="ua-file" type="file" accept=".csv,text/csv">
+      <button id="ua-import" class="btn" disabled>Import</button>
+      <span id="ua-import-msg" class="muted"></span>
+    </div>
+    <div class="muted small">Columns: email, name, employee id, role (viewer/editor/admin; blank = viewer). Existing emails are updated.</div>
+  </section>
+  <div class="tablewrap card"><table id="users-grid" class="datatable"><thead></thead><tbody></tbody></table></div>
+  <p id="users-bootstrap" class="muted small pad"></p>
+</main>
+
+<!-- Subcontract: whole parts made by vendors -->
+<main id="view-subcon" hidden>
+  <div class="pagehead">
+    <div><button id="sc-back" class="btn btn-ghost" type="button">← Back</button><h1 id="sc-title">Subcontractor</h1><p class="muted" id="sc-sub">Every part sent to the subcontractor team, from quotation to confirmed arrival.</p></div>
+    <div class="head-actions" id="sc-actions"><button id="sc-import" class="btn" type="button" title="Load lines from a CSV download of the BPO Tracking worksheet">Import BPO sheet</button><input id="sc-import-file" type="file" accept=".csv,text/csv" hidden><button id="sc-new" class="btn btn-primary" type="button">＋ New order</button></div>
+  </div>
+  <div id="sc-banner" role="alert"></div>
+  <div id="sc-orders">
+    <section id="sc-kpis" class="kpis" aria-label="Subcontract numbers"></section>
+    <ol id="sc-pipeline" class="flow" aria-label="Stage flow"></ol>
+    <section class="listhead">
+      <h2>Orders</h2>
+      <div id="sc-chips" class="chips" role="group" aria-label="Filter orders"></div>
+      <div class="listtools">
+        <input id="sc-q" type="search" placeholder="Search part, SO, PO, team…" aria-label="Search">
+        <button id="sc-csv" class="btn btn-sm" type="button" title="Download the orders shown as a CSV file">Export CSV</button>
+        <label class="inline"><input type="checkbox" id="sc-closed"> arrived</label>
+      </div>
+    </section>
+    <div id="sc-status" class="statusline" aria-live="polite"></div>
+    <div class="tablewrap card"><table id="sc-grid" class="datatable"><thead></thead><tbody></tbody></table></div>
+    <div class="duo" id="sc-insights"><section class="card" id="sc-arrivals"></section><section class="card" id="sc-timings"></section></div>
+    <details class="card datacard" id="sc-batches-card"><summary><b>Batches (BPO)</b> <span class="muted small" id="sc-batches-sub"></span></summary><div id="sc-batches"></div></details>
+  </div>
+  <div id="sc-body"></div>
+</main>
+
+<!-- One subcontractor order: same layout as the SO page -->
+<main id="view-scdetail" hidden>
+  <div id="scd-banner" role="alert"></div>
+  <div class="dhead">
+    <button id="scd-back" class="btn btn-ghost" type="button">← Back</button>
+    <div class="dtitle"><h1 id="scd-title"></h1><div id="scd-sub" class="muted"></div></div>
+    <div id="scd-meta" class="dmeta"></div>
+    <div class="head-actions"><button id="scd-delete" class="btn btn-danger" type="button" hidden>🗑 Delete order</button></div>
+  </div>
+  <section class="card stepper-card"><ol id="scd-stepper" class="stepper" role="tablist" aria-label="Workflow stages: pick one to see and edit its fields"></ol></section>
+  <section id="scd-next" class="card nextcard"></section>
+  <div class="dmain">
+    <form id="scd-form" autocomplete="off"></form>
+    <section class="card logbox" id="scd-logbox">
+      <h3>Follow-up log</h3>
+      <p class="muted small">What you asked, what the team or vendor replied, escalations and where the evidence is.</p>
+      <div id="scd-logform" class="logform"></div>
+      <div id="scd-loglist" class="loglist"></div>
+    </section>
+  </div>
+  <div id="scd-savebar" class="savebar" hidden>
+    <span class="badge badge-warn">Unsaved changes</span>
+    <span class="spacer"></span>
+    <button id="scd-discard" class="btn" type="button">Discard</button>
+    <button id="scd-save" class="btn btn-primary" type="button">Save order</button>
+  </div>
+</main>
+
+<!-- Open a new SO -->
+<main id="view-new" hidden>
+  <div class="pagehead">
+    <div><button id="new-back" class="btn btn-ghost" type="button">← Cancel</button><h1>Open an SO</h1><p class="muted">Start with the part, customer and possible quantity. Fields marked <span class="req">*</span> are required.</p></div>
+    <button id="new-submit" class="btn btn-primary btn-lg" type="button">Open SO</button>
+  </div>
+  <div id="new-banner" role="alert"></div>
+  <div class="newlayout">
+    <form id="new-form" autocomplete="off"></form>
+    <aside class="card tips">
+      <h3>What happens next</h3>
+      <ol>
+        <li>It opens as a <b>part check</b> (status 1. ANALYSIS).</li>
+        <li>Steel type, bars, feet, pounds and stock on hand fill in from <b>STEEL USAGE</b> and the <b>STOCK list</b>.</li>
+        <li>Request the material quote, record it when it arrives, and compare its price.</li>
+        <li>Then use <b>Request SO</b> on the page to enter the SO#, due date and type. It becomes <b>3.OPEN</b>.</li>
+      </ol>
+    </aside>
+  </div>
+</main>
+
+<!-- One SO: workflow, facts, edit, print, scan -->
+<main id="view-detail" hidden>
+  <div id="detail-banner" role="alert"></div>
+  <div class="dhead">
+    <button id="btn-back" class="btn btn-ghost">← Back</button>
+    <div class="dtitle">
+      <h1 id="detail-title"></h1>
+      <div id="detail-sub" class="muted"></div>
+    </div>
+    <div id="detail-meta" class="dmeta"></div>
+    <div class="head-actions"><button id="btn-print" class="btn">🖨 Print details</button> <button id="btn-delete" class="btn btn-danger" type="button" hidden>🗑 Delete SO</button></div>
+  </div>
+  <section class="card stepper-card"><ol id="stepper" class="stepper" role="tablist" aria-label="Lifecycle stages: pick one to see and edit its fields"></ol></section>
+  <section id="nextcard" class="card nextcard"></section>
+  <section id="callouts" class="callouts"></section>
+  <details id="summarybox" class="card summarybox"><summary><b>Checklist &amp; summary</b> <span id="summary-sub" class="muted small"></span></summary>
+    <section id="facts" class="facts"></section>
+  </details>
+  <div class="dmain">
+    <form id="detail-form" autocomplete="off"></form>
+    <section class="card logbox" id="logbox">
+      <h3>Follow-up log</h3>
+      <p class="muted small">Decisions, follow-ups, escalations and where the evidence is (email subject, document link).</p>
+      <div id="log-form" class="logform"></div>
+      <div id="log-list" class="loglist"></div>
+    </section>
+    <section class="card scanbox" id="scanbox">
+      <h3>Scanned document</h3>
+      <div id="scan-list" class="muted">No scan uploaded yet.</div>
+      <div id="scan-upload" class="scanrow">
+        <input id="scan-file" type="file" accept="application/pdf,image/jpeg,image/png,.pdf,.jpg,.jpeg,.png">
+        <button id="scan-go" class="btn btn-primary" disabled>Upload scan</button>
+        <span id="scan-msg" class="muted"></span>
+      </div>
+      <div class="muted small">PDF, JPG or PNG, up to 7 MB. Upload the signed copy once the SO is complete.</div>
+    </section>
+  </div>
+  <div id="savebar" class="savebar" hidden>
+    <span id="dirty-flag" class="badge badge-warn">Unsaved changes</span>
+    <span class="spacer"></span>
+    <button id="btn-discard" class="btn" disabled>Discard</button>
+    <button id="btn-save" class="btn btn-primary" disabled>Save changes</button>
+  </div>
+</main>
+
+</div>
+</div>
+
+<div id="print-sheet" aria-hidden="true"></div>
+
+<dialog id="dlg-inv">
+  <form method="dialog" id="inv-form">
+    <h3>Upload daily inventory</h3>
+    <p class="muted">Choose today's <b>ALL CUSTOMER INVENTORY</b> file (.xlsx or .csv). The columns are found automatically. This replaces yesterday's STOCK list and stockroom prices.</p>
+    <input id="inv-file" type="file" accept=".csv,.xlsx,.xls">
+    <div id="inv-sum" class="invsum" hidden></div>
+    <p id="inv-msg" class="error" role="alert"></p>
+    <menu>
+      <button value="cancel" class="btn">Cancel</button>
+      <button value="ok" class="btn btn-primary" id="inv-go" disabled>Upload inventory</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-upload">
+  <form method="dialog" id="upload-form">
+    <h3 id="up-title">Upload</h3>
+    <p class="muted" id="up-note"></p>
+    <input id="upload-file" type="file" accept=".csv,.xlsx,.xls">
+    <div id="upload-map" hidden>
+      <label>Sheet <select id="up-sheet"></select></label>
+      <div id="up-cols"></div>
+      <div id="up-preview" class="muted"></div>
+    </div>
+    <p id="upload-msg" class="error" role="alert"></p>
+    <menu>
+      <button value="cancel" class="btn">Cancel</button>
+      <button value="ok" class="btn btn-primary" id="up-go" disabled>Upload and compare</button>
+    </menu>
+  </form>
+</dialog>
+
+<dialog id="dlg-price"><form method="dialog"><h3 id="dp-title">Details</h3><div id="dp-body"></div><menu><button value="ok" class="btn btn-primary">Close</button></menu></form></dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<dialog id="dlg">
+  <form method="dialog">
+    <h3 id="dlg-title"></h3>
+    <div id="dlg-body"></div>
+    <menu>
+      <button value="cancel" class="btn" id="dlg-cancel">Cancel</button>
+      <button value="ok" class="btn btn-primary" id="dlg-ok">OK</button>
+    </menu>
+  </form>
+</dialog>
+
+<script src="config.js?v=c2514725"></script>
+<script src="subcon.js?v=b6ef0537"></script>
+<script src="lifecycle.js?v=3d007b51"></script>
+<script src="app.js?v=c4c8c486"></script>
+</body>
+</html></main>
 
 <!-- Admin: who can sign in -->
 <main id="view-users" hidden>

@@ -199,3 +199,9 @@ test('dashboard stage is Decide while the SO is still a part check', () => {
   const p2 = make({ rows: [{ rowNumber: 1, id: 'id-9', data: { status: '1. ANALYSIS', part_no: 'P1', customer: 'ACME', so_qty: 10 } }] });
   assert.equal(call(p2, { action: 'dashboard' }).rows[0].stage, 'Decide');
 });
+
+test('dashboard lifecycle uses the date the browser sends, not the server clock', () => {
+  const p3 = make({ rows: [{ rowNumber: 1, id: 'id-7', data: { status: '3.OPEN', part_no: 'P1', customer: 'ACME', so_no: '300', so_qty: 5, due_date: '2026-12-01' } }] });
+  assert.equal(call(p3, { action: 'dashboard', today: '2026-11-20' }).rows[0].lc.daysToDue, 11);
+  assert.equal(call(p3, { action: 'dashboard', today: '2026-12-05', fresh: true }).rows[0].lc.daysToDue, -4);
+});

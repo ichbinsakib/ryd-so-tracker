@@ -349,7 +349,7 @@ var SOService = (function () {
       'closure_verified_date', 'next_followup_date', 'escalated', 'blocker', 'owner', 'last_followup_date'];
     var idxs = DASH_KEYS.map(function (k) { return K[k].index; });
     if (idIndex >= 0) idxs.push(idIndex);
-    var rows = [], life = lifecycle(), today = /^d{4}-d{2}-d{2}$/.test(String(req.today || '')) ? req.today : String(adapter.now()).slice(0, 10);
+    var rows = [], life = lifecycle(), today = /^\d{4}-\d{2}-\d{2}$/.test(String(req.today || '')) ? req.today : String(adapter.now()).slice(0, 10);
     adapter.readColumns(idxs, true).forEach(function (r) {
       var v = r.values;
       if (blank(v[K.part_no.index]) && blank(v[K.so_no.index])) return;

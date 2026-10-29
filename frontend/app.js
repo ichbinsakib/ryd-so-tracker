@@ -303,33 +303,82 @@
       by[k].forEach((r) => { const lc = r.lc; out.push('- ' + [norm(r.part_no), soLabel(r), r.stage + ' / ' + lc.status, k === 'F' ? 'closed ' + lc.closedOn : 'Action: ' + (lc.next || '—'), lc.owner === 'me' ? 'Who: me' : lc.waitingOn ? 'Waiting on: ' + lc.waitingOn : '', lc.actionDate ? 'By: ' + lc.actionDate : '', lc.followup ? 'Follow-up: ' + lc.followup : '', lc.reasons.length ? 'Issues: ' + lc.reasons.map((x) => x.text).join('; ') : ''].filter(Boolean).join(' | ')); });
       out.push('');
     });
+    if (SC.data) SC.data.sectionDefs.forEach((s) => { const ids = SC.data.sections[s.key]; out.push('SUBCONTRACTOR: ' + s.label.toUpperCase() + ' (' + ids.length + ')'); if (!ids.length) out.push('  none');
+      ids.forEach((id) => { const o = SC.data.lines.find((l) => l.id === id); if (o) out.push('- ' + [o.part_no, o.so_no ? 'SO ' + o.so_no : '', o.stage + ' / ' + o.status, o.next ? 'Action: ' + o.next : '', o.owner_role === 'me' ? 'Who: me' : o.waitingOn ? 'Waiting on: ' + o.waitingOn : '', o.followup ? 'Follow-up: ' + o.followup : ''].filter(Boolean).join(' | ')); }); out.push(''); });
     return out.join('\n');
   }
-  function renderDash(dash, sc) {
-    const by = reportSections(dash);
-    const tile = (k, title, sub, tone) => el('button', { class: 'kpi kpi-go ' + (by[k].length ? tone : 'ok'), type: 'button', onclick: () => { const t = $('rep-' + k); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
-      el('div', { class: 'kv', text: String(by[k].length) }), el('div', { class: 'kl', text: k + '. ' + title }));
-    $('dash2-tiles').replaceChildren(...(dash ? SECTIONS.map(([k, t, s, tone]) => tile(k, t, s, tone)) : [el('p', { class: 'muted', text: 'Shop order data is unavailable.' })]));
-    $('dash2-report').replaceChildren(...(dash ? SECTIONS.filter(([k]) => by[k].length || k === 'A').map(([k, title, sub]) => el('section', { class: 'card rsec', id: 'rep-' + k },
-      el('div', { class: 'sechead' }, el('h3', { text: k + '. ' + title }), el('span', { class: 'muted small', text: sub + ' · ' + by[k].length })),
-      by[k].length ? el('div', { class: 'dlist' }, ...by[k].slice(0, state.repAll && state.repAll[k] ? by[k].length : REPORT_CAP).map((r) => reportItem(r, k)),
-        by[k].length > REPORT_CAP ? el('button', { class: 'btn btn-sm dmore', type: 'button', text: state.repAll && state.repAll[k] ? 'Show fewer' : 'Show all ' + by[k].length + ' ›', onclick: () => { state.repAll = state.repAll || {}; state.repAll[k] = !state.repAll[k]; renderDash(dash, sc); } }) : '') : el('p', { class: 'muted', text: 'Nothing needs your action right now.' }))) : []));
-    renderDashSc(sc);
-  }
-
-  // subcontractor report on the dashboard: counts per section, the two lists that need you
   async function openScFiltered(chip, stage) { await openSubcon('subcon'); SC.chip = chip; SC.stage = stage || ''; SC.bpo = ''; $('sc-q').value = ''; renderScChips(); renderScPipeline(); applyScView(); }
-  function renderDashSc(sc) {
-    if (!sc) { $('dash2-kpis-sc').replaceChildren(el('p', { class: 'muted', text: 'Subcontractor data is unavailable.' })); $('dash2-sc-lists').replaceChildren(); return; }
-    const tone = { immediate: 'warn', overdue: 'bad', completed: 'ok' }, byId = new Map(sc.lines.map((l) => [l.id, l]));
-    $('dash2-kpis-sc').replaceChildren(...sc.sectionDefs.map((s) => { const n = sc.sections[s.key].length;
-      return el('button', { class: 'kpi kpi-go ' + (n ? (tone[s.key] || 'info') : 'ok'), type: 'button', title: s.hint, onclick: () => openScFiltered(s.key === 'immediate' ? 'mine' : s.key === 'overdue' ? 'overdue' : s.key === 'completed' ? 'done' : 'all', SC_SEC_STAGE[s.key]) },
-        el('div', { class: 'kv', text: String(n) }), el('div', { class: 'kl', text: s.label })); }));
-    $('dash2-sc-lists').replaceChildren(...sc.sectionDefs.filter((s) => (s.key === 'immediate' || s.key === 'overdue') && sc.sections[s.key].length).map((s) => {
-      const items = sc.sections[s.key].map((id) => byId.get(id)).filter(Boolean);
-      return el('section', { class: 'card rsec' }, el('div', { class: 'sechead' }, el('h3', { text: 'Subcontractor: ' + s.label.toLowerCase() }), el('span', { class: 'muted small', text: s.hint + ' · ' + items.length })),
-        el('div', { class: 'dlist' }, ...items.slice(0, 6).map((o) => scItem(o, s.key)), items.length > 6 ? el('button', { class: 'btn btn-sm dmore', type: 'button', text: 'Show all ' + items.length + ' ›', onclick: () => openScFiltered(s.key === 'immediate' ? 'mine' : 'overdue') }) : ''));
-    }));
+  const LONG_DATE = () => new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  const within = (iso, n) => { if (!isIso(iso || '')) return false; const d = daysUntil(parseDate(iso)); return d !== null && d >= 0 && d <= n; };
+  // everything that needs you, inhouse and subcontractor together, most urgent first
+  function dashActions(dash, sc) {
+    const items = [];
+    (dash ? dash.rows : []).forEach((r) => {
+      const lc = r.lc; if (!lc || !['A', 'C', 'E'].includes(lc.section)) return; const crit = lc.reasons.some((x) => x.level === 'crit');
+      items.push({ kind: 'Inhouse', crit, rank: lc.rank, title: (norm(r.so_no) ? 'SO ' + norm(r.so_no) : 'Part check') + ' · ' + norm(r.part_no), sub: [norm(r.customer), norm(r.qty) ? norm(r.qty) + ' pcs' : '', r.stage].filter(Boolean).join(' · '),
+        action: lc.next || lc.status, who: lc.owner === 'me' ? 'Me' : lc.waitingOn, by: lc.actionDate || lc.followup, why: lc.reasons.slice(0, 2), open: () => openById(r.id) });
+    });
+    if (sc) {
+      const byId = new Map(sc.lines.map((l) => [l.id, l]));
+      [...sc.sections.overdue, ...sc.sections.immediate].forEach((id) => { const o = byId.get(id); if (!o) return;
+        items.push({ kind: 'Subcontractor', crit: o.attention === 'crit', rank: (o.attention === 'crit' ? 0 : 100000) + 5000, title: o.part_no + ' · ' + qtyFmt(o.qty) + ' pcs', sub: [o.so_no ? 'SO ' + o.so_no : '', o.stage].filter(Boolean).join(' · '),
+          action: o.next || o.status, who: o.owner_role === 'me' ? 'Me' : o.waitingOn, by: o.followup, why: o.reasons.slice(0, 2), open: () => scEditLine(o) }); });
+    }
+    return items.sort((a, b) => (b.crit - a.crit) || (a.rank - b.rank));
+  }
+  function dashUpcoming(dash, sc) {
+    const out = [];
+    (dash ? dash.rows : []).filter((r) => rowOpen(r) && dueWithin(r, 14)).forEach((r) => out.push({ date: toIso(norm(r.due)), kind: 'Inhouse', title: (norm(r.so_no) ? 'SO ' + norm(r.so_no) : 'Part check') + ' · ' + norm(r.part_no), sub: 'Due · ' + r.stage + ' · ' + r.lc.status, open: () => openById(r.id) }));
+    (sc ? sc.lines : []).filter((o) => o.open && within(o.expected, 14)).forEach((o) => out.push({ date: o.expected, kind: 'Subcontractor', title: o.part_no + ' · ' + qtyFmt(o.qty) + ' pcs', sub: 'Expected at CAMCO · ' + o.status, open: () => scEditLine(o) }));
+    return out.filter((x) => x.date).sort((a, b) => a.date.localeCompare(b.date));
+  }
+  function dashDone(dash, sc) {
+    const out = [];
+    (dash ? dash.rows : []).forEach((r) => { const lc = r.lc; if (lc && lc.section === 'F' && lc.closedOn && daysUntil(parseDate(lc.closedOn)) >= -14) out.push({ date: lc.closedOn, kind: 'Inhouse', title: 'SO ' + norm(r.so_no) + ' · ' + norm(r.part_no), sub: 'Closed and verified', open: () => openById(r.id) }); });
+    (sc ? sc.sections.completed.map((id) => sc.lines.find((l) => l.id === id)).filter(Boolean) : []).forEach((o) => out.push({ date: o.ms.received_camco, kind: 'Subcontractor', title: o.part_no + ' · ' + qtyFmt(o.qty) + ' pcs', sub: 'Arrived at CAMCO' + (o.spans[9].days !== null ? ' · ' + o.spans[9].days + ' days in total' : ''), open: () => scEditLine(o) }));
+    return out.sort((a, b) => b.date.localeCompare(a.date));
+  }
+  const kindTag = (k) => el('span', { class: 'tag-kind ' + (k === 'Inhouse' ? 'in' : 'sub'), text: k });
+  function renderDash(dash, sc) {
+    const rows = dash ? dash.rows.filter(rowOpen) : [], open = sc ? sc.lines.filter((o) => o.open) : [];
+    const mineIn = rows.filter(isMine).length, mineSc = sc ? sc.kpis.needsAction : 0;
+    const lateIn = rows.filter((r) => r.lc && r.lc.daysToDue !== null && r.lc.daysToDue < 0).length, lateSc = open.filter((o) => o.section === 'overdue').length;
+    const risk = rows.filter(matRisk), lateMat = risk.filter((r) => r.lc.matStatus === 'Late').length;
+    const soonIn = rows.filter((r) => dueWithin(r, 14)).length, soonSc = open.filter((o) => within(o.expected, 14)).length;
+    const actions = dashActions(dash, sc), upcoming = dashUpcoming(dash, sc), done = dashDone(dash, sc);
+    $('dash2-sub').textContent = LONG_DATE() + (actions.length ? ' · ' + actions.length + ' thing' + (actions.length === 1 ? '' : 's') + ' need you' : ' · nothing needs you right now');
+    const fc = (tone, n, label, sub, go) => el('button', { class: 'fc ' + tone, type: 'button', onclick: go }, el('span', { class: 'fcn', text: String(n) }), el('span', { class: 'fcl', text: label }), el('small', { text: sub }));
+    const jump = (id) => () => { const t = $(id); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    $('dash2-tiles').replaceChildren(fc(actions.length ? 'warn' : 'ok', actions.length, 'Needs your action', 'Inhouse ' + mineIn + ' · Subcontractor ' + mineSc, jump('dash2-actions')),
+      fc(lateIn + lateSc ? 'bad' : 'ok', lateIn + lateSc, 'Overdue', 'SOs ' + lateIn + ' · sub follow-ups ' + lateSc, jump('dash2-actions')),
+      fc(risk.length ? 'bad' : 'ok', risk.length, 'Material at risk', risk.length ? lateMat + ' late · ' + (risk.length - lateMat) + ' at risk' : 'deliveries on track', () => { state.chip = 'risk'; state.stage = ''; state.mat = ''; goHome(); }),
+      fc('info', soonIn + soonSc, 'Due or arriving in 14 days', 'SOs ' + soonIn + ' · subcontractor ' + soonSc, jump('dash2-coming')));
+    // what to do now
+    const CAP = 7, all = state.dashAllActions;
+    $('dash2-actions').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'What to do now' }), el('span', { class: 'muted small', text: actions.length ? 'most urgent first' : '' })),
+      actions.length ? el('div', { class: 'dlist' }, ...actions.slice(0, all ? actions.length : CAP).map((a) => el('button', { class: 'ditem aitem' + (a.crit ? ' crit' : ''), type: 'button', onclick: a.open },
+        el('span', { class: 'dmain' }, el('b', {}, kindTag(a.kind), ' ', a.title), el('small', { text: a.sub }), a.why.length ? el('span', { class: 'nextwhy' }, a.why.map((x) => el('span', { class: 'badge ' + (x.level === 'crit' ? 'sc-bad' : 'sc-warn'), text: x.text }))) : ''),
+        el('span', { class: 'aact' }, el('b', { text: a.action }), el('small', { text: [a.who ? (a.who === 'Me' ? 'Me' : 'Waiting on ' + a.who) : '', a.by ? 'by ' + dshort(a.by) : ''].filter(Boolean).join(' · ') })))),
+        actions.length > CAP ? el('button', { class: 'btn btn-sm dmore', type: 'button', text: all ? 'Show fewer' : 'Show all ' + actions.length + ' ›', onclick: () => { state.dashAllActions = !all; renderDash(dash, sc); } }) : '') : el('p', { class: 'muted', text: 'Nothing needs your action right now.' }));
+    // the next two weeks
+    const dayTxt = (iso) => { const n = daysUntil(parseDate(iso)); return n === 0 ? 'today' : n === 1 ? 'tomorrow' : 'in ' + n + ' days'; };
+    $('dash2-coming').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Next 14 days' }), el('span', { class: 'muted small', text: 'SO due dates and subcontractor arrivals' })),
+      upcoming.length ? el('div', { class: 'dlist' }, ...upcoming.slice(0, 8).map((u) => el('button', { class: 'ditem upitem', type: 'button', onclick: u.open },
+        el('span', { class: 'update' }, el('b', { text: shortDate(parseDate(u.date)) }), el('small', { text: dayTxt(u.date) })), el('span', { class: 'dmain' }, el('b', {}, kindTag(u.kind), ' ', u.title), el('small', { text: u.sub }))))) : el('p', { class: 'muted', text: 'No SO due dates or arrivals in the next two weeks.' }));
+    // at a glance
+    const stageChips = (names, count, go) => el('div', { class: 'stagechips' }, ...names.map((n) => { const c = count(n); return c ? el('button', { class: 'chip', type: 'button', onclick: () => go(n) }, n, el('b', { text: String(c) })) : ''; }));
+    const waitIn = rows.filter(isWaiting).length, pcsIn = rows.reduce((t, r) => t + (parseFloat(norm(r.qty).replace(/,/g, '')) || 0), 0);
+    $('dash2-inh').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Inhouse' }), el('button', { class: 'btn btn-sm', type: 'button', text: 'Open Inhouse ›', onclick: () => { state.chip = 'all'; state.stage = ''; state.mat = ''; goHome(); } })),
+      el('div', { class: 'glance' }, ...[[rows.length, 'open SOs'], [fmtN(pcsIn, 0), 'pcs'], [mineIn, 'need you'], [waitIn, 'waiting on others']].map(([n, l]) => el('div', {}, el('b', { text: String(n) }), el('small', { text: l })))),
+      rows.length ? stageChips(STAGE_GROUPS.map((g) => g[0]), (n) => rows.filter((r) => groupOf(r) === n).length, (n) => { state.chip = 'all'; state.stage = n; state.mat = ''; goHome(); }) : el('p', { class: 'muted', text: 'No open SOs.' }));
+    const waitSc = open.filter((o) => o.owner_role && o.owner_role !== 'me' && o.owner_role !== 'none').length, pcsSc = open.reduce((t, o) => t + (o.remaining || 0), 0);
+    $('dash2-sc').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Subcontractor' }), el('button', { class: 'btn btn-sm', type: 'button', text: 'Open Subcontractor ›', onclick: () => openSubcon('subcon') })),
+      sc ? el('div', { class: 'glance' }, ...[[open.length, 'open orders'], [qtyFmt(pcsSc), 'pcs'], [mineSc, 'need you'], [waitSc, 'waiting on others']].map(([n, l]) => el('div', {}, el('b', { text: String(n) }), el('small', { text: l })))) : el('p', { class: 'muted', text: 'Subcontractor data is unavailable.' }),
+      sc && open.length ? stageChips(SC_GROUPS.filter((g) => g[1].length).map((g) => g[0]), (n) => open.filter((o) => scGroupOf(o) === n).length, (n) => openScFiltered('all', n)) : (sc ? el('p', { class: 'muted', text: 'No open orders.' }) : ''));
+    // recently finished
+    $('dash2-done').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Recently completed' }), el('span', { class: 'muted small', text: 'closed SOs (14 days) and parts arrived at CAMCO (30 days)' })),
+      done.length ? el('div', { class: 'donegrid' }, ...done.slice(0, 8).map((d) => el('button', { class: 'ditem upitem', type: 'button', onclick: d.open }, el('span', { class: 'update' }, el('b', { text: shortDate(parseDate(d.date)) }), el('small', { text: '✓' })),
+        el('span', { class: 'dmain' }, el('b', {}, kindTag(d.kind), ' ', d.title), el('small', { text: d.sub }))))) : el('p', { class: 'muted', text: 'Nothing completed recently.' }));
   }
 
   // ---------- inhouse list
@@ -357,15 +406,21 @@
   const rowDue = (r) => parseDate(r.due);
   const rowProgress = (r) => { const a = [r.soBar, r.matBar].filter((x) => x !== null); return a.length ? Math.min.apply(null, a) : 1000; };
   const awaitingQuote = (r) => norm(r.reqQuote).trim().toUpperCase() === 'YES' && !/^(y|stock|req|rec)/i.test(norm(r.quoteReceived).trim());
+  const isMine = (r) => !!r.lc && r.lc.owner === 'me', isWaiting = (r) => !!r.lc && r.lc.owner !== 'me' && r.lc.owner !== 'none';
+  const matRisk = (r) => !!r.lc && (r.lc.matStatus === 'Late' || r.lc.matStatus === 'At Risk'), dueWithin = (r, n) => !!r.lc && r.lc.daysToDue !== null && r.lc.daysToDue >= 0 && r.lc.daysToDue <= n;
   function renderKpis(rows) {
-    const open = rows.filter((r) => !rowClosed(r));
-    const overdue = open.filter((r) => { const n = daysUntil(rowDue(r)); return n !== null && n < 0; }).length;
-    const soon = open.filter((r) => { const n = daysUntil(rowDue(r)); return n !== null && n >= 0 && n <= 7; }).length;
-    const aq = open.filter(awaitingQuote).length;
-    const avg = (key) => { const v = open.map((r) => r[key]).filter((x) => x !== null); return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length) + '%' : '—'; };
-    const k = (cls, value, label) => el('div', { class: 'kpi ' + cls }, el('div', { class: 'kv', text: String(value) }), el('div', { class: 'kl', text: label }));
-    $('kpis').replaceChildren(k('info', open.length, 'Open SOs'), k(overdue ? 'bad' : 'ok', overdue, 'Overdue'), k(soon ? 'warn' : 'ok', soon, 'Due in 7 days'),
-      k(aq ? 'warn' : 'ok', aq, 'Awaiting quote'), k('info', avg('soBar'), 'Avg SO release'), k('info', avg('matBar'), 'Avg material'));
+    const open = rows.filter(rowOpen), mine = open.filter(isMine), waiting = open.filter(isWaiting), risk = open.filter(matRisk), soon = open.filter((r) => dueWithin(r, 14)), late = open.filter((r) => r.lc && r.lc.daysToDue !== null && r.lc.daysToDue < 0);
+    const pcs = open.reduce((t, r) => t + (parseFloat(norm(r.qty).replace(/,/g, '')) || 0), 0), plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+    $('dash-sub').textContent = isAdmin() ? open.length ? plural(open.length, 'open SO') + ' · ' + fmtN(pcs, 0) + ' pcs · ' + mine.length + ' need your action' : 'No open SOs.' : 'Sales orders you opened or are responsible for.';
+    const fc = (tone, n, label, sub, go) => el('button', { class: 'fc ' + tone, type: 'button', onclick: go }, el('span', { class: 'fcn', text: String(n) }), el('span', { class: 'fcl', text: label }), el('small', { text: sub }));
+    const go = (c) => () => { state.chip = c; state.stage = ''; state.mat = ''; renderPipeline(state.dash.rows); renderMatReq(state.dash.rows); buildChips(); applyView(); $('grid').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    const by = {}; waiting.forEach((r) => { const w = r.lc.waitingOn || 'Others'; by[w] = (by[w] || 0) + 1; });
+    const who = Object.entries(by).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([w, n]) => w + ' ' + n).join(' · ');
+    const dueNow = mine.filter((r) => r.lc.followupDue).length, lateMat = risk.filter((r) => r.lc.matStatus === 'Late').length;
+    $('kpis').replaceChildren(fc(mine.length ? 'warn' : 'ok', mine.length, 'Needs my action', dueNow ? dueNow + ' follow-up' + (dueNow === 1 ? '' : 's') + ' due now' : mine.length ? 'on your list' : 'nothing waiting for you', go('mine')),
+      fc('info', waiting.length, 'Waiting on others', who || 'nobody to chase', go('waiting')),
+      fc(risk.length ? 'bad' : 'ok', risk.length, 'Material at risk', risk.length ? lateMat + ' late · ' + (risk.length - lateMat) + ' at risk' : 'deliveries on track', go('risk')),
+      fc(late.length ? 'bad' : soon.length ? 'warn' : 'ok', soon.length, 'Due in 14 days', late.length ? late.length + ' already overdue' : 'none overdue', go('soon')));
   }
   // ---------- inhouse planning: pipeline by stage, material roll-up
   const STAGE_GROUPS = TAB_DEFS.filter((t) => t[1].length);   // same groups as the SO page
@@ -375,13 +430,11 @@
   const fmtN = (n, d) => (n === null || n === undefined ? '—' : Number(n).toLocaleString(undefined, { maximumFractionDigits: d === undefined ? 1 : d }));
   function renderPipeline(rows) {
     const open = rows.filter(rowOpen);
-    $('pipeline').replaceChildren(...STAGE_GROUPS.map(([title, stages], i) => {
-      const here = open.filter((r) => groupOf(r) === title), late = here.filter((r) => { const n = daysUntil(rowDue(r)); return n !== null && n < 0; }).length, mine = here.filter((r) => r.lc && r.lc.owner === 'me').length;
-      const pcs = here.reduce((t, r) => t + (parseFloat(norm(r.qty).replace(/,/g, '')) || 0), 0);
-      return el('li', {}, el('button', { class: 'pstage' + (state.stage === title ? ' on' : '') + (late ? ' late' : '') + (here.length ? '' : ' empty'), type: 'button', 'aria-pressed': String(state.stage === title),
-        title: 'Stages ' + stages[0] + (stages.length > 1 ? '–' + stages[stages.length - 1] : ''), onclick: () => { state.stage = state.stage === title ? '' : title; renderPipeline(state.dash.rows); applyView(); } },
-        el('span', { class: 'pn', text: String(i + 1) }), el('b', { text: title }), el('span', { class: 'pc', text: String(here.length) }),
-        el('small', { text: here.length ? [pcs ? fmtN(pcs, 0) + ' pcs' : '', mine ? mine + ' need me' : '', late ? late + ' late' : ''].filter(Boolean).join(' · ') : '—' })));
+    $('pipeline').replaceChildren(...STAGE_GROUPS.map(([title, stages]) => {
+      const here = open.filter((r) => groupOf(r) === title), mine = here.filter(isMine).length, late = here.filter((r) => r.lc && r.lc.daysToDue !== null && r.lc.daysToDue < 0).length;
+      return el('li', {}, el('button', { class: 'fstep' + (state.stage === title ? ' on' : '') + (here.length ? '' : ' empty'), type: 'button', 'aria-pressed': String(state.stage === title), title: here.length ? [mine ? mine + ' need you' : '', late ? late + ' overdue' : ''].filter(Boolean).join(' · ') || 'on track' : 'none',
+        onclick: () => { state.stage = state.stage === title ? '' : title; renderPipeline(state.dash.rows); applyView(); } },
+        el('span', { class: 'fsn', text: String(here.length) }), el('b', { text: title }), mine ? el('i', { class: 'fdot warn', title: mine + ' need you' }) : '', late ? el('i', { class: 'fdot bad', title: late + ' overdue' }) : ''));
     }));
   }
   function renderMatReq(rows) {
@@ -389,24 +442,22 @@
     const groups = {}, nodata = [];
     need.forEach((r) => {
       const k = matKey(r); if (!k) { nodata.push(r); return; }
-      const g = groups[k] || (groups[k] = { key: k, steel: r.steelType, bar: r.barType, size: r.barSize, sos: 0, pcs: 0, bars: 0, ft: 0, lbs: 0, short: 0, unknown: 0 });
-      g.sos++; g.pcs += parseFloat(norm(r.qty).replace(/,/g, '')) || 0; g.bars += r.reqBar || 0; g.ft += r.reqFt || 0; g.lbs += r.reqLbs || 0;
+      const g = groups[k] || (groups[k] = { key: k, steel: r.steelType, bar: r.barType, size: r.barSize, sos: 0, bars: 0, ft: 0, lbs: 0, short: 0, unknown: 0 });
+      g.sos++; g.bars += r.reqBar || 0; g.ft += r.reqFt || 0; g.lbs += r.reqLbs || 0;
       if (r.reqFt === null || r.availFt === null) g.unknown++; else if (r.availFt < r.reqFt) g.short++;
     });
-    const list = Object.values(groups).sort((x, y) => y.lbs - x.lbs);
-    const tot = list.reduce((t, g) => ({ bars: t.bars + g.bars, ft: t.ft + g.ft, lbs: t.lbs + g.lbs }), { bars: 0, ft: 0, lbs: 0 });
-    $('matreq-sub').textContent = need.length ? ' · ' + need.length + ' open SO' + (need.length === 1 ? '' : 's') + ' still waiting for material · ' + fmtN(Math.ceil(tot.bars), 0) + ' bars · ' + fmtN(tot.ft, 0) + ' ft · ' + fmtN(tot.lbs, 0) + ' lbs' : ' · nothing waiting for material';
-    $('matreq').tHead.replaceChildren(el('tr', {}, ['STEEL', 'BAR', 'BAR SIZE', 'SOs', 'PCS', 'BARS', 'FEET', 'LBS', 'STOCK', ''].map((t) => el('th', { text: t }))));
-    const row = (g) => el('tr', { class: 'clickrow' + (state.mat === g.key ? ' picked' : ''), onclick: () => { state.mat = state.mat === g.key ? '' : g.key; renderMatReq(state.dash.rows); applyView(); } },
-      el('td', {}, el('b', { text: g.steel })), el('td', { text: g.bar || '—' }), el('td', { text: g.size || '—' }), el('td', { text: String(g.sos) }), el('td', { text: fmtN(g.pcs, 0) }),
-      el('td', {}, el('b', { text: fmtN(Math.ceil(g.bars), 0) })), el('td', { text: fmtN(g.ft, 0) }), el('td', { text: fmtN(g.lbs, 0) }),
-      el('td', {}, g.short ? el('span', { class: 'badge sc-bad', text: g.short + ' short' }) : g.unknown === g.sos ? el('span', { class: 'badge sc-muted', text: 'unknown' }) : el('span', { class: 'badge sc-ok', text: 'covered' }), g.short && g.unknown ? el('small', { class: 'muted', text: ' +' + g.unknown + ' unknown' }) : ''),
-      el('td', { class: 'muted small', text: state.mat === g.key ? 'filtering ✕' : 'show SOs' }));
-    const body = list.map(row);
-    if (nodata.length) body.push(el('tr', { class: 'clickrow' + (state.mat === 'none' ? ' picked' : ''), onclick: () => { state.mat = state.mat === 'none' ? '' : 'none'; renderMatReq(state.dash.rows); applyView(); } },
-      el('td', { colspan: 3 }, el('b', { text: 'No steel data' }), el('small', { class: 'muted', text: '  parts missing from STEEL USAGE, so the need cannot be calculated' })), el('td', { text: String(nodata.length) }), el('td', { colspan: 6, class: 'muted small', text: state.mat === 'none' ? 'filtering ✕' : 'show SOs' })));
-    $('matreq').tBodies[0].replaceChildren(...(body.length ? body : [el('tr', {}, el('td', { colspan: 10, class: 'muted', text: 'Every open SO has its material.' }))]));
-    $('matreq-card').hidden = !rows.length;
+    const list = Object.values(groups).sort((x, y) => y.lbs - x.lbs), tot = list.reduce((t, g) => ({ bars: t.bars + g.bars, lbs: t.lbs + g.lbs }), { bars: 0, lbs: 0 });
+    $('matreq-sub').textContent = need.length ? need.length + ' SO' + (need.length === 1 ? '' : 's') + ' · ' + fmtN(Math.ceil(tot.bars), 0) + ' bars · ' + fmtN(tot.lbs, 0) + ' lbs' : '';
+    const pick = (k) => () => { state.mat = state.mat === k ? '' : k; renderMatReq(state.dash.rows); applyView(); if (state.mat) $('grid').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    const CAP = 6, shown = state.matAll ? list : list.slice(0, CAP);
+    const row = (g) => el('button', { class: 'mrow' + (state.mat === g.key ? ' picked' : ''), type: 'button', onclick: pick(g.key), title: 'Show the SOs that need this material' },
+      el('span', { class: 'mmain' }, el('b', { text: [g.steel, g.bar].filter(Boolean).join(' ') }), el('small', { text: (g.size || '') + (g.size ? ' · ' : '') + g.sos + ' SO' + (g.sos === 1 ? '' : 's') })),
+      el('span', { class: 'mnum' }, el('b', { text: fmtN(Math.ceil(g.bars), 0) + ' bars' }), el('small', { text: fmtN(g.ft, 0) + ' ft · ' + fmtN(g.lbs, 0) + ' lbs' })),
+      g.short ? el('span', { class: 'badge sc-bad', text: g.short + ' short' }) : g.unknown === g.sos ? el('span', { class: 'badge sc-muted', text: 'no stock data' }) : el('span', { class: 'badge sc-ok', text: 'in stock' }));
+    const kids = shown.map(row);
+    if (nodata.length) kids.push(el('button', { class: 'mrow' + (state.mat === 'none' ? ' picked' : ''), type: 'button', onclick: pick('none') }, el('span', { class: 'mmain' }, el('b', { text: 'No steel data' }), el('small', { text: nodata.length + ' SO' + (nodata.length === 1 ? '' : 's') + ': part missing from STEEL USAGE' })), el('span'), el('span', { class: 'badge sc-warn', text: 'fix' })));
+    if (list.length > CAP) kids.push(el('button', { class: 'btn btn-sm dmore', type: 'button', text: state.matAll ? 'Show fewer' : 'Show all ' + list.length + ' ›', onclick: () => { state.matAll = !state.matAll; renderMatReq(rows); } }));
+    $('matreq-list').replaceChildren(...(kids.length ? kids : [el('p', { class: 'muted', text: need.length ? 'Nothing to show.' : 'Every open SO has its material.' })]));
   }
   function freshness(cardId, whenId, subId, whenIso, subText, emptyText, staleDays) {
     const card = $(cardId), w = $(whenId), s = $(subId);
@@ -428,17 +479,17 @@
     freshness('card-steel', 'steel-when', 'steel-sub', st ? st.at : null,
       st ? st.count + ' rows' + (st.by ? ' · by ' + st.by : '') + (st.fileName ? ' · ' + st.fileName : '') : '', 'Not updated through the app yet');
   }
-  const CHIPS = [['all', 'All'], ['mine', 'Needs my action'], ['blocked', 'Blocked'], ['1. ANALYSIS', 'Analysis'], ['3.OPEN', 'Open'], ['5.HOLD', 'On hold'], ['late', 'Overdue'], ['quote', 'Awaiting quote'], ['4.CLOSE', 'Closed']];
+  const CHIPS = [['all', 'All'], ['mine', 'Needs my action'], ['waiting', 'Waiting on others'], ['soon', 'Due in 14 days'], ['late', 'Overdue'], ['risk', 'Material risk'], ['check', 'Part checks'], ['5.HOLD', 'On hold'], ['4.CLOSE', 'Closed']];
   function chipMatch(r, c) {
-    if (c === 'all') return true; if (c === 'late') { const n = daysUntil(rowDue(r)); return !rowClosed(r) && n !== null && n < 0; }
-    if (c === 'mine') return rowOpen(r) && !!r.lc && r.lc.owner === 'me'; if (c === 'blocked') return rowOpen(r) && !!r.lc && r.lc.section === 'B';
-    if (c === 'quote') return !rowClosed(r) && awaitingQuote(r); return norm(r.status).trim() === c;
+    if (c === 'all') return true; if (c === 'mine') return rowOpen(r) && isMine(r); if (c === 'waiting') return rowOpen(r) && isWaiting(r);
+    if (c === 'soon') return rowOpen(r) && dueWithin(r, 14); if (c === 'late') return rowOpen(r) && !!r.lc && r.lc.daysToDue !== null && r.lc.daysToDue < 0;
+    if (c === 'risk') return rowOpen(r) && matRisk(r); if (c === 'check') return rowOpen(r) && /ANALYSIS|ANR/.test(norm(r.status).toUpperCase());
+    return norm(r.status).trim() === c;
   }
   function buildChips() {
     const rows = state.dash ? state.dash.rows : [];
-    $('chips').replaceChildren(...CHIPS.filter(([c]) => c !== '4.CLOSE' || $('incl-closed').checked).map(([c, label]) =>
-      el('button', { class: 'chip' + (state.chip === c ? ' on' : ''), type: 'button', 'aria-pressed': String(state.chip === c), onclick: () => { state.chip = c; buildChips(); applyView(); } },
-        label, el('b', { text: String(rows.filter((r) => chipMatch(r, c)).length) }))));
+    $('chips').replaceChildren(...CHIPS.filter(([c]) => c !== '4.CLOSE' || $('incl-closed').checked).map(([c, label]) => { const n = rows.filter((r) => chipMatch(r, c)).length;
+      return el('button', { class: 'chip' + (state.chip === c ? ' on' : ''), type: 'button', 'aria-pressed': String(state.chip === c), onclick: () => { state.chip = c; buildChips(); applyView(); } }, label, el('b', { text: String(n) })); }));
   }
   function applyView() {
     const q = $('q').value.trim().toLowerCase();
@@ -446,26 +497,26 @@
     const soNum = (r) => { const n = parseFloat(norm(r.so_no).replace(/\D/g, '')); return isNaN(n) ? -1 : n; };
     if (state.sort === 'due') rows.sort((a, b) => { const x = rowDue(a), y = rowDue(b); return (x ? x.getTime() : 9e15) - (y ? y.getTime() : 9e15); });
     else if (state.sort === 'so') rows.sort((a, b) => soNum(b) - soNum(a));
-    else rows.sort((a, b) => rowProgress(a) - rowProgress(b));
+    else rows.sort((a, b) => (a.lc ? a.lc.rank : 9e9) - (b.lc ? b.lc.rank : 9e9));
     state.view = rows; state.page = 0; renderTable();
   }
   function renderTable() {
-    $('grid').tHead.replaceChildren(el('tr', {}, ['SO#', 'Part / customer', 'Stage', 'Next action', 'Due', 'Material', 'Progress', ''].map((h) => el('th', { text: h }))));
+    $('grid').tHead.replaceChildren(el('tr', {}, ['', 'SO / PART', 'STAGE', 'NEXT ACTION', 'DUE', 'MATERIAL', ''].map((h) => el('th', { text: h }))));
     const pages = Math.max(1, Math.ceil(state.view.length / state.pageSize));
     state.page = Math.min(state.page, pages - 1);
     const slice = state.view.slice(state.page * state.pageSize, (state.page + 1) * state.pageSize);
     const body = $('grid').tBodies[0];
     const mpill = (m) => el('span', { class: 'badge ' + (m === 'Late' ? 'sc-bad' : m === 'At Risk' ? 'sc-warn' : m === 'Unknown' ? 'sc-muted' : 'sc-ok'), text: m });
-    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 8, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : (isAdmin() ? 'No open SOs.' : 'You have no open SOs yet. Use Open an SO, or find one by its number.') })));
-    else body.replaceChildren(...slice.map((r) => el('tr', { tabindex: 0, onclick: () => openById(r.id), onkeydown: (e) => { if (e.key === 'Enter') openById(r.id); } },
-      el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'so', text: norm(r.so_no) || 'Part check' }), el('small', { text: norm(r.qty) ? norm(r.qty) + ' pcs' : '' }))),
-      el('td', {}, el('div', { class: 'cell2' }, el('span', { text: norm(r.part_no) }), el('small', { text: norm(r.customer) }))),
-      el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill', text: r.stage || '—' }), el('small', { text: r.lc ? r.lc.status : norm(r.status) }))),
-      el('td', {}, el('div', { class: 'cell2' }, el('span', { text: r.lc && r.lc.next ? r.lc.next : '—' }), el('small', { text: r.lc ? (r.lc.owner === 'me' ? 'Me' + (r.lc.actionDate ? ' · by ' + dshort(r.lc.actionDate) : '') : r.lc.waitingOn ? 'Waiting on ' + r.lc.waitingOn + (r.lc.followup ? ' · follow up ' + dshort(r.lc.followup) : '') : '') : '' }))),
-      el('td', {}, dueNode(rowDue(r), rowClosed(r))),
-      el('td', {}, el('div', { class: 'cell2' }, r.lc && r.lc.matStatus ? mpill(r.lc.matStatus) : el('span', { class: 'muted', text: r.steelType ? 'not ordered' : 'no steel data' }), el('small', { text: r.steelType ? [r.steelType, r.reqBar !== null ? fmtN(Math.ceil(r.reqBar), 0) + ' bars' : ''].filter(Boolean).join(' · ') : '' }))),
-      el('td', {}, barNode(rowProgress(r) === 1000 ? null : rowProgress(r))),
-      el('td', { class: 'chev' }, rowClosed(r) ? '' : el('button', { class: 'rowdel', type: 'button', title: 'Delete this SO', 'aria-label': 'Delete this SO', text: '🗑', onclick: (e) => { e.stopPropagation(); deleteSO(r.id, norm(r.so_no) || norm(r.part_no)); } }), ' ›'))));
+    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : (isAdmin() ? 'No open SOs.' : 'You have no open SOs yet. Use Open an SO, or find one by its number.') })));
+    else body.replaceChildren(...slice.map((r) => { const lc = r.lc, att = lc && lc.reasons.some((x) => x.level === 'crit') ? 'crit' : lc && lc.reasons.length ? 'warn' : 'ok';
+      return el('tr', { tabindex: 0, onclick: () => openById(r.id), onkeydown: (e) => { if (e.key === 'Enter') openById(r.id); } },
+        el('td', {}, el('span', { class: 'dot sc-dot-' + att, title: att === 'crit' ? 'Critical' : att === 'warn' ? 'Needs attention' : 'On track' })),
+        el('td', {}, el('div', { class: 'cell2' }, el('span', {}, el('b', { text: norm(r.so_no) || 'Part check' }), el('span', { class: 'muted', text: '  ' + norm(r.part_no) })), el('small', { text: [norm(r.customer), norm(r.qty) ? norm(r.qty) + ' pcs' : ''].filter(Boolean).join(' · ') }))),
+        el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill', text: r.stage || '—' }), el('small', { text: lc ? lc.status : norm(r.status) }))),
+        el('td', {}, el('div', { class: 'cell2' }, el('span', { text: lc && lc.next ? lc.next : '—' }), el('small', { text: lc ? (lc.owner === 'me' ? 'Me' + (lc.actionDate ? ' · by ' + dshort(lc.actionDate) : '') : lc.waitingOn ? 'Waiting on ' + lc.waitingOn + (lc.followup ? ' · follow up ' + dshort(lc.followup) : '') : '') : '' }))),
+        el('td', {}, dueNode(rowDue(r), rowClosed(r))),
+        el('td', {}, el('div', { class: 'cell2' }, lc && lc.matStatus ? mpill(lc.matStatus) : el('span', { class: 'muted', text: r.steelType ? 'not ordered' : 'no steel data' }), el('small', { text: r.steelType ? [r.steelType, r.reqBar !== null ? fmtN(Math.ceil(r.reqBar), 0) + ' bars' : ''].filter(Boolean).join(' · ') : '' }))),
+        el('td', { class: 'chev', text: '›' })); }));
     $('pg-info').textContent = 'Page ' + (state.page + 1) + ' of ' + pages;
     $('pg-prev').disabled = state.page === 0; $('pg-next').disabled = state.page >= pages - 1;
     const ls = $('list-status'); ls.className = 'statusline';
@@ -1364,28 +1415,48 @@
     $('sc-sub').textContent = leads ? 'Elapsed calendar days between milestones, from your tracked orders, and when a new PO should arrive.' : 'Every part sent to the subcontractor team, from quotation to confirmed arrival at CAMCO.';
     $('sc-actions').hidden = leads || !scCanWrite(); $('sc-orders').hidden = leads; $('sc-body').hidden = !leads;
     if (leads) { $('sc-body').replaceChildren(scLeadCalc(), scLeadStats()); return; }
-    renderScKpis(); renderScPipeline(); renderScChips(); applyScView();
+    renderScKpis(); renderScPipeline(); renderScChips(); applyScView(); renderScInsights();
     $('sc-batches-sub').textContent = '· ' + D.batches.length + (D.batches.length === 1 ? ' batch' : ' batches') + ' · update many lines at once';
     $('sc-batches').replaceChildren(scBatchesView());
   }
   const scOpen = () => SC.data.lines.filter((o) => o.open);
   function renderScKpis() {
-    const D = SC.data, open = scOpen(), k = D.kpis, waiting = open.filter((o) => o.owner_role && o.owner_role !== 'me' && o.owner_role !== 'none').length;
-    const kp = (cls, v, l, go) => el('button', { class: 'kpi kpi-go ' + cls, type: 'button', onclick: go }, el('div', { class: 'kv', text: String(v) }), el('div', { class: 'kl', text: l }));
-    const chip = (c) => () => { SC.chip = c; SC.stage = ''; renderScChips(); renderScPipeline(); applyScView(); };
-    $('sc-kpis').replaceChildren(kp('info', open.length, 'Open orders', chip('all')), kp(k.needsAction ? 'warn' : 'ok', k.needsAction, 'Need my action', chip('mine')), kp('info', waiting, 'Waiting on others', chip('waiting')),
-      kp(k.overdueFollowups ? 'bad' : 'ok', k.overdueFollowups, 'Overdue follow-ups', chip('overdue')), kp(k.pastDue || k.forecastLate ? 'warn' : 'ok', k.pastDue + k.forecastLate, 'Late or forecast late', chip('all')), kp('info', qtyFmt(k.openQty), 'Pcs still open', chip('all')));
+    const D = SC.data, open = scOpen(), k = D.kpis, waiting = open.filter((o) => o.owner_role && o.owner_role !== 'me' && o.owner_role !== 'none');
+    const pcs = open.reduce((t, o) => t + (o.remaining || 0), 0), plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+    $('sc-sub').textContent = open.length ? plural(open.length, 'open order') + ' · ' + qtyFmt(pcs) + ' pcs · ' + k.needsAction + ' need your action' : 'No open orders yet.';
+    const fc = (tone, n, label, sub, go) => el('button', { class: 'fc ' + tone, type: 'button', onclick: go }, el('span', { class: 'fcn', text: String(n) }), el('span', { class: 'fcl', text: label }), el('small', { text: sub }));
+    const go = (c) => () => { SC.chip = c; SC.stage = ''; SC.bpo = ''; renderScChips(); renderScPipeline(); applyScView(); $('sc-grid').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+    const by = {}; waiting.forEach((o) => { const w = o.owner_role === 'costing' ? 'Costing manager' : o.owner_role === 'team' ? 'Team' : 'Others'; by[w] = (by[w] || 0) + 1; });
+    const who = Object.entries(by).sort((a, b) => b[1] - a[1]).map(([w, n]) => w + ' ' + n).join(' · ');
+    const late = k.pastDue + k.forecastLate, over = open.filter((o) => o.section === 'overdue').length;
+    $('sc-kpis').replaceChildren(fc(k.needsAction ? 'warn' : 'ok', k.needsAction, 'Needs my action', k.needsAction ? 'send, request or create next' : 'nothing waiting for you', go('mine')),
+      fc('info', waiting.length, 'Waiting on others', who || 'nobody to chase', go('waiting')),
+      fc(over ? 'bad' : 'ok', over, 'Overdue follow-ups', over ? 'chase today' : 'all follow-ups on time', go('overdue')),
+      fc(late ? 'bad' : 'ok', late, 'Late or forecast late', late ? 'will miss the required date' : 'arrivals on schedule', go('all')));
   }
   function renderScPipeline() {
     const open = scOpen();
-    $('sc-pipeline').replaceChildren(...SC_GROUPS.filter((g) => g[1].length).map(([title, stages, hint], i) => {
+    $('sc-pipeline').replaceChildren(...SC_GROUPS.filter((g) => g[1].length).map(([title, stages, hint]) => {
       const here = open.filter((o) => scGroupOf(o) === title), late = here.filter((o) => o.pastDue > 0 || o.reasons.some((r) => r.code === 'followup-overdue')).length, mine = here.filter((o) => o.owner_role === 'me').length;
-      const pcs = here.reduce((t, o) => t + (o.remaining || 0), 0);
-      return el('li', {}, el('button', { class: 'pstage' + (SC.stage === title ? ' on' : '') + (late ? ' late' : '') + (here.length ? '' : ' empty'), type: 'button', 'aria-pressed': String(SC.stage === title), title: hint,
+      return el('li', {}, el('button', { class: 'fstep' + (SC.stage === title ? ' on' : '') + (here.length ? '' : ' empty'), type: 'button', 'aria-pressed': String(SC.stage === title), title: here.length ? [mine ? mine + ' need you' : '', late ? late + ' overdue' : ''].filter(Boolean).join(' · ') || hint : hint,
         onclick: () => { SC.stage = SC.stage === title ? '' : title; SC.chip = 'all'; renderScChips(); renderScPipeline(); applyScView(); } },
-        el('span', { class: 'pn', text: String(i + 1) }), el('b', { text: title }), el('span', { class: 'pc', text: String(here.length) }),
-        el('small', { text: here.length ? [pcs ? qtyFmt(pcs) + ' pcs' : '', mine ? mine + ' need me' : '', late ? late + ' late' : ''].filter(Boolean).join(' · ') : '—' })));
+        el('span', { class: 'fsn', text: String(here.length) }), el('b', { text: title }), mine ? el('i', { class: 'fdot warn' }) : '', late ? el('i', { class: 'fdot bad' }) : ''));
     }));
+  }
+  // what is arriving and how long things usually take
+  function renderScInsights() {
+    const D = SC.data, byId = (o) => o.open && o.expected, now = today();
+    const arr = D.lines.filter(byId).sort((a, b) => String(a.expected).localeCompare(String(b.expected))).slice(0, 6);
+    $('sc-arrivals').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Arriving soon' }), el('span', { class: 'muted small', text: 'expected at CAMCO' })),
+      arr.length ? el('div', { class: 'alist' }, ...arr.map((o) => { const n = SOSub.daysBetween(now, o.expected);
+        return el('button', { class: 'arow', type: 'button', onclick: () => scEditLine(o) }, el('span', { class: 'mmain' }, el('b', { text: o.part_no + ' · ' + qtyFmt(o.qty) + ' pcs' }), el('small', { text: o.status })),
+          el('span', { class: 'mnum' }, el('b', { text: dshort(o.expected) }), el('small', { class: n < 0 ? 'sc-bad-text' : '', text: n < 0 ? Math.abs(n) + ' d overdue' : n === 0 ? 'today' : 'in ' + n + ' d' }))); })) : el('p', { class: 'muted', text: 'No expected arrival dates yet. Add expected dates on the order page.' }));
+    const wanted = ['rfq>quote_received', 'quote_received>quote_approved', 'so_requested>so_received', 'po_sent_approval>po_approved', 'po_to_vendor>ready_to_ship', 'ready_to_ship>received_camco', 'rfq>received_camco'];
+    const labels = { 'rfq>quote_received': 'China quotation', 'quote_received>quote_approved': 'Quote approval', 'so_requested>so_received': 'SO number', 'po_sent_approval>po_approved': 'PO verification', 'po_to_vendor>ready_to_ship': 'Production', 'ready_to_ship>received_camco': 'Shipping to CAMCO', 'rfq>received_camco': 'Total, part sent to arrival' };
+    const st = wanted.map((k) => D.leadStats.find((s) => s.from + '>' + s.to === k)).filter(Boolean);
+    $('sc-timings').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Typical timings' }), el('span', { class: 'muted small', text: 'calendar days, from finished orders' })),
+      st.some((s) => s.n) ? el('div', { class: 'alist' }, ...st.map((s) => el('div', { class: 'arow static' + (s.to === 'received_camco' && s.from === 'rfq' ? ' total' : '') }, el('span', { class: 'mmain' }, el('b', { text: labels[s.from + '>' + s.to] }), el('small', { text: s.n ? s.n + ' order' + (s.n === 1 ? '' : 's') + (s.min !== s.max ? ' · ' + s.min + '–' + s.max + ' d' : '') : 'no data yet' })),
+        el('span', { class: 'mnum' }, el('b', { text: s.avg === null ? '—' : s.avg + ' d' }), el('small', { text: s.avg === null ? '' : 'average' }))))) : el('p', { class: 'muted', text: 'Timings appear once orders have both dates for a step.' }));
   }
   const SC_CHIPS = [['all', 'All'], ['mine', 'Needs my action'], ['waiting', 'Waiting on others'], ['overdue', 'Overdue'], ['done', 'Arrived']];
   const scChipMatch = (o, c) => c === 'all' || (c === 'mine' && o.open && (o.section === 'immediate' || o.section === 'overdue')) || (c === 'waiting' && o.open && o.owner_role !== 'me' && o.owner_role !== 'none') ||
@@ -1400,8 +1471,8 @@
       && (!q || [o.so_no, o.po_no, o.part_no, o.ryd_part, o.bpo_no, o.batch, o.stage, o.status, o.team_member, o.note].some((v) => norm(v).toLowerCase().includes(q))));
     rows.sort((a, b) => (a.open === b.open ? 0 : a.open ? -1 : 1) || ({ crit: 0, warn: 1, ok: 2 }[a.attention] - { crit: 0, warn: 1, ok: 2 }[b.attention]) || String(a.followup || '9999').localeCompare(String(b.followup || '9999')));
     SC.view = rows;
-    $('sc-grid').tHead.replaceChildren(el('tr', {}, ['', 'PART', 'SO / PO', 'STAGE', 'NEXT ACTION', 'REQUIRED / EXPECTED', 'PROGRESS', ''].map((h) => el('th', { text: h }))));
-    $('sc-grid').tBodies[0].replaceChildren(...(rows.length ? rows.map(scLineRow) : [el('tr', {}, el('td', { colspan: 8, class: 'muted', text: SC.data.lines.length ? 'No orders match your filter.' : 'No orders yet. Use "New order" or "Import BPO sheet".' }))]));
+    $('sc-grid').tHead.replaceChildren(el('tr', {}, ['', 'PART', 'STAGE', 'NEXT ACTION', 'REQUIRED / EXPECTED', ''].map((h) => el('th', { text: h }))));
+    $('sc-grid').tBodies[0].replaceChildren(...(rows.length ? rows.map(scLineRow) : [el('tr', {}, el('td', { colspan: 6, class: 'muted', text: SC.data.lines.length ? 'No orders match your filter.' : 'No orders yet. Use "New order" or "Import BPO sheet".' }))]));
     const ls = $('sc-status'); ls.className = 'statusline'; ls.textContent = rows.length + ' of ' + SC.data.lines.length + ' orders';
     if (SC.stage || SC.bpo) ls.append(' · filtered by ' + [SC.stage ? 'stage ' + SC.stage : '', SC.bpo ? SC.bpo + (SC.q ? ' · ' + SC.q : '') : ''].filter(Boolean).join(' and ') + ' ', el('button', { class: 'btn btn-sm', type: 'button', text: 'Clear filter', onclick: () => { SC.stage = ''; SC.bpo = ''; $('sc-q').value = ''; renderScPipeline(); applyScView(); } }));
   }
@@ -1409,13 +1480,13 @@
     const who = o.open ? (o.owner_role === 'me' ? 'Me' + (o.followup ? ' · by ' + dshort(o.followup) : '') : o.waitingOn ? 'Waiting on ' + o.waitingOn + (o.followup ? ' · follow up ' + dshort(o.followup) + (o.followupDue ? ' (due)' : '') : '') : '') : '';
     return el('tr', { class: 'clickrow', tabindex: 0, onclick: () => scEditLine(o), onkeydown: (e) => { if (e.key === 'Enter') scEditLine(o); } },
       el('td', {}, el('span', { class: 'dot sc-dot-' + (o.open ? o.attention : 'ok'), title: o.attention === 'crit' ? 'Critical' : o.attention === 'warn' ? 'Needs attention' : 'On track' })),
-      el('td', {}, el('div', { class: 'cell2' }, el('span', {}, el('b', { text: o.part_no }), o.revision ? el('small', { class: 'muted', text: ' rev ' + o.revision }) : '', ' ', scPrio(o.priority)), el('small', { text: qtyFmt(o.qty) + ' pcs' + (o.team_member ? ' · ' + o.team_member : '') }))),
-      el('td', {}, el('div', { class: 'cell2' }, el('span', { text: o.so_no ? 'SO ' + o.so_no : 'No SO yet' }), el('small', { text: o.po_no ? 'PO ' + o.po_no : (o.bpo_no ? o.bpo_no + (o.batch ? ' · ' + o.batch : '') : '') }))),
+      el('td', {}, el('div', { class: 'cell2' }, el('span', {}, el('b', { text: o.part_no }), o.revision ? el('small', { class: 'muted', text: ' rev ' + o.revision }) : '', ' ', scPrio(o.priority)),
+        el('small', { text: [qtyFmt(o.qty) + ' pcs', o.so_no ? 'SO ' + o.so_no : '', o.po_no ? 'PO ' + o.po_no : '', o.team_member].filter(Boolean).join(' · ') }))),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill', text: o.stage }), el('small', { text: o.status }))),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { text: o.open ? (o.next || '—') : (o.complete ? 'Arrived ' + dshort(o.ms.received_camco) : '—') }), el('small', { text: who }),
         o.open && o.reasons.length ? el('span', { class: 'nextwhy' }, o.reasons.slice(0, 2).map((r) => el('span', { class: 'badge ' + (r.level === 'crit' ? 'sc-bad' : 'sc-warn'), text: r.text }))) : '')),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { text: dshort(o.required_date) }), el('small', { text: o.expected ? 'expected ' + dshort(o.expected) + (o.projected && !(o.exp && o.exp.exp_arrival) && !(o.ms && o.ms.eta_camco) ? ' (~' + dshort(o.projected) + ')' : '') : '' }))),
-      el('td', {}, scBar(o.progress, o.attention === 'crit' ? 'bad' : o.attention === 'warn' ? 'warn' : '')), el('td', { class: 'chev', text: '›' }));
+      el('td', { class: 'chev', text: '›' }));
   }
   const scBar = (pct, cls) => el('div', { class: 'scbar ' + (cls || ''), title: pct + '%' }, el('i', { style: 'width:' + pct + '%' }), el('span', { text: pct + '%' }));
   const scPrio = (p) => (p === 'NORMAL' ? '' : el('span', { class: 'badge ' + (p === 'LINE DOWN' ? 'sc-bad' : 'sc-warn'), text: p }));
@@ -1716,7 +1787,6 @@
   $('scd-delete').onclick = async () => { if (await scDeleteLine(SCD.o)) { state.dirty = false; openSubcon('subcon'); } };
   $('nav-dash').onclick = openDash;
   $('dash2-copy').onclick = async () => { if (!state.dashAll) return; try { await navigator.clipboard.writeText(reportText()); toast('Report copied.'); } catch (e) { toast('Could not copy. Select the text from the page instead.', true); } };
-  $('dash2-go-sc').onclick = () => openSubcon('subcon');
   $('dash2-new').onclick = openNewForm;
   $('dash2-find').addEventListener('submit', (e) => { e.preventDefault(); findSO($('dash2-find-input').value, $('dash2-status')); });
   $('nav-inhouse').onclick = async () => { if (!state.token || !state.role) return; if (!(await leaveGuard())) return; goHome(); };
