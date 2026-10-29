@@ -111,30 +111,16 @@
   <section id="kpis" class="kpis" aria-label="Key numbers"></section>
 
   <section class="card pipeline-card" id="pipeline-card">
-    <div class="sechead"><h3>Order pipeline</h3><span class="muted small">Where every open SO is waiting. Click a stage to list those SOs.</span></div>
+    <div class="sechead"><h3>Pipeline</h3><span class="muted small">Where every open SO is in the lifecycle. Click a stage to list those SOs.</span></div>
     <ol id="pipeline" class="pipeline"></ol>
   </section>
 
-  <details class="card matreq" id="matreq-card" open>
+  <details class="card matreq" id="matreq-card">
     <summary><b>Material requirements</b> <span class="muted small" id="matreq-sub"></span></summary>
     <div class="tablewrap"><table id="matreq" class="datatable"><thead></thead><tbody></tbody></table></div>
   </details>
 
-  <section class="fresh" id="fresh-cards">
-    <div class="card stat" id="card-stock">
-      <div class="stat-top"><span class="dot" aria-hidden="true"></span><h3>Daily inventory</h3></div>
-      <div class="statbig" id="stock-when">—</div>
-      <div class="muted small" id="stock-sub"></div>
-      <div class="muted small">ALL CUSTOMER INVENTORY file. One upload updates the STOCK list and the stockroom prices (PART PRICE and AVAIL (FT) on every SO).</div>
-      <button id="btn-upload" class="btn btn-sm btn-primary">Upload today's inventory</button>
-    </div>
-    <div class="card stat" id="card-steel">
-      <div class="stat-top"><span class="dot" aria-hidden="true"></span><h3>STEEL USAGE sheet</h3></div>
-      <div class="statbig" id="steel-when">—</div>
-      <div class="muted small" id="steel-sub"></div>
-      <button id="btn-upload-steel" class="btn btn-sm">Replace data</button>
-    </div>
-  </section>
+
 
   <section class="listhead">
     <h2>Open SOs</h2>
@@ -158,6 +144,24 @@
     <button id="pg-next" class="btn">Next ›</button>
     <label class="muted small">Rows <select id="pg-size"><option>25</option><option selected>50</option><option>100</option></select></label>
   </nav>
+
+  <details class="card datacard" id="data-card"><summary><b>Data uploads</b> <span class="muted small" id="data-sub"></span></summary>
+  <section class="fresh" id="fresh-cards">
+    <div class="card stat" id="card-stock">
+      <div class="stat-top"><span class="dot" aria-hidden="true"></span><h3>Daily inventory</h3></div>
+      <div class="statbig" id="stock-when">—</div>
+      <div class="muted small" id="stock-sub"></div>
+      <div class="muted small">ALL CUSTOMER INVENTORY file. One upload updates the STOCK list and the stockroom prices (PART PRICE and AVAIL (FT) on every SO).</div>
+      <button id="btn-upload" class="btn btn-sm btn-primary">Upload today's inventory</button>
+    </div>
+    <div class="card stat" id="card-steel">
+      <div class="stat-top"><span class="dot" aria-hidden="true"></span><h3>STEEL USAGE sheet</h3></div>
+      <div class="statbig" id="steel-when">—</div>
+      <div class="muted small" id="steel-sub"></div>
+      <button id="btn-upload-steel" class="btn btn-sm">Replace data</button>
+    </div>
+  </section>
+  </details>
 </main>
 
 <!-- Admin: who can sign in -->
@@ -234,7 +238,7 @@
     <div id="detail-meta" class="dmeta"></div>
     <div class="head-actions"><button id="btn-print" class="btn">🖨 Print details</button> <button id="btn-delete" class="btn btn-danger" type="button" hidden>🗑 Delete SO</button></div>
   </div>
-  <section class="card stepper-card"><ol id="stepper" class="stepper" aria-label="Order workflow"></ol></section>
+  <section class="card stepper-card"><ol id="stepper" class="stepper" role="tablist" aria-label="Lifecycle stages: pick one to see and edit its fields"></ol></section>
   <section id="nextcard" class="card nextcard"></section>
   <section id="callouts" class="callouts"></section>
   <div class="dlayout">
@@ -252,7 +256,6 @@
       </section>
     </aside>
     <div class="dmain">
-      <nav id="tabs" class="tabs" role="tablist" aria-label="Sections"></nav>
       <form id="detail-form" autocomplete="off"></form>
       <section class="card logbox" id="logbox">
         <h3>Follow-up log</h3>

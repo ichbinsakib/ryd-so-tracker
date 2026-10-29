@@ -356,20 +356,20 @@
       k(aq ? 'warn' : 'ok', aq, 'Awaiting quote'), k('info', avg('soBar'), 'Avg SO release'), k('info', avg('matBar'), 'Avg material'));
   }
   // ---------- inhouse planning: pipeline by stage, material roll-up
-  const STAGES = SOLife.STAGES.map((s) => s[1]);
-  const STAGE_HINT = { Decide: 'Is an SO needed?', Quantity: 'Qty and requirements', 'Quote request': 'Ask for the quote', 'Quote analysis': 'Analyze and approve', 'SO request': 'Request the SO', 'SO number': 'Costing manager', PO: 'Purchase the material', Acknowledgment: 'Supplier to confirm', Documents: 'Release documents', Release: 'Release to production', 'Material arrival': 'Material in transit', Monitoring: 'Until the due date', Closure: 'Verify the closure' };
+  const STAGE_GROUPS = TAB_DEFS.filter((t) => t[1].length);   // same groups as the SO page
+  const groupOf = (r) => { const g = r.lc ? STAGE_GROUPS.find((t) => t[1].includes(r.lc.stage)) : null; return g ? g[0] : ''; };
   const rowOpen = (r) => !rowClosed(r) && !(r.lc && (r.lc.status === 'Closed — Verified' || r.lc.status === 'Cancelled / Not Required'));
   const matKey = (r) => (r.steelType ? [r.steelType, r.barType, r.barSize].map((x) => x || '?').join(' | ') : '');
   const fmtN = (n, d) => (n === null || n === undefined ? '—' : Number(n).toLocaleString(undefined, { maximumFractionDigits: d === undefined ? 1 : d }));
   function renderPipeline(rows) {
     const open = rows.filter(rowOpen);
-    $('pipeline').replaceChildren(...STAGES.map((s, i) => {
-      const here = open.filter((r) => r.stage === s), late = here.filter((r) => { const n = daysUntil(rowDue(r)); return n !== null && n < 0; }).length;
+    $('pipeline').replaceChildren(...STAGE_GROUPS.map(([title, stages], i) => {
+      const here = open.filter((r) => groupOf(r) === title), late = here.filter((r) => { const n = daysUntil(rowDue(r)); return n !== null && n < 0; }).length, mine = here.filter((r) => r.lc && r.lc.owner === 'me').length;
       const pcs = here.reduce((t, r) => t + (parseFloat(norm(r.qty).replace(/,/g, '')) || 0), 0);
-      return el('li', {}, el('button', { class: 'pstage' + (state.stage === s ? ' on' : '') + (late ? ' late' : '') + (here.length ? '' : ' empty'), type: 'button', 'aria-pressed': String(state.stage === s),
-        title: STAGE_HINT[s], onclick: () => { state.stage = state.stage === s ? '' : s; renderPipeline(state.dash.rows); applyView(); } },
-        el('span', { class: 'pn', text: String(i + 1) }), el('b', { text: s }), el('span', { class: 'pc', text: String(here.length) }),
-        el('small', { text: here.length ? (pcs ? fmtN(pcs, 0) + ' pcs' : '') + (late ? (pcs ? ' · ' : '') + late + ' late' : '') : STAGE_HINT[s] })));
+      return el('li', {}, el('button', { class: 'pstage' + (state.stage === title ? ' on' : '') + (late ? ' late' : '') + (here.length ? '' : ' empty'), type: 'button', 'aria-pressed': String(state.stage === title),
+        title: 'Stages ' + stages[0] + (stages.length > 1 ? '–' + stages[stages.length - 1] : ''), onclick: () => { state.stage = state.stage === title ? '' : title; renderPipeline(state.dash.rows); applyView(); } },
+        el('span', { class: 'pn', text: String(i + 1) }), el('b', { text: title }), el('span', { class: 'pc', text: String(here.length) }),
+        el('small', { text: here.length ? [pcs ? fmtN(pcs, 0) + ' pcs' : '', mine ? mine + ' need me' : '', late ? late + ' late' : ''].filter(Boolean).join(' · ') : '—' })));
     }));
   }
   function renderMatReq(rows) {
@@ -406,6 +406,9 @@
     if (d !== null && d > (staleDays || 30)) card.classList.add('stale');
   }
   function renderCards(r) {
+    const dc = $('data-card'), inv = r.stock && r.stock.meta ? daysAgo(r.stock.meta.uploadedAt) : null, needs = !r.stock || !r.stock.has || inv === null || inv > 1 || !(r.steel && r.steel.meta);
+    $('data-sub').textContent = !r.stock || !r.stock.has ? '· inventory never uploaded' : inv > 1 ? '· inventory is ' + inv + ' days old: upload today\'s file' : '· inventory up to date'; $('data-sub').className = 'small ' + (needs ? 'tone-bad' : 'muted');
+    if (needs && !state.dataSeen) { dc.open = true; state.dataSeen = true; }
     const sm = r.stock.meta || {};
     freshness('card-stock', 'stock-when', 'stock-sub', r.stock.has ? sm.uploadedAt : null,
       r.stock.count.toLocaleString() + ' parts' + (sm.uploadedBy ? ' · by ' + sm.uploadedBy : '') + (sm.fileName ? ' · ' + sm.fileName : '') + (daysAgo(sm.uploadedAt) > 1 ? ' · upload today\'s file' : ''), 'Never uploaded', 1);
@@ -427,7 +430,7 @@
   }
   function applyView() {
     const q = $('q').value.trim().toLowerCase();
-    const rows = (state.dash ? state.dash.rows : []).filter((r) => chipMatch(r, state.chip) && (!state.stage || (rowOpen(r) && r.stage === state.stage)) && (!state.mat || (rowOpen(r) && !r.matReceived && (state.mat === 'none' ? !matKey(r) : matKey(r) === state.mat))) && (!q || [r.so_no, r.part_no, r.customer, r.steelType].some((v) => norm(v).toLowerCase().includes(q))));
+    const rows = (state.dash ? state.dash.rows : []).filter((r) => chipMatch(r, state.chip) && (!state.stage || (rowOpen(r) && groupOf(r) === state.stage)) && (!state.mat || (rowOpen(r) && !r.matReceived && (state.mat === 'none' ? !matKey(r) : matKey(r) === state.mat))) && (!q || [r.so_no, r.part_no, r.customer, r.steelType].some((v) => norm(v).toLowerCase().includes(q))));
     const soNum = (r) => { const n = parseFloat(norm(r.so_no).replace(/\D/g, '')); return isNaN(n) ? -1 : n; };
     if (state.sort === 'due') rows.sort((a, b) => { const x = rowDue(a), y = rowDue(b); return (x ? x.getTime() : 9e15) - (y ? y.getTime() : 9e15); });
     else if (state.sort === 'so') rows.sort((a, b) => soNum(b) - soNum(a));
@@ -435,20 +438,22 @@
     state.view = rows; state.page = 0; renderTable();
   }
   function renderTable() {
-    $('grid').tHead.replaceChildren(el('tr', {}, ['SO#', 'Part / customer', 'Stage', 'Next action', 'Material', 'Due', 'SO release', 'Mat. status', ''].map((h) => el('th', { text: h }))));
+    $('grid').tHead.replaceChildren(el('tr', {}, ['SO#', 'Part / customer', 'Stage', 'Next action', 'Due', 'Material', 'Progress', ''].map((h) => el('th', { text: h }))));
     const pages = Math.max(1, Math.ceil(state.view.length / state.pageSize));
     state.page = Math.min(state.page, pages - 1);
     const slice = state.view.slice(state.page * state.pageSize, (state.page + 1) * state.pageSize);
     const body = $('grid').tBodies[0];
-    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 9, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : (isAdmin() ? 'No open SOs.' : 'You have no open SOs yet. Use Open an SO, or find one by its number.') })));
+    const mpill = (m) => el('span', { class: 'badge ' + (m === 'Late' ? 'sc-bad' : m === 'At Risk' ? 'sc-warn' : m === 'Unknown' ? 'sc-muted' : 'sc-ok'), text: m });
+    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 8, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : (isAdmin() ? 'No open SOs.' : 'You have no open SOs yet. Use Open an SO, or find one by its number.') })));
     else body.replaceChildren(...slice.map((r) => el('tr', { tabindex: 0, onclick: () => openById(r.id), onkeydown: (e) => { if (e.key === 'Enter') openById(r.id); } },
-      el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'so', text: norm(r.so_no) || '—' }), el('small', { text: norm(r.qty) ? norm(r.qty) + ' pcs' : '' }))),
+      el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'so', text: norm(r.so_no) || 'Part check' }), el('small', { text: norm(r.qty) ? norm(r.qty) + ' pcs' : '' }))),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { text: norm(r.part_no) }), el('small', { text: norm(r.customer) }))),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill', text: r.stage || '—' }), el('small', { text: r.lc ? r.lc.status : norm(r.status) }))),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { text: r.lc && r.lc.next ? r.lc.next : '—' }), el('small', { text: r.lc ? (r.lc.owner === 'me' ? 'Me' + (r.lc.actionDate ? ' · by ' + dshort(r.lc.actionDate) : '') : r.lc.waitingOn ? 'Waiting on ' + r.lc.waitingOn + (r.lc.followup ? ' · follow up ' + dshort(r.lc.followup) : '') : '') : '' }))),
-      el('td', {}, el('div', { class: 'cell2' }, el('span', { text: r.steelType ? [r.steelType, r.barType].filter(Boolean).join(' ') : 'no steel data' }), el('small', { text: r.steelType ? [r.barSize, r.reqBar !== null ? fmtN(Math.ceil(r.reqBar), 0) + ' bars' : ''].filter(Boolean).join(' · ') : '' }))),
       el('td', {}, dueNode(rowDue(r), rowClosed(r))),
-      el('td', {}, barNode(r.soBar)), el('td', {}, barNode(r.matBar)), el('td', { class: 'chev' }, rowClosed(r) ? '' : el('button', { class: 'rowdel', type: 'button', title: 'Delete this SO', 'aria-label': 'Delete this SO', text: '🗑', onclick: (e) => { e.stopPropagation(); deleteSO(r.id, norm(r.so_no) || norm(r.part_no)); } }), ' ›'))));
+      el('td', {}, el('div', { class: 'cell2' }, r.lc && r.lc.matStatus ? mpill(r.lc.matStatus) : el('span', { class: 'muted', text: r.steelType ? 'not ordered' : 'no steel data' }), el('small', { text: r.steelType ? [r.steelType, r.reqBar !== null ? fmtN(Math.ceil(r.reqBar), 0) + ' bars' : ''].filter(Boolean).join(' · ') : '' }))),
+      el('td', {}, barNode(rowProgress(r) === 1000 ? null : rowProgress(r))),
+      el('td', { class: 'chev' }, rowClosed(r) ? '' : el('button', { class: 'rowdel', type: 'button', title: 'Delete this SO', 'aria-label': 'Delete this SO', text: '🗑', onclick: (e) => { e.stopPropagation(); deleteSO(r.id, norm(r.so_no) || norm(r.part_no)); } }), ' ›'))));
     $('pg-info').textContent = 'Page ' + (state.page + 1) + ' of ' + pages;
     $('pg-prev').disabled = state.page === 0; $('pg-next').disabled = state.page >= pages - 1;
     const ls = $('list-status'); ls.className = 'statusline';
@@ -561,10 +566,23 @@
     });
     return S;
   }
+  // One control for stage and tab: each item is a group of lifecycle stages; clicking shows (and edits) that group's fields.
   function renderStepper(rec) {
-    $('stepper').replaceChildren(...lcOf(rec).steps.map((s, i) => el('li', { class: 'step st-' + s.state, title: 'Open the ' + tabList()[tabForStage(i + 1)][0] + ' tab', onclick: () => selectTab(tabForStage(i + 1)), 'aria-current': s.state === 'current' || s.state === 'issue' ? 'step' : null },
-      el('span', { class: 'sc', text: s.state === 'done' ? '✓' : s.state === 'issue' ? '!' : s.state === 'skip' ? '–' : String(i + 1) }),
-      el('b', { text: s.label }), el('small', { text: s.date ? shortDate(parseDate(s.date)) : (s.state === 'current' || s.state === 'issue' ? 'now' : s.state === 'skip' ? 'n/a' : '') }))));
+    const lc = lcOf(rec), groups = tabList();
+    $('stepper').replaceChildren(...groups.map(([title, stages], i) => {
+      const parts = stages.map((n) => lc.steps[n - 1]);
+      let st = 'todo';
+      if (!stages.length) st = 'extra';
+      else if (parts.some((p) => p.state === 'issue')) st = 'issue';
+      else if (parts.some((p) => p.state === 'current')) st = 'current';
+      else if (parts.every((p) => p.state === 'done' || p.state === 'skip')) st = 'done';
+      const dated = parts.map((p) => p.date).filter(Boolean).pop();
+      const sub = !stages.length ? (lc.reasons.some((x) => x.text === 'Escalated') ? 'escalated' : 'log & owner') : st === 'current' || st === 'issue' ? 'now' : dated ? shortDate(parseDate(dated)) : st === 'done' ? 'done' : '';
+      return el('li', { class: 'step st-' + st + (i === state.tab ? ' sel' : ''), role: 'tab', tabindex: 0, 'aria-selected': String(i === state.tab), title: stages.length ? 'Stage' + (stages.length > 1 ? 's ' + stages[0] + '–' + stages[stages.length - 1] : ' ' + stages[0]) + ': ' + stages.map((n) => lc.steps[n - 1].label).join(', ') : 'Follow-ups, owner and issues',
+        onclick: () => selectTab(i), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectTab(i); } } },
+        el('span', { class: 'sc', text: st === 'done' ? '✓' : st === 'issue' ? '!' : !stages.length ? '⚑' : String(i + 1) }),
+        el('b', {}, title, el('span', { class: 'tc', id: 'tc-' + i, hidden: true })), el('small', { text: sub }));
+    }));
   }
   // ---------- lifecycle: the rules live in lifecycle.js (same file the server uses)
   const lcInput = (rec) => { const d = {}; state.fields.forEach((f) => { d[f.key] = norm(f.editable ? rec.values[f.key] : rec.display[f.key]).trim(); }); return d; };
@@ -597,7 +615,7 @@
       if (lc.status === 'Awaiting Decision') acts.push(el('button', { class: 'btn btn-primary', type: 'button', text: 'SO needed', onclick: () => decideSO(rec, true) }), el('button', { class: 'btn', type: 'button', text: 'Not required', onclick: () => decideSO(rec, false) }));
       if (lc.stage === 5) acts.push(el('button', { class: 'btn btn-primary', type: 'button', text: 'Request SO ›', onclick: () => requestSO(rec, true) }));
       acts.push(el('button', { class: 'btn', type: 'button', text: 'Log a follow-up', onclick: () => { $('logbox').scrollIntoView({ block: 'center' }); const t = $('log-text'); if (t) t.focus(); } }),
-        el('button', { class: 'btn', type: 'button', text: 'Edit this stage', title: 'Open the tab for the current stage', onclick: () => { selectTab(tabForStage(lc.stage)); $('tabs').scrollIntoView({ block: 'start' }); } }));
+        el('button', { class: 'btn', type: 'button', text: 'Edit this stage', title: 'Open the tab for the current stage', onclick: () => { selectTab(tabForStage(lc.stage)); $('detail-form').scrollIntoView({ block: 'start' }); } }));
     }
     const pill = (t, cls) => el('span', { class: 'badge ' + cls, text: t });
     card.replaceChildren(
@@ -803,17 +821,12 @@
       form.append(el('div', { class: 'tabpanel', id: 'panel-' + i, role: 'tabpanel', hidden: i !== state.tab },
         el('fieldset', {}, el('legend', { text: title }), el('div', { class: 'grid' }, keys.map((k) => fieldNode(state.byKey[k], rec))))));
     });
-    buildTabs();
     $('scan-upload').hidden = state.role === 'viewer';
     if (!canEdit() && !$('detail-banner').textContent) banner('detail-banner', 'warn', state.role === 'viewer' ? 'You have read-only access.' : 'This SO has no RECORD ID yet, so it cannot be edited.');
   }
-  function buildTabs() {
-    const now = state.current ? lcOf(state.current).stage : 0;
-    $('tabs').replaceChildren(...tabList().map(([title, stages], i) => el('button', { class: 'tab' + (stages.includes(now) ? ' tab-now' : ''), type: 'button', role: 'tab', 'aria-selected': String(i === state.tab), title: stages.length ? 'Stage' + (stages[0] !== stages[stages.length - 1] ? 's ' + stages[0] + '–' + stages[stages.length - 1] : ' ' + stages[0]) + (stages.includes(now) ? ' (where this SO is now)' : '') : 'Follow-ups, owner and issues', onclick: () => selectTab(i) }, stages.length ? el('span', { class: 'tstg', text: stages[0] === stages[stages.length - 1] ? String(stages[0]) : stages[0] + '–' + stages[stages.length - 1] }) : '', title, el('span', { class: 'tc', id: 'tc-' + i, hidden: true }))));
-  }
   function selectTab(i) {
     state.tab = i; tabList().forEach((_, j) => { $('panel-' + j).hidden = j !== i; });
-    [...$('tabs').children].forEach((t, j) => t.setAttribute('aria-selected', String(j === i)));
+    [...$('stepper').children].forEach((t, j) => { t.classList.toggle('sel', j === i); t.setAttribute('aria-selected', String(j === i)); });
   }
   function fieldNode(f, rec) {
     const locked = rec.formulaLocked.includes(f.key);

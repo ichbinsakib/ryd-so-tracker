@@ -341,3 +341,13 @@ dialog table { width: 100%; border-collapse: collapse; } dialog th { text-align:
 .tab .tstg { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 999px; background: var(--line); color: var(--muted); font-size: 11px; font-weight: 700; }
 .tab[aria-selected=true] .tstg { background: var(--accent-soft); color: var(--accent); }
 .tab.tab-now .tstg { background: var(--accent); color: var(--accent-ink); }
+
+/* one control: the stepper doubles as the tab bar */
+.stepper { min-width: 0; gap: 6px; } .stepper-card { overflow-x: auto; }
+.step { padding: 8px 6px 6px; border-radius: 10px; border: 1px solid transparent; transition: background .12s; min-width: 108px; }
+.step:hover { background: var(--panel-2); } .step.sel { background: var(--accent-soft); border-color: var(--accent); }
+.step.sel b { color: var(--accent); } .step b { font-size: 12.5px; line-height: 1.25; }
+.step.st-extra .sc { border-style: dashed; } .step .tc { margin-left: 4px; padding: 0 6px; border-radius: 999px; background: var(--warn-bg); color: var(--warn); font-size: 11px; }
+.step:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pipeline { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
+.datacard { margin-top: 16px; } .datacard summary { cursor: pointer; } .datacard .fresh { margin: 12px 0 0; } .tone-bad { color: var(--err); font-weight: 600; }
