@@ -400,3 +400,8 @@ dialog table { width: 100%; border-collapse: collapse; } dialog th { text-align:
 .scorig { color: var(--warn); font-size: 11.5px; } .scspans { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 14px; }
 .scspan { display: grid; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); } .scspan small { color: var(--muted); } .scspan b { font-size: 16px; }
 #sc-kpis { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+
+/* subcontractor pages follow the Inhouse layout */
+#view-scdetail .scgrid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px 12px; }
+#view-scdetail .scwide { grid-column: 1 / -1; margin-top: 10px; }
+.nextcard .impact { flex-basis: 100%; font-size: 12px; margin-top: -2px; }

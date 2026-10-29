@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Shop Order Tracking Details</title>
-<link rel="stylesheet" href="styles.css?v=73032162">
+<link rel="stylesheet" href="styles.css?v=342160df">
 </head>
 <body>
 <header class="topbar">
@@ -95,6 +95,7 @@
   <div id="dash2-report" class="report"></div>
   <section class="dsec"><div class="sechead"><h3>Subcontractor</h3><button id="dash2-go-sc" class="btn btn-sm" type="button">Open Subcontractor ›</button></div>
     <div id="dash2-kpis-sc" class="kpis"></div></section>
+  <div id="dash2-sc-lists" class="report"></div>
 </main>
 
 <!-- Inhouse: progress + data freshness -->
@@ -200,9 +201,54 @@
     <div class="head-actions" id="sc-actions"><button id="sc-import" class="btn" type="button" title="Load lines from a CSV download of the BPO Tracking worksheet">Import BPO sheet</button><input id="sc-import-file" type="file" accept=".csv,text/csv" hidden><button id="sc-new" class="btn btn-primary" type="button">＋ New order</button></div>
   </div>
   <div id="sc-banner" role="alert"></div>
-  <section id="sc-kpis" class="kpis" aria-label="Subcontract numbers"></section>
-  <nav id="sc-tabs" class="chips sc-tabs" role="tablist" aria-label="Subcontract sections"></nav>
+  <div id="sc-orders">
+    <section id="sc-kpis" class="kpis" aria-label="Subcontract numbers"></section>
+    <section class="card pipeline-card" id="sc-pipeline-card">
+      <div class="sechead"><h3>Pipeline</h3><span class="muted small">Where every open order is in the workflow. Click a stage to list those orders.</span></div>
+      <ol id="sc-pipeline" class="pipeline"></ol>
+    </section>
+    <section class="listhead">
+      <h2>Orders</h2>
+      <div id="sc-chips" class="chips" role="group" aria-label="Filter orders"></div>
+      <div class="listtools">
+        <input id="sc-q" type="search" placeholder="Search part, SO, PO, team…" aria-label="Search">
+        <button id="sc-csv" class="btn btn-sm" type="button" title="Download the orders shown as a CSV file">Export CSV</button>
+        <label class="inline"><input type="checkbox" id="sc-closed"> arrived</label>
+      </div>
+    </section>
+    <div id="sc-status" class="statusline" aria-live="polite"></div>
+    <div class="tablewrap card"><table id="sc-grid" class="datatable"><thead></thead><tbody></tbody></table></div>
+    <details class="card datacard" id="sc-batches-card"><summary><b>Batches (BPO)</b> <span class="muted small" id="sc-batches-sub"></span></summary><div id="sc-batches"></div></details>
+  </div>
   <div id="sc-body"></div>
+</main>
+
+<!-- One subcontractor order: same layout as the SO page -->
+<main id="view-scdetail" hidden>
+  <div id="scd-banner" role="alert"></div>
+  <div class="dhead">
+    <button id="scd-back" class="btn btn-ghost" type="button">← Back</button>
+    <div class="dtitle"><h1 id="scd-title"></h1><div id="scd-sub" class="muted"></div></div>
+    <div id="scd-meta" class="dmeta"></div>
+    <div class="head-actions"><button id="scd-delete" class="btn btn-danger" type="button" hidden>🗑 Delete order</button></div>
+  </div>
+  <section class="card stepper-card"><ol id="scd-stepper" class="stepper" role="tablist" aria-label="Workflow stages: pick one to see and edit its fields"></ol></section>
+  <section id="scd-next" class="card nextcard"></section>
+  <div class="dmain">
+    <form id="scd-form" autocomplete="off"></form>
+    <section class="card logbox" id="scd-logbox">
+      <h3>Follow-up log</h3>
+      <p class="muted small">What you asked, what the team or vendor replied, escalations and where the evidence is.</p>
+      <div id="scd-logform" class="logform"></div>
+      <div id="scd-loglist" class="loglist"></div>
+    </section>
+  </div>
+  <div id="scd-savebar" class="savebar" hidden>
+    <span class="badge badge-warn">Unsaved changes</span>
+    <span class="spacer"></span>
+    <button id="scd-discard" class="btn" type="button">Discard</button>
+    <button id="scd-save" class="btn btn-primary" type="button">Save order</button>
+  </div>
 </main>
 
 <!-- Open a new SO -->
@@ -324,7 +370,8 @@
 </dialog>
 
 <script src="config.js?v=c2514725"></script>
+<script src="subcon.js?v=b6ef0537"></script>
 <script src="lifecycle.js?v=3d007b51"></script>
-<script src="app.js?v=531b9cf3"></script>
+<script src="app.js?v=07455961"></script>
 </body>
 </html>

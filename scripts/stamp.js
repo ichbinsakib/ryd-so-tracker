@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const dir = path.join(__dirname, '..', 'frontend');
 const file = path.join(dir, 'index.html');
 let html = fs.readFileSync(file, 'utf8');
-for (const name of ['styles.css', 'config.js', 'lifecycle.js', 'app.js']) {
+for (const name of ['styles.css', 'config.js', 'lifecycle.js', 'subcon.js', 'app.js']) {
   const hash = crypto.createHash('sha1').update(fs.readFileSync(path.join(dir, name))).digest('hex').slice(0, 8);
   html = html.replace(new RegExp('(href|src)="' + name.replace('.', '\\.') + '(\\?v=[0-9a-f]+)?"'), '$1="' + name + '?v=' + hash + '"');
 }
