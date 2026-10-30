@@ -8,9 +8,9 @@ const T = '2026-10-27';
 const d = (o, t) => Sub.describe(line(o), t || T);
 
 test('validation: only part and quantity are required; decisions, review status and dates are checked', () => {
-  const bad = Sub.cleanLine({ qty: 0, priority: 'x', blocker_type: 'nope', so_required: 'maybe', review_status: 'zzz', qty_stocked: -1, ms: { po_to_vendor: '2026-13-40' }, exp: { exp_ship: 'soon' } });
+  const bad = Sub.cleanLine({ qty: -3, priority: 'x', blocker_type: 'nope', so_required: 'maybe', qty_stocked: -1, ms: { po_to_vendor: '2026-13-40' }, exp: { exp_ship: 'soon' } });
   assert.ok(!bad.ok);
-  ['part_no', 'qty', 'priority', 'blocker_type', 'so_required', 'review_status', 'qty_stocked', 'ms_po_to_vendor', 'exp_exp_ship'].forEach((k) => assert.ok(bad.errors[k], k));
+  ['part_no', 'qty', 'priority', 'blocker_type', 'so_required', 'qty_stocked', 'ms_po_to_vendor', 'exp_exp_ship'].forEach((k) => assert.ok(bad.errors[k], k));
   const good = Sub.cleanLine({ part_no: 'A', qty: '50', required_date: '2026-12-01', team_member: ' Li ', ms: { rfq: '2026-10-01', bogus: '2026-10-02' }, exp: { exp_prod: '2026-11-10' } });
   assert.ok(good.ok, JSON.stringify(good.errors));
   assert.equal(good.value.team_member, 'Li'); assert.deepEqual(good.value.ms, { rfq: '2026-10-01' }); assert.deepEqual(good.value.exp, { exp_prod: '2026-11-10' });
@@ -139,5 +139,12 @@ test('Excel update: only filled cells change an existing order, and the rest is 
   const existing = line({ order_ref: 'SUB-7', part_no: 'A-1', qty: 50, team_member: 'Li', ms: { rfq: '2026-10-01', quote_received: '2026-10-08' }, exp: { exp_prod: '2026-11-01' } });
   const merged = Sub.mergeLine(existing, Sub.fromTemplateRow({ 'Order ref': 'SUB-7', 'Quote approved': '2026-10-12', 'Expected production completion': '2026-11-10', 'Team member': '' }));
   assert.equal(merged.team_member, 'Li'); assert.deepEqual(merged.ms, { rfq: '2026-10-01', quote_received: '2026-10-08', quote_approved: '2026-10-12' }); assert.deepEqual(merged.exp, { exp_prod: '2026-11-10' });
-  assert.equal(Sub.cleanLine(Object.assign({}, merged, { qty: 0 })).ok, false);
+  assert.equal(Sub.cleanLine(Object.assign({}, merged, { qty: -1 })).ok, false);
+});
+
+test('real sheets: free-text review status and an unknown quantity are accepted and flagged', () => {
+  const c = Sub.cleanLine(Sub.mergeLine(null, Sub.fromTemplateRow({ 'Part #': '19983', 'Review status': 'Pending vendor confirmation', 'Part sent to team': '2026-10-20' })));
+  assert.ok(c.ok, JSON.stringify(c.errors)); assert.equal(c.value.review_status, 'PENDING VENDOR CONFIRMATION'); assert.equal(c.value.qty, 0);
+  const d0 = Sub.describe(Object.assign({ id: 'x', ms: {}, exp: {}, sub_required: 'YES', so_required: 'YES', priority: 'NORMAL' }, c.value), '2026-10-31');
+  assert.ok(d0.reasons.some((r) => r.code === 'no-qty'));
 });

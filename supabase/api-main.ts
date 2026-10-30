@@ -333,7 +333,12 @@ async function subconAction(req: any, email: string, role: string | null) {
   const today = SOSub.isDate(req.today) ? req.today : scToday();
   if (action === 'scList') {
     const r = await sb.from('sc_lines').select('*').order('bpo_no').order('batch').order('so_no');
-    const built = SOSub.build(must(r as any), today);
+    const rows = must(r as any) as any[];
+    if (write) {   // orders that predate order refs get one, so an exported sheet can always update them
+      const blank = rows.filter((x: any) => !String(x.order_ref || '').trim());
+      if (blank.length) { const refs = await nextRefs(blank.length); for (let i = 0; i < blank.length; i++) { const u = await sb.from('sc_lines').update({ order_ref: refs[i] }).eq('id', blank[i].id); if (!u.error) blank[i].order_ref = refs[i]; } }
+    }
+    const built = SOSub.build(rows, today);
     return { ok: true, today, role, milestones: SOSub.MILESTONES, expected: SOSub.EXPECTED, stages: SOSub.STAGES, sectionDefs: SOSub.SECTIONS, decisions: SOSub.DECISIONS, reviewStatuses: SOSub.REVIEW_STATUSES, priorities: SOSub.PRIORITIES, blockers: SOSub.BLOCKERS, updateKinds: SOSub.UPDATE_KINDS, cfg: SOSub.CFG, ...built };
   }
   if (action === 'scUpdates') {
@@ -505,7 +510,7 @@ Deno.serve(async (request: Request) => {
     if (!body || body.length > 14_000_000) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
     req = JSON.parse(body);
     const big = body.length > 100_000;
-    if (big && !['uploadStock', 'uploadStockItems', 'uploadSteelUsage', 'uploadScan'].includes(req && req.action)) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
+    if (big && !['uploadStock', 'uploadStockItems', 'uploadSteelUsage', 'uploadScan', 'scImport', 'scImportTemplate'].includes(req && req.action)) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
   } catch (_e) {
     return reply(fail('BAD_REQUEST', 'Request is not valid JSON.'), origin);
   }

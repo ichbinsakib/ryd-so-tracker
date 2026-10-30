@@ -1582,7 +1582,7 @@
       priority: scSelect(D.priorities.map((p) => [p, p]), o.priority || 'NORMAL'), required_date: dateIn(o.required_date), customer_due_date: dateIn(o.customer_due_date),
       team_member: scInput('text', o.team_member, { placeholder: 'Person on the subcontractor team' }), owner: scInput('text', o.owner, { placeholder: 'Who must act next' }), comm_ref: scInput('text', o.comm_ref, { placeholder: 'Email subject or link' }),
       so_no: scInput('text', o.so_no), po_no: scInput('text', o.po_no), bpo_no: scInput('text', o.bpo_no, { placeholder: 'e.g. BPO-003' }), batch: scInput('text', o.batch), ryd_part: scInput('text', o.ryd_part), sent_date: dateIn(o.sent_date),
-      review_status: scSelect(D.reviewStatuses.map((x) => [x, x ? x.charAt(0) + x.slice(1).toLowerCase() : '— not submitted —']), o.review_status || ''),
+      review_status: scSelect([...new Set(['', ...D.reviewStatuses, o.review_status || ''])].map((x) => [x, x ? x.charAt(0) + x.slice(1).toLowerCase() : '— not submitted —']), o.review_status || ''),
       qty_shipped: scInput('number', o.qty_shipped, { min: 0, step: 'any' }), qty_received: scInput('number', o.qty_received, { min: 0, step: 'any' }), qty_hold: scInput('number', o.qty_hold, { min: 0, step: 'any' }),
       qty_rejected: scInput('number', o.qty_rejected, { min: 0, step: 'any' }), qty_stocked: scInput('number', o.qty_stocked, { min: 0, step: 'any' }),
       blocker_type: scSelect(D.blockers.map((x) => [x, x || '— none —']), o.blocker_type || ''), blocker: scInput('text', o.blocker), next_action: scInput('text', o.next_action), next_action_date: dateIn(o.next_action_date),
@@ -1590,7 +1590,7 @@
       escalated: el('input', { type: 'checkbox' }), closed: el('input', { type: 'checkbox' }), note: el('textarea', { rows: 2 })
     };
     f.escalated.checked = !!o.escalated; f.closed.checked = !!o.closed; f.note.value = o.note || '';
-    ['part_no', 'qty'].forEach((k) => f[k].classList.add('mandatory-in'));
+    f.part_no.classList.add('mandatory-in');
     const mf = {}; D.milestones.forEach((m) => { mf[m.key] = dateIn(o.ms && o.ms[m.key]); });
     const ef = {}; D.expected.forEach((e) => { ef[e.key] = dateIn(o.exp && o.exp[e.key]); });
     Object.assign(SCD, { o, f, mf, ef, ro, tab: Math.max(0, SC_GROUPS.findIndex((g) => g[1].includes(o.stageNo))), log: [] });
@@ -1601,7 +1601,7 @@
     const spans = o.id ? el('div', { class: 'scwide scsec' }, el('h4', { text: 'Elapsed calendar days' }), el('div', { class: 'scspans' }, o.spans.map((s) => el('div', { class: 'scspan' }, el('small', { text: s.label }), el('b', { text: s.days === null ? '—' : s.days + ' d' }))))) : '';
     const panels = [
       [scField('SO required?', f.so_required, 'so_required'), scField('Subcontracting required?', f.sub_required, 'sub_required'), scField('Reason / note', f.decision_note, 'decision_note'),
-        scField('Order ref', f.order_ref, 'order_ref'), scField('Part # (CAMCO)', f.part_no, 'part_no', true), scField('Revision', f.revision, 'revision'), scField('Description', f.description, 'description'), scField('Qty required', f.qty, 'qty', true),
+        scField('Order ref', f.order_ref, 'order_ref'), scField('Part # (CAMCO)', f.part_no, 'part_no', true), scField('Revision', f.revision, 'revision'), scField('Description', f.description, 'description'), scField('Qty required', f.qty, 'qty'),
         scField('Priority', f.priority, 'priority'), scField('Required at CAMCO', f.required_date, 'required_date'), scField('Customer due / line-down date', f.customer_due_date, 'customer_due_date'),
         scField('Subcontractor team member', f.team_member, 'team_member'), scField('Responsible person (next action)', f.owner, 'owner'), scField('Communication reference', f.comm_ref, 'comm_ref'),
         scField('Part # (customer / RYD)', f.ryd_part, 'ryd_part'), scField('BPO #', f.bpo_no, 'bpo_no'), scField('Batch', f.batch, 'batch')],
@@ -1746,7 +1746,7 @@
   }
   $('sc-import').onclick = () => { $('sc-import-file').value = ''; $('sc-import-file').click(); };
   // ---- Excel: template import (new orders added, existing ones updated) and export in the same format
-  const isoOfSerial = (n) => new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000).toISOString().slice(0, 10);
+  const isoOfSerial = (n) => new Date(Date.UTC(1899, 11, 30) + Math.floor(n + 1e-6) * 86400000).toISOString().slice(0, 10);   // a time of day (06:00) never moves the date
   function templateRows(sheetRows) {
     const norm2 = SOSub.normHeader, wanted = new Map(SOSub.TEMPLATE_COLUMNS.map((c) => [norm2(c.h), c]));
     const hi = sheetRows.findIndex((r) => r.filter((x) => wanted.has(norm2(x))).length >= 3);

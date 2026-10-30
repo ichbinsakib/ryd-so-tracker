@@ -89,7 +89,7 @@ var SOSub = (function () {
     { h: 'Part #', k: 'part_no', kind: 'text', req: true, note: 'CAMCO part number. Required.' },
     { h: 'Revision', k: 'revision', kind: 'text' },
     { h: 'Description', k: 'description', kind: 'text' },
-    { h: 'Qty', k: 'qty', kind: 'num', req: true, note: 'Required quantity (pcs), more than 0. Required.' },
+    { h: 'Qty', k: 'qty', kind: 'num', note: 'Required quantity (pcs). Leave blank while it is not known: the order is flagged until you enter it.' },
     { h: 'Priority', k: 'priority', kind: 'enum', options: ['NORMAL', 'HIGH', 'LINE DOWN'], note: 'NORMAL (default), HIGH or LINE DOWN. HIGH and LINE DOWN are followed up daily.' },
     { h: 'Required at CAMCO', k: 'required_date', kind: 'date', note: 'Date the parts are needed at CAMCO.' },
     { h: 'Customer due date', k: 'customer_due_date', kind: 'date' },
@@ -106,7 +106,7 @@ var SOSub = (function () {
     { h: 'Part sent to team', ms: 'rfq', kind: 'date', note: 'Date the part number was sent to the subcontractor team. Starts the quotation clock.' },
     { h: 'China quotation received', ms: 'quote_received', kind: 'date' },
     { h: 'Quote submitted to Rich', ms: 'quote_to_rich', kind: 'date' },
-    { h: 'Review status', k: 'review_status', kind: 'enum', options: ['SUBMITTED', 'IN REVIEW', 'CHANGES REQUESTED', 'APPROVED'], note: 'Rich review status.' },
+    { h: 'Review status', k: 'review_status', kind: 'text', suggest: ['SUBMITTED', 'IN REVIEW', 'CHANGES REQUESTED', 'APPROVED'], note: 'Review status with Rich. Suggested: SUBMITTED, IN REVIEW, CHANGES REQUESTED, APPROVED. Other wording is kept as written.' },
     { h: 'Quote approved', ms: 'quote_approved', kind: 'date', note: 'Date the team confirmed the approval.' },
     { h: 'SO requested', ms: 'so_requested', kind: 'date' },
     { h: 'SO request to costing manager', ms: 'so_costing', kind: 'date' },
@@ -180,9 +180,9 @@ var SOSub = (function () {
     var errors = {};
     var out = {
       order_ref: str(o.order_ref, 40), bpo_no: str(o.bpo_no, 40), batch: str(o.batch, 40), po_no: str(o.po_no, 60), so_no: str(o.so_no, 40), part_no: str(o.part_no, 80), ryd_part: str(o.ryd_part, 80),
-      description: str(o.description, 200), revision: str(o.revision, 40), qty: Number(o.qty), priority: str(o.priority, 20).toUpperCase() || 'NORMAL', owner: str(o.owner, 80),
+      description: str(o.description, 200), revision: str(o.revision, 40), qty: o.qty === '' || o.qty == null ? 0 : Number(o.qty), priority: str(o.priority, 20).toUpperCase() || 'NORMAL', owner: str(o.owner, 80),
       team_member: str(o.team_member, 80), comm_ref: str(o.comm_ref, 300), decision_note: str(o.decision_note, 500),
-      so_required: str(o.so_required, 10).toUpperCase() || 'PENDING', sub_required: str(o.sub_required, 10).toUpperCase() || 'PENDING', review_status: str(o.review_status, 30).toUpperCase(),
+      so_required: str(o.so_required, 10).toUpperCase() || 'PENDING', sub_required: str(o.sub_required, 10).toUpperCase() || 'PENDING', review_status: str(o.review_status, 60).toUpperCase(),
       blocker_type: str(o.blocker_type, 40), blocker: str(o.blocker, 500), next_action: str(o.next_action, 300), delay_reason: str(o.delay_reason, 500),
       note: str(o.note, 2000), escalated: o.escalated === true, closed: o.closed === true
     };
@@ -205,10 +205,9 @@ var SOSub = (function () {
     });
     out.exp = exp;
     if (!out.part_no) errors.part_no = 'Part # is required.';
-    if (!isFinite(out.qty) || out.qty <= 0) errors.qty = 'Quantity must be more than 0.';
+    if (!isFinite(out.qty) || out.qty < 0) errors.qty = 'Quantity must be 0 or more.';   // 0 = not known yet (flagged on the order)
     if (DECISIONS.indexOf(out.so_required) < 0) errors.so_required = 'Choose Yes, No or Pending.';
     if (DECISIONS.indexOf(out.sub_required) < 0) errors.sub_required = 'Choose Yes, No or Pending.';
-    if (REVIEW_STATUSES.indexOf(out.review_status) < 0) errors.review_status = 'Unknown review status.';
     if (PRIORITIES.indexOf(out.priority) < 0) errors.priority = 'Unknown priority.';
     if (BLOCKERS.indexOf(out.blocker_type) < 0) errors.blocker_type = 'Unknown blocker type.';
     if (out.closed && !Object.keys(errors).length) {
@@ -252,7 +251,7 @@ var SOSub = (function () {
     if (!done(3)) return at(3, 'Waiting for China quotation', 'Follow up on the China quotation', 'team', team, lastContact && lastContact > ms.rfq ? lastContact : ms.rfq, urgent ? cfg.quoteUrgentDays : cfg.quoteFollowDays);
     if (!done(4)) {
       if (!has('quote_to_rich')) return at(4, 'Quotation with the team, not yet with Rich', 'Ask the team when the quotation goes to Rich', 'team', team, lastContact && lastContact > ms.quote_received ? lastContact : ms.quote_received, cfg.approvalFollowDays);
-      if (l.review_status === 'CHANGES REQUESTED') return at(4, 'Rich requested changes', 'Ask the team for the revised quotation', 'team', team, lastContact || ms.quote_to_rich, cfg.approvalFollowDays);
+      if (/CHANGE/.test(l.review_status || '')) return at(4, 'Rich requested changes', 'Ask the team for the revised quotation', 'team', team, lastContact || ms.quote_to_rich, cfg.approvalFollowDays);
       return at(4, 'Waiting for review and approval', 'Follow up on Rich\'s review and the team\'s approval confirmation', 'team', team + ' / Rich', lastContact && lastContact > ms.quote_to_rich ? lastContact : ms.quote_to_rich, cfg.approvalFollowDays);
     }
     if (!done(5)) return at(5, 'Ready to request the SO', 'Request the Subcontractor SO', 'me', '', today, 0);
@@ -338,6 +337,7 @@ var SOSub = (function () {
     EXPECTED.forEach(function (e) {
       if (exp[e.key] && exp[e.key] < today && !ms[e.actual]) add(e.key === 'exp_arrival' ? 'crit' : 'warn', 'exp-missed-' + e.key, e.label.replace('Expected ', '') + ' was expected ' + shortDate(exp[e.key]) + ', not confirmed', 'Ask for the actual date or a new commitment and record it.');
     });
+    if (!(d.qty > 0)) add('warn', 'no-qty', 'Quantity not set', 'Enter the required quantity.');
     if (d.blocker) add(urgent ? 'crit' : 'warn', 'blocked', 'Blocked' + (d.blocker_type ? ': ' + d.blocker_type : ''), 'Chase the blocker: ' + (d.blocker_type || d.blocker).toLowerCase() + '.');
     if (st.n === 3 && ms.rfq && daysBetween(ms.rfq, today) >= cfg.quoteAgeWarn) add('warn', 'quote-aging', 'Quotation pending ' + plural(daysBetween(ms.rfq, today), 'day'), 'Press the team for the China quotation date.');
     if (st.n === 4 && ms.quote_to_rich && daysBetween(ms.quote_to_rich, today) >= cfg.approvalAgeWarn) add('warn', 'approval-aging', 'With Rich ' + plural(daysBetween(ms.quote_to_rich, today), 'day') + ', no approval', 'Ask the team where the approval stands.');
