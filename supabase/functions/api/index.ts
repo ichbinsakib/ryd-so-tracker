@@ -831,6 +831,90 @@ var SOSub = (function () {
     { from: 'rfq', to: 'received_camco', label: 'Part sent → arrived at CAMCO (total)' }
   ];
 
+  // The Excel sheet (templates and exports). One header per column; the same list is used by the server and the browser.
+  // kind: text | num | date | enum | yn. ms / exp point at a milestone / expected-date key; k is a plain field.
+  var TEMPLATE_COLUMNS = [
+    { h: 'Order ref', k: 'order_ref', kind: 'text', note: 'Unique reference of this order. Leave blank for a new order: the app assigns SUB-0001, SUB-0002 ... and the export shows it. Use it to update the order later.' },
+    { h: 'Part #', k: 'part_no', kind: 'text', req: true, note: 'CAMCO part number. Required.' },
+    { h: 'Revision', k: 'revision', kind: 'text' },
+    { h: 'Description', k: 'description', kind: 'text' },
+    { h: 'Qty', k: 'qty', kind: 'num', req: true, note: 'Required quantity (pcs), more than 0. Required.' },
+    { h: 'Priority', k: 'priority', kind: 'enum', options: ['NORMAL', 'HIGH', 'LINE DOWN'], note: 'NORMAL (default), HIGH or LINE DOWN. HIGH and LINE DOWN are followed up daily.' },
+    { h: 'Required at CAMCO', k: 'required_date', kind: 'date', note: 'Date the parts are needed at CAMCO.' },
+    { h: 'Customer due date', k: 'customer_due_date', kind: 'date' },
+    { h: 'SO required?', k: 'so_required', kind: 'enum', options: ['YES', 'NO', 'PENDING'], note: 'Is a Shop Order needed? YES, NO or PENDING.' },
+    { h: 'Subcontracting required?', k: 'sub_required', kind: 'enum', options: ['YES', 'NO', 'PENDING'], note: 'Can the part be made by the subcontractor (China)? YES, NO or PENDING. NO closes the order as not required.' },
+    { h: 'Decision note', k: 'decision_note', kind: 'text', note: 'The reason, especially when the answer is NO.' },
+    { h: 'Team member', k: 'team_member', kind: 'text', note: 'Responsible subcontractor team member.' },
+    { h: 'Responsible person', k: 'owner', kind: 'text', note: 'Who must act next.' },
+    { h: 'Communication ref', k: 'comm_ref', kind: 'text', note: 'Email subject or link.' },
+    { h: 'SO #', k: 'so_no', kind: 'text', note: 'Subcontractor SO number from the costing manager.' },
+    { h: 'PO #', k: 'po_no', kind: 'text', note: 'PO number for the vendor. Must be unique.' },
+    { h: 'BPO #', k: 'bpo_no', kind: 'text' },
+    { h: 'Batch', k: 'batch', kind: 'text' },
+    { h: 'Part sent to team', ms: 'rfq', kind: 'date', note: 'Date the part number was sent to the subcontractor team. Starts the quotation clock.' },
+    { h: 'China quotation received', ms: 'quote_received', kind: 'date' },
+    { h: 'Quote submitted to Rich', ms: 'quote_to_rich', kind: 'date' },
+    { h: 'Review status', k: 'review_status', kind: 'enum', options: ['SUBMITTED', 'IN REVIEW', 'CHANGES REQUESTED', 'APPROVED'], note: 'Rich review status.' },
+    { h: 'Quote approved', ms: 'quote_approved', kind: 'date', note: 'Date the team confirmed the approval.' },
+    { h: 'SO requested', ms: 'so_requested', kind: 'date' },
+    { h: 'SO request to costing manager', ms: 'so_costing', kind: 'date' },
+    { h: 'SO number received', ms: 'so_received', kind: 'date' },
+    { h: 'PO prep started', ms: 'po_prep_start', kind: 'date' },
+    { h: 'PO completed', ms: 'po_created', kind: 'date' },
+    { h: 'PO sent for verification', ms: 'po_sent_approval', kind: 'date' },
+    { h: 'PO verified', ms: 'po_approved', kind: 'date' },
+    { h: 'PO sent to vendor', ms: 'po_to_vendor', kind: 'date' },
+    { h: 'Vendor acknowledged', ms: 'ack', kind: 'date' },
+    { h: 'Production started', ms: 'production_start', kind: 'date' },
+    { h: 'Production completed', ms: 'ready_to_ship', kind: 'date' },
+    { h: 'Vendor shipped', ms: 'vendor_ship', kind: 'date' },
+    { h: 'Arrived at CAMCO', ms: 'received_camco', kind: 'date', note: 'Confirmed arrival. Completes the order.' },
+    { h: 'Expected production completion', exp: 'exp_prod', kind: 'date', note: 'Promised dates. If one changes, the app keeps the original and logs the change.' },
+    { h: 'Expected shipment', exp: 'exp_ship', kind: 'date' },
+    { h: 'Expected arrival at CAMCO', exp: 'exp_arrival', kind: 'date' },
+    { h: 'Next follow-up date', k: 'next_action_date', kind: 'date' },
+    { h: 'Next action', k: 'next_action', kind: 'text' },
+    { h: 'Outstanding issue', k: 'blocker', kind: 'text' },
+    { h: 'Last update', k: 'last_update', kind: 'date', note: 'Date of the last update from the team or vendor.' },
+    { h: 'Escalated?', k: 'escalated', kind: 'yn', note: 'YES or NO.' },
+    { h: 'Note', k: 'note', kind: 'text' },
+    { h: 'Down payment made', ms: 'down_payment', kind: 'date', opt: true },
+    { h: 'Forwarder pickup', ms: 'forwarder_pickup', kind: 'date', opt: true },
+    { h: 'Departed origin port', ms: 'port_departure', kind: 'date', opt: true },
+    { h: 'Arrived at destination port', ms: 'arrived_port', kind: 'date', opt: true },
+    { h: 'Moved to inspection', ms: 'to_inspection', kind: 'date', opt: true },
+    { h: 'Moved to stock', ms: 'to_stock', kind: 'date', opt: true },
+    { h: 'Qty shipped', k: 'qty_shipped', kind: 'num', opt: true },
+    { h: 'Qty received', k: 'qty_received', kind: 'num', opt: true },
+    { h: 'Qty on hold', k: 'qty_hold', kind: 'num', opt: true },
+    { h: 'Qty rejected', k: 'qty_rejected', kind: 'num', opt: true },
+    { h: 'Qty moved to stock', k: 'qty_stocked', kind: 'num', opt: true }
+  ];
+  function normHeader(h) { return String(h == null ? '' : h).toLowerCase().replace(/[^a-z0-9#?]+/g, ' ').trim(); }
+
+  /** One sheet row (values by header) -> the fields it filled in. Blank cells are left out so they never overwrite existing data. */
+  function fromTemplateRow(row) {
+    var byHeader = {}; Object.keys(row || {}).forEach(function (h) { byHeader[normHeader(h)] = row[h]; });
+    var out = { ms: {}, exp: {} };
+    TEMPLATE_COLUMNS.forEach(function (c) {
+      var v = byHeader[normHeader(c.h)]; if (v === undefined || v === null) return; if (typeof v === 'string') v = v.trim(); if (v === '') return;
+      if (c.ms) out.ms[c.ms] = String(v); else if (c.exp) out.exp[c.exp] = String(v);
+      else if (c.kind === 'yn') out[c.k] = /^(y|yes|true|1)/i.test(String(v));
+      else if (c.kind === 'enum') out[c.k] = String(v).toUpperCase();
+      else out[c.k] = v;
+    });
+    return out;
+  }
+  /** An existing line plus what the sheet filled in. Only filled cells change anything. */
+  function mergeLine(existing, inc) {
+    var base = Object.assign({}, existing || {});
+    Object.keys(inc).forEach(function (k) { if (k !== 'ms' && k !== 'exp') base[k] = inc[k]; });
+    base.ms = Object.assign({}, (existing && existing.ms) || {}, inc.ms || {});
+    base.exp = Object.assign({}, (existing && existing.exp) || {}, inc.exp || {});
+    return base;
+  }
+
   function isDate(s) { return typeof s === 'string' && DATE_RE.test(s) && !isNaN(Date.parse(s + 'T00:00:00Z')); }
   function dayNum(s) { return Math.round(Date.parse(s + 'T00:00:00Z') / 86400000); }
   function daysBetween(a, b) { return dayNum(b) - dayNum(a); }
@@ -844,7 +928,7 @@ var SOSub = (function () {
   function cleanLine(o) {
     var errors = {};
     var out = {
-      bpo_no: str(o.bpo_no, 40), batch: str(o.batch, 40), po_no: str(o.po_no, 60), so_no: str(o.so_no, 40), part_no: str(o.part_no, 80), ryd_part: str(o.ryd_part, 80),
+      order_ref: str(o.order_ref, 40), bpo_no: str(o.bpo_no, 40), batch: str(o.batch, 40), po_no: str(o.po_no, 60), so_no: str(o.so_no, 40), part_no: str(o.part_no, 80), ryd_part: str(o.ryd_part, 80),
       description: str(o.description, 200), revision: str(o.revision, 40), qty: Number(o.qty), priority: str(o.priority, 20).toUpperCase() || 'NORMAL', owner: str(o.owner, 80),
       team_member: str(o.team_member, 80), comm_ref: str(o.comm_ref, 300), decision_note: str(o.decision_note, 500),
       so_required: str(o.so_required, 10).toUpperCase() || 'PENDING', sub_required: str(o.sub_required, 10).toUpperCase() || 'PENDING', review_status: str(o.review_status, 30).toUpperCase(),
@@ -1106,6 +1190,7 @@ var SOSub = (function () {
   return {
     MILESTONES: MILESTONES, EXPECTED: EXPECTED, STAGES: STAGES, SECTIONS: SECTIONS, DECISIONS: DECISIONS, REVIEW_STATUSES: REVIEW_STATUSES, PRIORITIES: PRIORITIES, BLOCKERS: BLOCKERS,
     UPDATE_KINDS: UPDATE_KINDS, SEGMENTS: SEGMENTS, CFG: CFG,
+    TEMPLATE_COLUMNS: TEMPLATE_COLUMNS, normHeader: normHeader, fromTemplateRow: fromTemplateRow, mergeLine: mergeLine,
     isDate: isDate, daysBetween: daysBetween, addDays: addDays, cleanLine: cleanLine, cleanUpdate: cleanUpdate, completionGaps: completionGaps, milestoneLabel: milestoneLabel,
     describe: describe, spansOf: spansOf, leadStats: leadStats, projectReceipt: projectReceipt, batches: batches, build: build
   };
@@ -2271,6 +2356,21 @@ async function scAudit(email: string, recordId: string, field: string, newValue:
 }
 const scDup = (e: any) => e && /duplicate key|unique/i.test(e.message || '');
 const scToday = () => new Date().toISOString().slice(0, 10);
+// next free SUB-0001 style references for orders that arrive without one
+async function nextRefs(count: number): Promise<string[]> {
+  const rows = must(await sb.from('sc_lines').select('order_ref').like('order_ref', 'SUB-%') as any) as any[];
+  let max = 0; rows.forEach((x: any) => { const mm = /^SUB-(\d+)$/i.exec(String(x.order_ref || '')); if (mm) max = Math.max(max, +mm[1]); });
+  return Array.from({ length: count }, (_, i) => 'SUB-' + String(max + i + 1).padStart(4, '0'));
+}
+// a date that changes keeps its first value in `orig`; the change is described for the log
+function dateChanges(prev: any, value: any) {
+  const orig: any = { ...(prev.orig || {}) }, changed: string[] = [];
+  const track = (key: string, label: string, a: any, b: any) => { if (a && a !== b) { if (!orig[key]) orig[key] = a; changed.push(label + ': ' + a + ' → ' + (b || 'cleared')); } };
+  SOSub.MILESTONES.forEach((x: any) => track(x.key, x.label, (prev.ms || {})[x.key], (value.ms || {})[x.key]));
+  SOSub.EXPECTED.forEach((x: any) => track(x.key, x.label, (prev.exp || {})[x.key], (value.exp || {})[x.key]));
+  return { orig, changed };
+}
+const sameVal = (a: any, b: any) => { const x = a == null ? '' : a, y = b == null ? '' : b; if (typeof x === 'object' || typeof y === 'object') return JSON.stringify(x, Object.keys(x || {}).sort()) === JSON.stringify(y, Object.keys(y || {}).sort()); return String(x) === String(y) || (x !== '' && y !== '' && Number(x) === Number(y)); };
 // SO lifecycle follow-up log (decisions, follow-ups, escalations, evidence references)
 const LOG_KINDS = ['NOTE', 'FOLLOW-UP', 'ESCALATION', 'DECISION', 'EVIDENCE'];
 async function logAction(req: any, email: string, role: string | null) {
@@ -2313,6 +2413,8 @@ async function subconAction(req: any, email: string, role: string | null) {
   if (!write) return fail('FORBIDDEN', 'Viewers cannot change subcontractor data.');
   const bad = (errors: any) => fail('INVALID', 'Please fix the highlighted fields.', { fieldErrors: errors });
   const dupMsg = fail('INVALID', 'That PO # is already tracked.', { fieldErrors: { po_no: 'That PO # is already tracked.' } });
+  const dupRef = fail('INVALID', 'That order ref is already used.', { fieldErrors: { order_ref: 'That order ref is already used.' } });
+  const dupFail = (e: any) => (/ref_uq|order_ref/i.test(e.message || '') ? dupRef : dupMsg);
   if (action === 'scSaveLine') {
     const c = SOSub.cleanLine(req.line || {}); if (!c.ok) return bad(c.errors);
     let id = req.line.id as string | undefined;
@@ -2323,12 +2425,14 @@ async function subconAction(req: any, email: string, role: string | null) {
       const track = (key: string, label: string, a: any, b: any) => { if (a && a !== b) { if (!orig[key]) orig[key] = a; changed.push(label + ': ' + a + ' → ' + (b || 'cleared')); } };
       SOSub.MILESTONES.forEach((x: any) => track(x.key, x.label, (prev.ms || {})[x.key], (c.value.ms as any)[x.key]));
       SOSub.EXPECTED.forEach((x: any) => track(x.key, x.label, (prev.exp || {})[x.key], (c.value.exp as any)[x.key]));
-      const r = await sb.from('sc_lines').update({ ...c.value, orig, updated_at: new Date().toISOString() }).eq('id', id).select('id').single();
-      if (r.error) return scDup(r.error) ? dupMsg : fail('SERVER_ERROR', r.error.message);
+      const upd: any = { ...c.value, orig, updated_at: new Date().toISOString() }; if (!upd.order_ref) delete upd.order_ref;   // a blank ref never wipes the existing one
+      const r = await sb.from('sc_lines').update(upd).eq('id', id).select('id').single();
+      if (r.error) return scDup(r.error) ? dupFail(r.error) : fail('SERVER_ERROR', r.error.message);
       if (changed.length) await sb.from('sc_updates').insert({ line_id: id, by_user: email, kind: 'CHANGE', text: changed.join('; ').slice(0, 1900) });
     } else {
-      const r = await sb.from('sc_lines').insert({ ...c.value, created_by: email }).select('id').single();
-      if (r.error) return scDup(r.error) ? dupMsg : fail('SERVER_ERROR', r.error.message);
+      const ins: any = { ...c.value, created_by: email }; if (!ins.order_ref) ins.order_ref = (await nextRefs(1))[0];
+      const r = await sb.from('sc_lines').insert(ins).select('id').single();
+      if (r.error) return scDup(r.error) ? dupFail(r.error) : fail('SERVER_ERROR', r.error.message);
       id = (r.data as any).id;
     }
     await scAudit(email, id as string, req.line.id ? 'SUBCON LINE UPDATED' : 'SUBCON LINE ADDED', c.value.po_no + ' / SO ' + c.value.so_no);
@@ -2389,12 +2493,47 @@ async function subconAction(req: any, email: string, role: string | null) {
     const fresh: any[] = [];
     for (const g of good) {
       const k = g.po_no.toUpperCase(); if (seen.has(k)) { problems.push('PO ' + g.po_no + ' appears twice in the file; the first row was used.'); continue; } seen.add(k);
-      if (have.has(k)) { const u = await sb.from('sc_lines').update({ ...g, updated_at: new Date().toISOString() }).eq('id', have.get(k)); if (u.error) return fail('SERVER_ERROR', u.error.message); updated++; }
+      if (have.has(k)) { const { order_ref: _r, ...gu } = g; const u = await sb.from('sc_lines').update({ ...gu, updated_at: new Date().toISOString() }).eq('id', have.get(k)); if (u.error) return fail('SERVER_ERROR', u.error.message); updated++; }
       else fresh.push({ ...g, created_by: email });
     }
-    if (fresh.length) { const ins = await sb.from('sc_lines').insert(fresh); if (ins.error) return fail('SERVER_ERROR', ins.error.message); added = fresh.length; }
+    if (fresh.length) { const refs = await nextRefs(fresh.length); fresh.forEach((f: any, i: number) => { f.order_ref = refs[i]; }); const ins = await sb.from('sc_lines').insert(fresh); if (ins.error) return fail('SERVER_ERROR', ins.error.message); added = fresh.length; }
     await scAudit(email, '', 'SUBCON IMPORT', added + ' added, ' + updated + ' updated');
     return { ok: true, added, updated, problems: problems.slice(0, 20), problemCount: problems.length };
+  }
+  if (action === 'scImportTemplate') {
+    const list = Array.isArray(req.rows) ? req.rows.slice(0, 500) : [];
+    if (!list.length) return fail('INVALID', 'The sheet has no rows to import.');
+    const all = must(await sb.from('sc_lines').select('*') as any) as any[];
+    const byRef = new Map<string, any>(), byPo = new Map<string, any>();
+    all.forEach((l: any) => { if (l.order_ref) byRef.set(String(l.order_ref).toUpperCase(), l); if (l.po_key) byPo.set(l.po_key, l); });
+    const problems: string[] = [], plan: any[] = [], seen = new Set<string>(); const preview: any[] = [];
+    list.forEach((row: any, i: number) => {
+      const label = 'Row ' + (row && row.__row ? row.__row : i + 2), inc: any = SOSub.fromTemplateRow(row || {});
+      if (!inc.part_no && !inc.order_ref && !inc.po_no && !Object.keys(inc.ms).length) return;   // an empty line in the sheet
+      const ref = String(inc.order_ref || '').trim().toUpperCase();
+      const ex = ref ? byRef.get(ref) : (inc.po_no ? byPo.get(String(inc.po_no).trim().toUpperCase()) : undefined);
+      const key = ex ? ex.id : (ref || 'new' + i);
+      if (seen.has(key)) { problems.push(label + ': this order appears twice in the sheet; the first one was used.'); return; } seen.add(key);
+      const c = SOSub.cleanLine(SOSub.mergeLine(ex || null, inc));
+      if (!c.ok) { problems.push(label + ' (' + (ref || inc.part_no || '?') + '): ' + Object.values(c.errors).join(' ')); return; }
+      if (!ex && !inc.part_no) { problems.push(label + ': Part # is required for a new order.'); return; }
+      const diff = ex ? Object.keys(c.value).filter((k) => !sameVal(ex[k], (c.value as any)[k])) : ['new'];
+      plan.push({ ex, value: c.value, diff, label });
+      if (preview.length < 8) preview.push({ row: label, ref: ref || (ex ? ex.order_ref : ''), part: c.value.part_no, action: ex ? (diff.length ? 'update' : 'no change') : 'new' });
+    });
+    const adds = plan.filter((p) => !p.ex), upds = plan.filter((p) => p.ex && p.diff.length), same = plan.filter((p) => p.ex && !p.diff.length).length;
+    if (req.dryRun === true) return { ok: true, dryRun: true, added: adds.length, updated: upds.length, unchanged: same, problems: problems.slice(0, 20), problemCount: problems.length, preview };
+    if (problems.length && req.skipProblems !== true) return fail('INVALID', problems.length + ' row(s) have problems. Fix them or import the rest.', { problems: problems.slice(0, 20), problemCount: problems.length });
+    const refs = await nextRefs(adds.filter((p) => !p.value.order_ref).length); let ri = 0;
+    const fresh = adds.map((p) => ({ ...p.value, order_ref: p.value.order_ref || refs[ri++], created_by: email }));
+    if (fresh.length) { const ins = await sb.from('sc_lines').insert(fresh); if (ins.error) return scDup(ins.error) ? fail('INVALID', 'A PO # or order ref in the sheet is already used by another order.') : fail('SERVER_ERROR', ins.error.message); }
+    for (const p of upds) {
+      const { orig, changed } = dateChanges(p.ex, p.value); const v: any = { ...p.value, orig, updated_at: new Date().toISOString() }; if (!v.order_ref) delete v.order_ref;
+      const u = await sb.from('sc_lines').update(v).eq('id', p.ex.id); if (u.error) return scDup(u.error) ? fail('INVALID', p.label + ': that PO # or order ref is already used by another order.') : fail('SERVER_ERROR', u.error.message);
+      await sb.from('sc_updates').insert({ line_id: p.ex.id, by_user: email, kind: 'CHANGE', text: ('Excel import' + (changed.length ? ': ' + changed.join('; ') : '')).slice(0, 1900) });
+    }
+    await scAudit(email, '', 'SUBCON EXCEL IMPORT', fresh.length + ' added, ' + upds.length + ' updated');
+    return { ok: true, added: fresh.length, updated: upds.length, unchanged: same, problems: problems.slice(0, 20), problemCount: problems.length };
   }
   return fail('BAD_REQUEST', 'Unknown action.');
 }

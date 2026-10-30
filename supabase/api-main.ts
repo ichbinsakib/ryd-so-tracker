@@ -286,6 +286,21 @@ async function scAudit(email: string, recordId: string, field: string, newValue:
 }
 const scDup = (e: any) => e && /duplicate key|unique/i.test(e.message || '');
 const scToday = () => new Date().toISOString().slice(0, 10);
+// next free SUB-0001 style references for orders that arrive without one
+async function nextRefs(count: number): Promise<string[]> {
+  const rows = must(await sb.from('sc_lines').select('order_ref').like('order_ref', 'SUB-%') as any) as any[];
+  let max = 0; rows.forEach((x: any) => { const mm = /^SUB-(\d+)$/i.exec(String(x.order_ref || '')); if (mm) max = Math.max(max, +mm[1]); });
+  return Array.from({ length: count }, (_, i) => 'SUB-' + String(max + i + 1).padStart(4, '0'));
+}
+// a date that changes keeps its first value in `orig`; the change is described for the log
+function dateChanges(prev: any, value: any) {
+  const orig: any = { ...(prev.orig || {}) }, changed: string[] = [];
+  const track = (key: string, label: string, a: any, b: any) => { if (a && a !== b) { if (!orig[key]) orig[key] = a; changed.push(label + ': ' + a + ' → ' + (b || 'cleared')); } };
+  SOSub.MILESTONES.forEach((x: any) => track(x.key, x.label, (prev.ms || {})[x.key], (value.ms || {})[x.key]));
+  SOSub.EXPECTED.forEach((x: any) => track(x.key, x.label, (prev.exp || {})[x.key], (value.exp || {})[x.key]));
+  return { orig, changed };
+}
+const sameVal = (a: any, b: any) => { const x = a == null ? '' : a, y = b == null ? '' : b; if (typeof x === 'object' || typeof y === 'object') return JSON.stringify(x, Object.keys(x || {}).sort()) === JSON.stringify(y, Object.keys(y || {}).sort()); return String(x) === String(y) || (x !== '' && y !== '' && Number(x) === Number(y)); };
 // SO lifecycle follow-up log (decisions, follow-ups, escalations, evidence references)
 const LOG_KINDS = ['NOTE', 'FOLLOW-UP', 'ESCALATION', 'DECISION', 'EVIDENCE'];
 async function logAction(req: any, email: string, role: string | null) {
@@ -328,6 +343,8 @@ async function subconAction(req: any, email: string, role: string | null) {
   if (!write) return fail('FORBIDDEN', 'Viewers cannot change subcontractor data.');
   const bad = (errors: any) => fail('INVALID', 'Please fix the highlighted fields.', { fieldErrors: errors });
   const dupMsg = fail('INVALID', 'That PO # is already tracked.', { fieldErrors: { po_no: 'That PO # is already tracked.' } });
+  const dupRef = fail('INVALID', 'That order ref is already used.', { fieldErrors: { order_ref: 'That order ref is already used.' } });
+  const dupFail = (e: any) => (/ref_uq|order_ref/i.test(e.message || '') ? dupRef : dupMsg);
   if (action === 'scSaveLine') {
     const c = SOSub.cleanLine(req.line || {}); if (!c.ok) return bad(c.errors);
     let id = req.line.id as string | undefined;
@@ -338,12 +355,14 @@ async function subconAction(req: any, email: string, role: string | null) {
       const track = (key: string, label: string, a: any, b: any) => { if (a && a !== b) { if (!orig[key]) orig[key] = a; changed.push(label + ': ' + a + ' → ' + (b || 'cleared')); } };
       SOSub.MILESTONES.forEach((x: any) => track(x.key, x.label, (prev.ms || {})[x.key], (c.value.ms as any)[x.key]));
       SOSub.EXPECTED.forEach((x: any) => track(x.key, x.label, (prev.exp || {})[x.key], (c.value.exp as any)[x.key]));
-      const r = await sb.from('sc_lines').update({ ...c.value, orig, updated_at: new Date().toISOString() }).eq('id', id).select('id').single();
-      if (r.error) return scDup(r.error) ? dupMsg : fail('SERVER_ERROR', r.error.message);
+      const upd: any = { ...c.value, orig, updated_at: new Date().toISOString() }; if (!upd.order_ref) delete upd.order_ref;   // a blank ref never wipes the existing one
+      const r = await sb.from('sc_lines').update(upd).eq('id', id).select('id').single();
+      if (r.error) return scDup(r.error) ? dupFail(r.error) : fail('SERVER_ERROR', r.error.message);
       if (changed.length) await sb.from('sc_updates').insert({ line_id: id, by_user: email, kind: 'CHANGE', text: changed.join('; ').slice(0, 1900) });
     } else {
-      const r = await sb.from('sc_lines').insert({ ...c.value, created_by: email }).select('id').single();
-      if (r.error) return scDup(r.error) ? dupMsg : fail('SERVER_ERROR', r.error.message);
+      const ins: any = { ...c.value, created_by: email }; if (!ins.order_ref) ins.order_ref = (await nextRefs(1))[0];
+      const r = await sb.from('sc_lines').insert(ins).select('id').single();
+      if (r.error) return scDup(r.error) ? dupFail(r.error) : fail('SERVER_ERROR', r.error.message);
       id = (r.data as any).id;
     }
     await scAudit(email, id as string, req.line.id ? 'SUBCON LINE UPDATED' : 'SUBCON LINE ADDED', c.value.po_no + ' / SO ' + c.value.so_no);
@@ -404,12 +423,47 @@ async function subconAction(req: any, email: string, role: string | null) {
     const fresh: any[] = [];
     for (const g of good) {
       const k = g.po_no.toUpperCase(); if (seen.has(k)) { problems.push('PO ' + g.po_no + ' appears twice in the file; the first row was used.'); continue; } seen.add(k);
-      if (have.has(k)) { const u = await sb.from('sc_lines').update({ ...g, updated_at: new Date().toISOString() }).eq('id', have.get(k)); if (u.error) return fail('SERVER_ERROR', u.error.message); updated++; }
+      if (have.has(k)) { const { order_ref: _r, ...gu } = g; const u = await sb.from('sc_lines').update({ ...gu, updated_at: new Date().toISOString() }).eq('id', have.get(k)); if (u.error) return fail('SERVER_ERROR', u.error.message); updated++; }
       else fresh.push({ ...g, created_by: email });
     }
-    if (fresh.length) { const ins = await sb.from('sc_lines').insert(fresh); if (ins.error) return fail('SERVER_ERROR', ins.error.message); added = fresh.length; }
+    if (fresh.length) { const refs = await nextRefs(fresh.length); fresh.forEach((f: any, i: number) => { f.order_ref = refs[i]; }); const ins = await sb.from('sc_lines').insert(fresh); if (ins.error) return fail('SERVER_ERROR', ins.error.message); added = fresh.length; }
     await scAudit(email, '', 'SUBCON IMPORT', added + ' added, ' + updated + ' updated');
     return { ok: true, added, updated, problems: problems.slice(0, 20), problemCount: problems.length };
+  }
+  if (action === 'scImportTemplate') {
+    const list = Array.isArray(req.rows) ? req.rows.slice(0, 500) : [];
+    if (!list.length) return fail('INVALID', 'The sheet has no rows to import.');
+    const all = must(await sb.from('sc_lines').select('*') as any) as any[];
+    const byRef = new Map<string, any>(), byPo = new Map<string, any>();
+    all.forEach((l: any) => { if (l.order_ref) byRef.set(String(l.order_ref).toUpperCase(), l); if (l.po_key) byPo.set(l.po_key, l); });
+    const problems: string[] = [], plan: any[] = [], seen = new Set<string>(); const preview: any[] = [];
+    list.forEach((row: any, i: number) => {
+      const label = 'Row ' + (row && row.__row ? row.__row : i + 2), inc: any = SOSub.fromTemplateRow(row || {});
+      if (!inc.part_no && !inc.order_ref && !inc.po_no && !Object.keys(inc.ms).length) return;   // an empty line in the sheet
+      const ref = String(inc.order_ref || '').trim().toUpperCase();
+      const ex = ref ? byRef.get(ref) : (inc.po_no ? byPo.get(String(inc.po_no).trim().toUpperCase()) : undefined);
+      const key = ex ? ex.id : (ref || 'new' + i);
+      if (seen.has(key)) { problems.push(label + ': this order appears twice in the sheet; the first one was used.'); return; } seen.add(key);
+      const c = SOSub.cleanLine(SOSub.mergeLine(ex || null, inc));
+      if (!c.ok) { problems.push(label + ' (' + (ref || inc.part_no || '?') + '): ' + Object.values(c.errors).join(' ')); return; }
+      if (!ex && !inc.part_no) { problems.push(label + ': Part # is required for a new order.'); return; }
+      const diff = ex ? Object.keys(c.value).filter((k) => !sameVal(ex[k], (c.value as any)[k])) : ['new'];
+      plan.push({ ex, value: c.value, diff, label });
+      if (preview.length < 8) preview.push({ row: label, ref: ref || (ex ? ex.order_ref : ''), part: c.value.part_no, action: ex ? (diff.length ? 'update' : 'no change') : 'new' });
+    });
+    const adds = plan.filter((p) => !p.ex), upds = plan.filter((p) => p.ex && p.diff.length), same = plan.filter((p) => p.ex && !p.diff.length).length;
+    if (req.dryRun === true) return { ok: true, dryRun: true, added: adds.length, updated: upds.length, unchanged: same, problems: problems.slice(0, 20), problemCount: problems.length, preview };
+    if (problems.length && req.skipProblems !== true) return fail('INVALID', problems.length + ' row(s) have problems. Fix them or import the rest.', { problems: problems.slice(0, 20), problemCount: problems.length });
+    const refs = await nextRefs(adds.filter((p) => !p.value.order_ref).length); let ri = 0;
+    const fresh = adds.map((p) => ({ ...p.value, order_ref: p.value.order_ref || refs[ri++], created_by: email }));
+    if (fresh.length) { const ins = await sb.from('sc_lines').insert(fresh); if (ins.error) return scDup(ins.error) ? fail('INVALID', 'A PO # or order ref in the sheet is already used by another order.') : fail('SERVER_ERROR', ins.error.message); }
+    for (const p of upds) {
+      const { orig, changed } = dateChanges(p.ex, p.value); const v: any = { ...p.value, orig, updated_at: new Date().toISOString() }; if (!v.order_ref) delete v.order_ref;
+      const u = await sb.from('sc_lines').update(v).eq('id', p.ex.id); if (u.error) return scDup(u.error) ? fail('INVALID', p.label + ': that PO # or order ref is already used by another order.') : fail('SERVER_ERROR', u.error.message);
+      await sb.from('sc_updates').insert({ line_id: p.ex.id, by_user: email, kind: 'CHANGE', text: ('Excel import' + (changed.length ? ': ' + changed.join('; ') : '')).slice(0, 1900) });
+    }
+    await scAudit(email, '', 'SUBCON EXCEL IMPORT', fresh.length + ' added, ' + upds.length + ' updated');
+    return { ok: true, added: fresh.length, updated: upds.length, unchanged: same, problems: problems.slice(0, 20), problemCount: problems.length };
   }
   return fail('BAD_REQUEST', 'Unknown action.');
 }

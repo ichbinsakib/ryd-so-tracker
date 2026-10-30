@@ -124,3 +124,20 @@ test('build: report sections, queue order, batches and KPIs', () => {
   assert.equal(r.kpis.open, 4); assert.equal(r.kpis.needsAction, 2); assert.equal(r.kpis.overdueFollowups, 1);
   assert.equal(r.batches.length, 2);
 });
+
+test('Excel template: every column maps to a field, blanks are ignored, dates and yes/no are read', () => {
+  const cols = Sub.TEMPLATE_COLUMNS;
+  assert.equal(new Set(cols.map((c) => c.h)).size, cols.length, 'headers are unique');
+  const keys = new Set(Sub.MILESTONES.filter((m) => !m.estimate).map((m) => m.key)); cols.filter((c) => c.ms).forEach((c) => assert.ok(keys.has(c.ms), c.ms));
+  const r = Sub.fromTemplateRow({ 'Order ref': ' SUB-7 ', 'part #': 'A-1', 'QTY': 50, 'Priority': 'high', 'Part sent to team': '2026-10-01', 'Production completed': '', 'Expected arrival at CAMCO': '2026-12-01', 'Escalated?': 'yes', 'Unknown column': 'x' });
+  assert.deepEqual([r.order_ref, r.part_no, r.qty, r.priority, r.escalated], ['SUB-7', 'A-1', 50, 'HIGH', true]);
+  assert.deepEqual(r.ms, { rfq: '2026-10-01' }); assert.deepEqual(r.exp, { exp_arrival: '2026-12-01' });
+  assert.equal(Sub.cleanLine(Sub.mergeLine(null, r)).ok, true);
+});
+
+test('Excel update: only filled cells change an existing order, and the rest is kept', () => {
+  const existing = line({ order_ref: 'SUB-7', part_no: 'A-1', qty: 50, team_member: 'Li', ms: { rfq: '2026-10-01', quote_received: '2026-10-08' }, exp: { exp_prod: '2026-11-01' } });
+  const merged = Sub.mergeLine(existing, Sub.fromTemplateRow({ 'Order ref': 'SUB-7', 'Quote approved': '2026-10-12', 'Expected production completion': '2026-11-10', 'Team member': '' }));
+  assert.equal(merged.team_member, 'Li'); assert.deepEqual(merged.ms, { rfq: '2026-10-01', quote_received: '2026-10-08', quote_approved: '2026-10-12' }); assert.deepEqual(merged.exp, { exp_prod: '2026-11-10' });
+  assert.equal(Sub.cleanLine(Object.assign({}, merged, { qty: 0 })).ok, false);
+});

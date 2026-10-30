@@ -1477,7 +1477,7 @@
   function applyScView() {
     const q = $('sc-q').value.trim().toLowerCase();
     let rows = SC.data.lines.filter((o) => scChipMatch(o, SC.chip) && (SC.chip === 'done' || SC.showClosed || o.open) && (!SC.stage || (o.open && scGroupOf(o) === SC.stage)) && (!SC.bpo || o.bpo_no === SC.bpo)
-      && (!q || [o.so_no, o.po_no, o.part_no, o.ryd_part, o.bpo_no, o.batch, o.stage, o.status, o.team_member, o.note].some((v) => norm(v).toLowerCase().includes(q))));
+      && (!q || [o.order_ref, o.so_no, o.po_no, o.part_no, o.ryd_part, o.bpo_no, o.batch, o.stage, o.status, o.team_member, o.note].some((v) => norm(v).toLowerCase().includes(q))));
     rows.sort((a, b) => (a.open === b.open ? 0 : a.open ? -1 : 1) || ({ crit: 0, warn: 1, ok: 2 }[a.attention] - { crit: 0, warn: 1, ok: 2 }[b.attention]) || String(a.followup || '9999').localeCompare(String(b.followup || '9999')));
     SC.view = rows;
     $('sc-grid').tHead.replaceChildren(el('tr', {}, ['', 'PART', 'STAGE', 'NEXT ACTION', 'REQUIRED / EXPECTED', ''].map((h) => el('th', { text: h }))));
@@ -1490,7 +1490,7 @@
     return el('tr', { class: 'clickrow', tabindex: 0, onclick: () => scEditLine(o), onkeydown: (e) => { if (e.key === 'Enter') scEditLine(o); } },
       el('td', {}, el('span', { class: 'dot sc-dot-' + (o.open ? o.attention : 'ok'), title: o.attention === 'crit' ? 'Critical' : o.attention === 'warn' ? 'Needs attention' : 'On track' })),
       el('td', {}, el('div', { class: 'cell2' }, el('span', {}, el('b', { text: o.part_no }), o.revision ? el('small', { class: 'muted', text: ' rev ' + o.revision }) : '', ' ', scPrio(o.priority)),
-        el('small', { text: [qtyFmt(o.qty) + ' pcs', o.so_no ? 'SO ' + o.so_no : '', o.po_no ? 'PO ' + o.po_no : '', o.team_member].filter(Boolean).join(' · ') }))),
+        el('small', { text: [o.order_ref, qtyFmt(o.qty) + ' pcs', o.so_no ? 'SO ' + o.so_no : '', o.po_no ? 'PO ' + o.po_no : '', o.team_member].filter(Boolean).join(' · ') }))),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill', text: o.stage }), el('small', { text: o.status }))),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { text: o.open ? (o.next || '—') : (o.complete ? 'Arrived ' + dshort(o.ms.received_camco) : '—') }), el('small', { text: who }),
         o.open && o.reasons.length ? el('span', { class: 'nextwhy' }, o.reasons.slice(0, 2).map((r) => el('span', { class: 'badge ' + (r.level === 'crit' ? 'sc-bad' : 'sc-warn'), text: r.text }))) : '')),
@@ -1578,7 +1578,7 @@
     const ynp = [['PENDING', 'Pending'], ['YES', 'Yes'], ['NO', 'No']];
     const f = {
       so_required: scSelect(ynp, o.so_required || 'PENDING'), sub_required: scSelect(ynp, o.sub_required || 'PENDING'), decision_note: scInput('text', o.decision_note, { placeholder: 'Reason, especially when the answer is No' }),
-      part_no: scInput('text', o.part_no), revision: scInput('text', o.revision), description: scInput('text', o.description), qty: scInput('number', o.qty, { min: 0, step: 'any' }),
+      order_ref: scInput('text', o.order_ref, { placeholder: 'Assigned automatically' }), part_no: scInput('text', o.part_no), revision: scInput('text', o.revision), description: scInput('text', o.description), qty: scInput('number', o.qty, { min: 0, step: 'any' }),
       priority: scSelect(D.priorities.map((p) => [p, p]), o.priority || 'NORMAL'), required_date: dateIn(o.required_date), customer_due_date: dateIn(o.customer_due_date),
       team_member: scInput('text', o.team_member, { placeholder: 'Person on the subcontractor team' }), owner: scInput('text', o.owner, { placeholder: 'Who must act next' }), comm_ref: scInput('text', o.comm_ref, { placeholder: 'Email subject or link' }),
       so_no: scInput('text', o.so_no), po_no: scInput('text', o.po_no), bpo_no: scInput('text', o.bpo_no, { placeholder: 'e.g. BPO-003' }), batch: scInput('text', o.batch), ryd_part: scInput('text', o.ryd_part), sent_date: dateIn(o.sent_date),
@@ -1601,7 +1601,7 @@
     const spans = o.id ? el('div', { class: 'scwide scsec' }, el('h4', { text: 'Elapsed calendar days' }), el('div', { class: 'scspans' }, o.spans.map((s) => el('div', { class: 'scspan' }, el('small', { text: s.label }), el('b', { text: s.days === null ? '—' : s.days + ' d' }))))) : '';
     const panels = [
       [scField('SO required?', f.so_required, 'so_required'), scField('Subcontracting required?', f.sub_required, 'sub_required'), scField('Reason / note', f.decision_note, 'decision_note'),
-        scField('Part # (CAMCO)', f.part_no, 'part_no', true), scField('Revision', f.revision, 'revision'), scField('Description', f.description, 'description'), scField('Qty required', f.qty, 'qty', true),
+        scField('Order ref', f.order_ref, 'order_ref'), scField('Part # (CAMCO)', f.part_no, 'part_no', true), scField('Revision', f.revision, 'revision'), scField('Description', f.description, 'description'), scField('Qty required', f.qty, 'qty', true),
         scField('Priority', f.priority, 'priority'), scField('Required at CAMCO', f.required_date, 'required_date'), scField('Customer due / line-down date', f.customer_due_date, 'customer_due_date'),
         scField('Subcontractor team member', f.team_member, 'team_member'), scField('Responsible person (next action)', f.owner, 'owner'), scField('Communication reference', f.comm_ref, 'comm_ref'),
         scField('Part # (customer / RYD)', f.ryd_part, 'ryd_part'), scField('BPO #', f.bpo_no, 'bpo_no'), scField('Batch', f.batch, 'batch')],
@@ -1640,7 +1640,7 @@
   function scRender() {
     const d = scLive(), o = SCD.o;
     $('scd-title').textContent = o.id ? d.part_no + (d.revision ? ' rev ' + d.revision : '') : 'New subcontractor order';
-    $('scd-sub').textContent = [d.so_no ? 'SO ' + d.so_no : 'No SO yet', d.po_no ? 'PO ' + d.po_no : '', d.qty ? qtyFmt(d.qty) + ' pcs' : '', d.team_member || ''].filter(Boolean).join(' · ');
+    $('scd-sub').textContent = [d.order_ref, d.so_no ? 'SO ' + d.so_no : 'No SO yet', d.po_no ? 'PO ' + d.po_no : '', d.qty ? qtyFmt(d.qty) + ' pcs' : '', d.team_member || ''].filter(Boolean).join(' · ');
     $('scd-meta').replaceChildren(el('span', { class: 'badge sc-muted', text: d.stage }), scPrio(d.priority) || '', el('span', { class: 'badge ' + (d.attention === 'crit' ? 'sc-bad' : d.attention === 'warn' ? 'sc-warn' : 'sc-ok'), text: d.complete ? 'Arrived' : d.attention === 'crit' ? 'Critical' : d.attention === 'warn' ? 'Needs attention' : 'On track' }),
       d.required_date ? el('span', { class: 'badge sc-muted', text: 'Required ' + dshort(d.required_date) }) : '');
     // stage bar = tabs
@@ -1745,12 +1745,58 @@
     return { rows };
   }
   $('sc-import').onclick = () => { $('sc-import-file').value = ''; $('sc-import-file').click(); };
-  $('sc-import-file').addEventListener('change', async () => {
-    const file = $('sc-import-file').files[0]; if (!file) return;
-    const parsed = bpoRows(await file.text());
+  // ---- Excel: template import (new orders added, existing ones updated) and export in the same format
+  const isoOfSerial = (n) => new Date(Date.UTC(1899, 11, 30) + Math.round(n) * 86400000).toISOString().slice(0, 10);
+  function templateRows(sheetRows) {
+    const norm2 = SOSub.normHeader, wanted = new Map(SOSub.TEMPLATE_COLUMNS.map((c) => [norm2(c.h), c]));
+    const hi = sheetRows.findIndex((r) => r.filter((x) => wanted.has(norm2(x))).length >= 3);
+    if (hi < 0) return null;
+    const cols = sheetRows[hi].map((h) => wanted.get(norm2(h)) || null), rows = [];
+    sheetRows.slice(hi + 1).forEach((r, i) => {
+      const o = { __row: hi + i + 2 }; let any = false;
+      cols.forEach((c, j) => {
+        if (!c) return; let v = r[j]; if (v === undefined || v === null || String(v).trim() === '') return;
+        if (c.kind === 'date') { v = typeof v === 'number' ? (v > 20000 && v < 80000 ? isoOfSerial(v) : '') : (toIsoDate(String(v).trim()) || String(v).trim()); }
+        else if (typeof v === 'string') v = v.trim();
+        o[c.h] = v; any = true;
+      });
+      if (any) rows.push(o);
+    });
+    return rows;
+  }
+  async function scImportFile(file) {
+    let rows = null, bpo = null;
+    if (/\.csv$/i.test(file.name)) { const text = await file.text(); if (/PO NUMBER/i.test(text.slice(0, 4000)) && /RFQ REQUEST DATE/i.test(text)) bpo = bpoRows(text); else rows = templateRows(parseCsv(text.replace(/^﻿/, ''))); }
+    else {
+      const sheets = (await readUploadFile(file)).filter((s) => s.rows.length), pick = sheets.find((s) => /^orders$/i.test(s.name)) || sheets.find((s) => templateRows(s.rows)) || sheets[0];
+      rows = pick ? templateRows(pick.rows) : null;
+    }
+    if (bpo) return scImportBpo(file, bpo);
+    if (!rows) { toast('This does not look like the Subcontractor template: no "Part #" / "Qty" columns found. Use the Excel template button.', true); return; }
+    if (!rows.length) { toast('The sheet has no orders in it.', true); return; }
+    if (rows.length > 500) { toast('Up to 500 orders per upload. This sheet has ' + rows.length + '.', true); return; }
+    toast('Checking ' + rows.length + ' rows…');
+    const pre = await api('scImportTemplate', { rows, dryRun: true });
+    if (!pre.ok) { if (pre.code === 'UNAUTHENTICATED') return showLogin(pre.error); toast(pre.error || 'Could not check the file.', true); return; }
+    const total = pre.added + pre.updated;
+    const stat = (n, l) => el('div', { class: 'invstat' }, el('b', { text: String(n) }), el('small', { text: l }));
+    const body = el('div', {}, el('p', { class: 'invfile', text: file.name }), el('div', { class: 'invgrid' }, stat(pre.added, 'new orders'), stat(pre.updated, 'updated'), stat(pre.unchanged, 'no change'), stat(pre.problemCount, 'with problems')),
+      pre.preview.length ? el('div', { class: 'tablewrap' }, el('table', { class: 'datatable' }, el('thead', {}, el('tr', {}, ['ROW', 'ORDER REF', 'PART', 'WILL'].map((h) => el('th', { text: h })))), el('tbody', {}, pre.preview.map((p) => el('tr', {}, el('td', { text: p.row.replace('Row ', '') }), el('td', { text: p.ref || 'assigned on import' }), el('td', { text: p.part }), el('td', { text: p.action })))))) : '',
+      pre.problemCount ? el('div', { class: 'invprob' }, el('b', { text: pre.problemCount + ' row' + (pre.problemCount === 1 ? '' : 's') + ' will be skipped:' }), ...pre.problems.map((p) => el('div', { class: 'small', text: p })), pre.problemCount > pre.problems.length ? el('div', { class: 'small muted', text: '…and ' + (pre.problemCount - pre.problems.length) + ' more.' }) : '') : '',
+      el('p', { class: 'muted small', text: 'Only filled cells are imported; a blank cell never erases existing data. Changed dates keep their original and are logged.' }));
+    if (!total) { await confirmDialog('Nothing to import', body, 'Close'); return; }
+    if (!(await confirmDialog('Import Excel sheet', body, 'Import ' + total + ' order' + (total === 1 ? '' : 's')))) return;
+    toast('Importing…');
+    const r = await api('scImportTemplate', { rows, skipProblems: true });
+    if (!r.ok) { toast(r.error || 'Import failed.', true); return; }
+    toast(r.added + ' added, ' + r.updated + ' updated' + (r.problemCount ? ', ' + r.problemCount + ' skipped.' : '.'), !!r.problemCount);
+    if (r.problemCount) banner('sc-banner', 'err', 'Skipped: ' + r.problems.join(' | '));
+    loadSubcon();
+  }
+  async function scImportBpo(file, parsed) {
     if (parsed.error) { toast(parsed.error, true); return; }
     if (!parsed.rows.length) { toast('No PO rows found in that file.', true); return; }
-    const body = el('div', {}, el('p', { text: parsed.rows.length + ' PO lines found in ' + file.name + '.' }), el('p', { class: 'muted', text: 'New POs are added; POs already tracked are updated from the file. Dates, quantities and the note come from the sheet; the update clock starts today.' }));
+    const body = el('div', {}, el('p', { text: parsed.rows.length + ' PO lines found in ' + file.name + ' (BPO Tracking format).' }), el('p', { class: 'muted', text: 'New POs are added; POs already tracked are updated from the file.' }));
     if (!(await confirmDialog('Import BPO Tracking', body, 'Import ' + parsed.rows.length + ' lines'))) return;
     toast('Importing…');
     const r = await api('scImport', { rows: parsed.rows });
@@ -1758,7 +1804,25 @@
     toast(r.added + ' added, ' + r.updated + ' updated' + (r.problemCount ? ', ' + r.problemCount + ' skipped (see the banner).' : '.'), !!r.problemCount);
     if (r.problemCount) banner('sc-banner', 'err', 'Skipped: ' + r.problems.join(' | '));
     loadSubcon();
+  }
+  $('sc-import-file').addEventListener('change', async () => {
+    const file = $('sc-import-file').files[0]; if (!file) return;
+    try { await scImportFile(file); } catch (e) { toast(e.message || 'Could not read the file.', true); }
   });
+  async function scExportExcel() {
+    try { await loadSheetJs(); } catch (e) { toast(e.message, true); return; }
+    const cols = SOSub.TEMPLATE_COLUMNS, lines = SC.data.lines.slice().sort((a, b) => String(a.order_ref).localeCompare(String(b.order_ref)));
+    const val = (o, c) => { const v = c.ms ? (o.ms || {})[c.ms] : c.exp ? (o.exp || {})[c.exp] : c.kind === 'yn' ? (o[c.k] ? 'YES' : '') : o[c.k];
+      if (v === undefined || v === null || v === '') return ''; if (c.kind === 'date' && isIso(String(v))) return new Date(String(v) + 'T00:00:00Z'); if (c.kind === 'num') return Number(v); return v; };
+    const aoa = [cols.map((c) => c.h)].concat(lines.map((o) => cols.map((c) => val(o, c))));
+    const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true });
+    cols.forEach((c, j) => { if (c.kind === 'date') for (let r = 1; r < aoa.length; r++) { const cell = ws[XLSX.utils.encode_cell({ r, c: j })]; if (cell && cell.t === 'd') cell.z = 'yyyy-mm-dd'; } });
+    ws['!cols'] = cols.map((c) => ({ wch: c.kind === 'date' ? 13 : c.kind === 'text' ? 22 : 12 })); ws['!freeze'] = { xSplit: 2, ySplit: 1 };
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Orders');
+    XLSX.writeFile(wb, 'subcontractor-orders-' + today() + '.xlsx', { cellDates: true });
+    toast('Exported ' + lines.length + ' orders. Edit it and use Import Excel to load changes.');
+  }
+  $('sc-export').onclick = scExportExcel;
 
   // ---- lead times: what each stage really takes, and when a new PO should arrive
   function scLeadStats() {

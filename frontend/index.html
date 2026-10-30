@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Shop Order Tracking Details</title>
-<link rel="stylesheet" href="styles.css?v=82cabc9f">
+<link rel="stylesheet" href="styles.css?v=574ac070">
 </head>
 <body>
 <aside id="sidenav" class="sidenav" aria-label="Sections" hidden>
@@ -206,7 +206,12 @@
 <main id="view-subcon" hidden>
   <div class="pagehead">
     <div><h1 id="sc-title">Subcontractor</h1><p class="muted" id="sc-sub">Every part sent to the subcontractor team, from quotation to confirmed arrival.</p></div>
-    <div class="head-actions" id="sc-actions"><button id="sc-import" class="btn" type="button" title="Load lines from a CSV download of the BPO Tracking worksheet">Import BPO sheet</button><input id="sc-import-file" type="file" accept=".csv,text/csv" hidden><button id="sc-new" class="btn btn-primary" type="button">＋ New order</button></div>
+    <div class="head-actions" id="sc-actions">
+      <a id="sc-template" class="btn" href="subcontractor-template.xlsx" download title="A blank Excel sheet with every column, drop-down lists and instructions">Excel template</a>
+      <button id="sc-import" class="btn" type="button" title="Upload your Excel sheet (new orders are added, existing ones are updated)">Import Excel</button><input id="sc-import-file" type="file" accept=".xlsx,.xls,.csv,text/csv" hidden>
+      <button id="sc-export" class="btn" type="button" title="Download every order as an Excel sheet in the same format, ready to edit and upload again">Export Excel</button>
+      <button id="sc-new" class="btn btn-primary" type="button">＋ New order</button>
+    </div>
   </div>
   <div id="sc-banner" role="alert"></div>
   <div id="sc-orders">
@@ -376,8 +381,8 @@
 </dialog>
 
 <script src="config.js?v=c2514725"></script>
-<script src="subcon.js?v=b6ef0537"></script>
+<script src="subcon.js?v=9d9259aa"></script>
 <script src="lifecycle.js?v=3d007b51"></script>
-<script src="app.js?v=2a737265"></script>
+<script src="app.js?v=aae1f8cc"></script>
 </body>
 </html>

@@ -41,6 +41,22 @@ function scMock(rq) {
   if (rq.action === 'scList') return Object.assign({ ok: true, today, role: 'admin', milestones: Sub.MILESTONES, expected: Sub.EXPECTED, stages: Sub.STAGES, sectionDefs: Sub.SECTIONS, decisions: Sub.DECISIONS, reviewStatuses: Sub.REVIEW_STATUSES, priorities: Sub.PRIORITIES, blockers: Sub.BLOCKERS, updateKinds: Sub.UPDATE_KINDS, cfg: Sub.CFG }, Sub.build(scLines, today));
   if (rq.action === 'scUpdates') return { ok: true, updates: [] };
   if (rq.action === 'scSaveLine') { const c = Sub.cleanLine(rq.line || {}); if (!c.ok) return { ok: false, code: 'INVALID', error: 'Please fix the highlighted fields.', fieldErrors: c.errors }; const i = scLines.findIndex((l) => l.id === rq.line.id); if (i >= 0) Object.assign(scLines[i], c.value); else scLines.push(Object.assign({ id: 's' + (scLines.length + 1), orig: {} }, c.value)); return { ok: true }; }
+  if (rq.action === 'scImportTemplate') {
+    const problems = [], plan = [], seen = new Set();
+    (rq.rows || []).forEach((row, i) => {
+      const inc = Sub.fromTemplateRow(row); if (!inc.part_no && !inc.order_ref && !inc.po_no && !Object.keys(inc.ms).length) return;
+      const ref = String(inc.order_ref || '').trim().toUpperCase(); const ex = ref ? scLines.find((l) => String(l.order_ref || '').toUpperCase() === ref) : undefined;
+      const key = ex ? ex.id : (ref || 'new' + i); if (seen.has(key)) { problems.push('Row ' + (row.__row || i + 2) + ': appears twice.'); return; } seen.add(key);
+      const c = Sub.cleanLine(Sub.mergeLine(ex || null, inc)); if (!c.ok) { problems.push('Row ' + (row.__row || i + 2) + ' (' + (ref || inc.part_no || '?') + '): ' + Object.values(c.errors).join(' ')); return; }
+      plan.push({ ex, value: c.value, row: 'Row ' + (row.__row || i + 2) });
+    });
+    const adds = plan.filter((p) => !p.ex), upds = plan.filter((p) => p.ex);
+    const preview = plan.slice(0, 8).map((p) => ({ row: p.row, ref: p.value.order_ref || (p.ex && p.ex.order_ref) || '', part: p.value.part_no, action: p.ex ? 'update' : 'new' }));
+    if (rq.dryRun) return { ok: true, dryRun: true, added: adds.length, updated: upds.length, unchanged: 0, problems, problemCount: problems.length, preview };
+    adds.forEach((p) => scLines.push(Object.assign({ id: 's' + (scLines.length + 1), orig: {}, order_ref: p.value.order_ref || 'SUB-' + String(scLines.length + 1).padStart(4, '0') }, p.value)));
+    upds.forEach((p) => Object.assign(p.ex, p.value));
+    return { ok: true, added: adds.length, updated: upds.length, unchanged: 0, problems, problemCount: problems.length };
+  }
   return { ok: false, code: 'BAD_REQUEST', error: 'Not available in the mock.' };
 }
 

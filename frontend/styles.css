@@ -555,3 +555,7 @@ body { background: var(--bg); color: var(--ink); }
 #new-banner.ok, #detail-banner.ok, #scd-banner.ok { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); } #new-banner.warn, #detail-banner.warn { background: var(--panel-2); color: var(--ink); border: 1px solid var(--line); }
 .readyhead, .fcard.ready.ok, .fcard.ready.warn, .fcard.ready.done { border-left-color: var(--line-2); }
 .bar, .scbar { background: var(--calc); }
+
+/* excel import preview */
+.invprob { margin-top: 10px; padding: 8px 12px; border: 1px solid #f4c7c3; border-radius: 8px; background: var(--err-bg); color: var(--err); display: grid; gap: 3px; max-height: 160px; overflow: auto; }
+#dlg .tablewrap { max-height: 200px; overflow: auto; margin-top: 8px; }
