@@ -148,3 +148,11 @@ test('real sheets: free-text review status and an unknown quantity are accepted 
   const d0 = Sub.describe(Object.assign({ id: 'x', ms: {}, exp: {}, sub_required: 'YES', so_required: 'YES', priority: 'NORMAL' }, c.value), '2026-10-31');
   assert.ok(d0.reasons.some((r) => r.code === 'no-qty'));
 });
+
+test('RYD part number: has its own column and is taken from Description when a sheet kept it there', () => {
+  assert.ok(Sub.TEMPLATE_COLUMNS.some((c) => c.h === 'RYD part #' && c.k === 'ryd_part'));
+  assert.equal(Sub.fromTemplateRow({ 'Part #': '19493', 'RYD part #': 'RYD 1037479' }).ryd_part, 'RYD 1037479');
+  assert.equal(Sub.fromTemplateRow({ 'Part #': '19493', 'Description': 'RYD 1037479' }).ryd_part, 'RYD 1037479');
+  assert.equal(Sub.fromTemplateRow({ 'Part #': '19493', 'Description': 'Bracket' }).ryd_part, undefined);
+  assert.equal(Sub.fromTemplateRow({ 'Part #': '19493', 'Description': 'RYD 1', 'RYD part #': 'RYD 2' }).ryd_part, 'RYD 2');
+});

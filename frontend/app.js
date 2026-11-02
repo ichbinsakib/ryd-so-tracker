@@ -850,7 +850,7 @@
   function afterFacts(rec) {
     const c = $('facts').querySelector('.fcard.ready'), box = $('summarybox');
     $('summary-sub').textContent = c ? '· ' + c.querySelector('.readyhead').textContent : '';
-    if (state.sumFor !== rec.id) { state.sumFor = rec.id; box.open = !!c && /(bad|warn)/.test(c.className); }
+    if (state.sumFor !== rec.id) { state.sumFor = rec.id; box.open = !!c && /(bad|warn)/.test(c.className); }
   }
   function renderFacts(rec) {
     const row = (label, value, tone, badge) => el('div', { class: 'frow' }, el('span', { text: label }), el('span', { class: tone ? 'tone-' + tone : '' }, value === '' || value === '-' ? '—' : value, badge || ''));
@@ -1527,11 +1527,12 @@
   }
   // each batch row opens in place and lists its orders: click a line to open it
   // ---- the page: BPO batches, each listing its part numbers
+  const rydOf = (o) => o.ryd_part || (/^RYD/i.test(norm(o.description)) ? norm(o.description) : '');   // some sheets keep the RYD number in Description
   function scBpoTable(lines) {
-    const head = ['PART #', 'RYD / CUSTOMER PART', 'QTY', 'SO / PO', 'STAGE', 'NEXT ACTION', 'REQUIRED', 'EXPECTED', 'STATUS'];
+    const head = ['CAMCO PART #', 'RYD PART #', 'QTY', 'SO / PO', 'STAGE', 'NEXT ACTION', 'REQUIRED', 'EXPECTED', 'STATUS'];
     const body = lines.map((o) => el('tr', { class: 'clickrow', tabindex: 0, onclick: () => scEditLine(o), onkeydown: (e) => { if (e.key === 'Enter') scEditLine(o); } },
-      el('td', {}, el('div', { class: 'cell2' }, el('span', {}, el('span', { class: 'dot sc-dot-' + (o.open ? o.attention : 'ok') }), ' ', el('b', { text: o.part_no }), o.revision ? el('small', { class: 'muted', text: ' rev ' + o.revision }) : ''), o.description && o.description !== o.ryd_part ? el('small', { text: o.description }) : '')),
-      el('td', { text: o.ryd_part || o.description || '—' }),
+      el('td', {}, el('div', { class: 'cell2' }, el('span', {}, el('span', { class: 'dot sc-dot-' + (o.open ? o.attention : 'ok') }), ' ', el('b', { text: o.part_no }), o.revision ? el('small', { class: 'muted', text: ' rev ' + o.revision }) : ''), o.description && !rydOf(o) ? el('small', { text: o.description }) : '')),
+      el('td', {}, rydOf(o) ? el('b', { text: rydOf(o) }) : el('span', { class: 'muted', text: '—' })),
       el('td', {}, qtyFmt(o.qty), o.qty_hold > 0 ? el('br') : '', o.qty_hold > 0 ? el('small', { class: 'sc-bad-text', text: qtyFmt(o.qty_hold) + ' on hold' }) : ''),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { text: o.so_no ? 'SO ' + o.so_no : '—' }), el('small', { text: o.po_no ? 'PO ' + o.po_no : '' }))),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill', text: o.stage }), el('small', { text: o.status }))),
@@ -1666,10 +1667,10 @@
     const spans = o.id ? el('div', { class: 'scwide scsec' }, el('h4', { text: 'Elapsed calendar days' }), el('div', { class: 'scspans' }, o.spans.map((s) => el('div', { class: 'scspan' }, el('small', { text: s.label }), el('b', { text: s.days === null ? '—' : s.days + ' d' }))))) : '';
     const panels = [
       [scField('SO required?', f.so_required, 'so_required'), scField('Subcontracting required?', f.sub_required, 'sub_required'), scField('Reason / note', f.decision_note, 'decision_note'),
-        scField('Order ref', f.order_ref, 'order_ref'), scField('Part # (CAMCO)', f.part_no, 'part_no', true), scField('Revision', f.revision, 'revision'), scField('Description', f.description, 'description'), scField('Qty required', f.qty, 'qty'),
+        scField('Order ref', f.order_ref, 'order_ref'), scField('CAMCO part #', f.part_no, 'part_no', true), scField('RYD part #', f.ryd_part, 'ryd_part'), scField('Revision', f.revision, 'revision'), scField('Description', f.description, 'description'), scField('Qty required', f.qty, 'qty'),
         scField('Priority', f.priority, 'priority'), scField('Required at CAMCO', f.required_date, 'required_date'), scField('Customer due / line-down date', f.customer_due_date, 'customer_due_date'),
         scField('Subcontractor team member', f.team_member, 'team_member'), scField('Responsible person (next action)', f.owner, 'owner'), scField('Communication reference', f.comm_ref, 'comm_ref'),
-        scField('Part # (customer / RYD)', f.ryd_part, 'ryd_part'), scField('BPO #', f.bpo_no, 'bpo_no'), scField('Batch', f.batch, 'batch')],
+        scField('BPO #', f.bpo_no, 'bpo_no'), scField('Batch', f.batch, 'batch')],
       [...msFields('Quotation'), scField('Review status (Rich / team)', f.review_status, 'review_status')],
       [...msFields('Subcontractor SO'), scField('SO #', f.so_no, 'so_no')],
       [...msFields('Purchase order'), scField('PO #', f.po_no, 'po_no')],

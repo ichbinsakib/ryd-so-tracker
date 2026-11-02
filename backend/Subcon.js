@@ -87,6 +87,7 @@ var SOSub = (function () {
   var TEMPLATE_COLUMNS = [
     { h: 'Order ref', k: 'order_ref', kind: 'text', note: 'Unique reference of this order. Leave blank for a new order: the app assigns SUB-0001, SUB-0002 ... and the export shows it. Use it to update the order later.' },
     { h: 'Part #', k: 'part_no', kind: 'text', req: true, note: 'CAMCO part number. Required.' },
+    { h: 'RYD part #', k: 'ryd_part', kind: 'text', note: 'RYD (customer) part number, shown next to the CAMCO part number.' },
     { h: 'Revision', k: 'revision', kind: 'text' },
     { h: 'Description', k: 'description', kind: 'text' },
     { h: 'Qty', k: 'qty', kind: 'num', note: 'Required quantity (pcs). Leave blank while it is not known: the order is flagged until you enter it.' },
@@ -155,6 +156,7 @@ var SOSub = (function () {
       else if (c.kind === 'enum') out[c.k] = String(v).toUpperCase();
       else out[c.k] = v;
     });
+    if (out.ryd_part === undefined && /^RYD/i.test(String(out.description || ''))) out.ryd_part = String(out.description).trim();   // sheets that kept the RYD number in Description
     return out;
   }
   /** An existing line plus what the sheet filled in. Only filled cells change anything. */
