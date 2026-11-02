@@ -313,7 +313,7 @@
       ids.forEach((id) => { const o = SC.data.lines.find((l) => l.id === id); if (o) out.push('- ' + [o.part_no, o.so_no ? 'SO ' + o.so_no : '', o.stage + ' / ' + o.status, o.next ? 'Action: ' + o.next : '', o.owner_role === 'me' ? 'Who: me' : o.waitingOn ? 'Waiting on: ' + o.waitingOn : '', o.followup ? 'Follow-up: ' + o.followup : ''].filter(Boolean).join(' | ')); }); out.push(''); });
     return out.join('\n');
   }
-  async function openScFiltered(chip, stage) { await openSubcon('subcon'); SC.chip = chip; SC.stage = stage || ''; SC.bpo = ''; $('sc-q').value = ''; renderScChips(); renderScPipeline(); applyScView(); }
+  async function openScFiltered(chip, stage) { await openSubcon('subcon'); SC.chip = chip; SC.stage = stage || ''; SC.bpo = ''; $('sc-q').value = ''; renderScBpo(); }
   const LONG_DATE = () => new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   const within = (iso, n) => { if (!isIso(iso || '')) return false; const d = daysUntil(parseDate(iso)); return d !== null && d >= 0 && d <= n; };
   // everything that needs you, inhouse and subcontractor together, most urgent first
@@ -1423,9 +1423,10 @@
     $('sc-sub').textContent = leads ? 'Elapsed calendar days between milestones, from your tracked orders, and when a new PO should arrive.' : 'Every part sent to the subcontractor team, from quotation to confirmed arrival at CAMCO.';
     $('sc-actions').hidden = leads || !scCanWrite(); $('sc-orders').hidden = leads; $('sc-body').hidden = !leads;
     if (leads) { $('sc-body').replaceChildren(scLeadCalc(), scLeadStats()); return; }
-    renderScKpis(); renderScPipeline(); renderScChips(); applyScView(); renderScInsights();
-    $('sc-batches-sub').textContent = '· ' + D.batches.length + (D.batches.length === 1 ? ' batch' : ' batches') + ' · update many lines at once';
-    $('sc-batches').replaceChildren(scBatchesView());
+    navBadge('nb-subcon', D.kpis.needsAction);
+    const open = D.lines.filter((o) => o.open), pcs = open.reduce((t, o) => t + (o.remaining || 0), 0);
+    $('sc-sub').textContent = D.batches.length + (D.batches.length === 1 ? ' batch' : ' batches') + ' · ' + D.lines.length + ' part numbers · ' + open.length + ' open · ' + qtyFmt(pcs) + ' pcs still open';
+    renderScBpo();
   }
   const scOpen = () => SC.data.lines.filter((o) => o.open);
   function renderScKpis() {
@@ -1525,6 +1526,48 @@
     document.body.append(a); a.click(); a.remove();
   }
   // each batch row opens in place and lists its orders: click a line to open it
+  // ---- the page: BPO batches, each listing its part numbers
+  function scBpoTable(lines) {
+    const head = ['PART #', 'RYD / CUSTOMER PART', 'QTY', 'SO / PO', 'STAGE', 'NEXT ACTION', 'REQUIRED', 'EXPECTED', 'STATUS'];
+    const body = lines.map((o) => el('tr', { class: 'clickrow', tabindex: 0, onclick: () => scEditLine(o), onkeydown: (e) => { if (e.key === 'Enter') scEditLine(o); } },
+      el('td', {}, el('div', { class: 'cell2' }, el('span', {}, el('span', { class: 'dot sc-dot-' + (o.open ? o.attention : 'ok') }), ' ', el('b', { text: o.part_no }), o.revision ? el('small', { class: 'muted', text: ' rev ' + o.revision }) : ''), o.description && o.description !== o.ryd_part ? el('small', { text: o.description }) : '')),
+      el('td', { text: o.ryd_part || o.description || '—' }),
+      el('td', {}, qtyFmt(o.qty), o.qty_hold > 0 ? el('br') : '', o.qty_hold > 0 ? el('small', { class: 'sc-bad-text', text: qtyFmt(o.qty_hold) + ' on hold' }) : ''),
+      el('td', {}, el('div', { class: 'cell2' }, el('span', { text: o.so_no ? 'SO ' + o.so_no : '—' }), el('small', { text: o.po_no ? 'PO ' + o.po_no : '' }))),
+      el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill', text: o.stage }), el('small', { text: o.status }))),
+      el('td', {}, el('div', { class: 'cell2' }, el('span', { text: o.open ? (o.next || '—') : (o.complete ? 'Arrived ' + dshort(o.ms.received_camco) : '—') }),
+        el('small', { text: o.open ? (o.owner_role === 'me' ? 'Me' : o.waitingOn ? 'Waiting on ' + o.waitingOn : '') + (o.followup ? ' · follow up ' + dshort(o.followup) : '') : '' }))),
+      el('td', { text: dshort(o.required_date) }), el('td', { text: dshort(o.expected) }),
+      el('td', {}, o.open ? (o.reasons.length ? o.reasons.slice(0, 2).map((r) => el('span', { class: 'badge ' + (r.level === 'crit' ? 'sc-bad' : 'sc-warn'), text: r.text })) : el('span', { class: 'badge sc-ok', text: 'On track' })) : el('span', { class: 'badge sc-muted', text: o.complete ? 'Arrived' : o.notRequired ? 'Not required' : 'Closed' }))));
+    return el('div', { class: 'tablewrap' }, el('table', { class: 'datatable mini' }, el('thead', {}, el('tr', {}, head.map((h) => el('th', { text: h })))), el('tbody', {}, body)));
+  }
+  function renderScBpo() {
+    const D = SC.data, q = $('sc-q').value.trim().toLowerCase(); SC.groupOpen = SC.groupOpen || {};
+    const keep = (o) => scChipMatch(o, SC.chip) && (!SC.hideDone || !o.complete) && (!SC.stage || (o.open && scGroupOf(o) === SC.stage))
+      && (!q || [o.order_ref, o.so_no, o.po_no, o.part_no, o.ryd_part, o.description, o.bpo_no, o.batch, o.stage, o.status, o.team_member, o.note].some((v) => norm(v).toLowerCase().includes(q)));
+    const shown = [], groups = [];
+    D.batches.forEach((b) => {
+      const all = D.lines.filter((o) => o.bpo_no === b.bpo_no && o.batch === b.batch), lines = all.filter(keep);
+      if (!lines.length) return; shown.push(...lines);
+      const key = b.bpo_no + '|' + b.batch, open = key in SC.groupOpen ? SC.groupOpen[key] : (!!q || b.open > 0), filtered = lines.length !== all.length;
+      const toggle = () => { SC.groupOpen[key] = !open; renderScBpo(); };
+      groups.push(el('section', { class: 'card bpogroup' },
+        el('div', { class: 'bpohead', role: 'button', tabindex: 0, 'aria-expanded': String(open), onclick: toggle, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } } },
+          el('span', { class: 'caret', text: open ? '▾' : '▸' }),
+          el('span', { class: 'bpotitle' }, el('b', { text: b.bpo_no || 'No BPO' }), el('span', { class: 'muted', text: b.batch ? '  Batch ' + b.batch : '' })),
+          el('span', { class: 'bpometa' }, el('b', { text: String(filtered ? lines.length + ' of ' + all.length : all.length) }), ' part numbers · ', el('b', { text: qtyFmt(b.qty) }), ' pcs · ', el('b', { text: qtyFmt(b.remaining) }), ' open'),
+          el('span', { class: 'bpobar' }, scBar(b.progress, b.crit ? 'bad' : b.warn ? 'warn' : '')),
+          el('span', { class: 'bpowhere small muted', text: Object.entries(b.stages).sort((x, y) => y[1] - x[1]).map(([st, n]) => n + ' × ' + st).join(', ') || 'all arrived' }),
+          el('span', { class: 'bpodates small' }, el('span', { class: 'muted', text: 'req ' }), dshort(b.required), el('span', { class: 'muted', text: '  exp ' }), dshort(b.expected)),
+          el('span', { class: 'bpoatt' }, b.crit ? el('span', { class: 'badge sc-bad', text: b.crit + ' critical' }) : '', ' ', b.warn ? el('span', { class: 'badge sc-warn', text: b.warn + ' watch' }) : '', !b.crit && !b.warn && b.open ? el('span', { class: 'badge sc-ok', text: 'On track' }) : ''),
+          scCanWrite() && b.open ? el('button', { class: 'btn btn-sm', type: 'button', text: 'Update batch', onclick: (e) => { e.stopPropagation(); scBatchDialog(b); } }) : ''),
+        open ? scBpoTable(lines) : ''));
+    });
+    SC.view = shown;
+    $('sc-bpo').replaceChildren(...(groups.length ? groups : [el('p', { class: 'muted card', text: D.lines.length ? 'No part numbers match your filter.' : 'No orders yet. Use "New order" or "Import Excel".' })]));
+    const ls = $('sc-status'); ls.className = 'statusline'; ls.textContent = shown.length + ' of ' + D.lines.length + ' part numbers in ' + groups.length + (groups.length === 1 ? ' batch' : ' batches');
+    if (SC.stage || SC.chip !== 'all') ls.append(' · filtered by ' + [SC.chip !== 'all' ? (SC_CHIPS.find((c) => c[0] === SC.chip) || [0, SC.chip])[1] : '', SC.stage ? 'stage ' + SC.stage : ''].filter(Boolean).join(' and ') + ' ', el('button', { class: 'btn btn-sm', type: 'button', text: 'Clear filter', onclick: () => { SC.chip = 'all'; SC.stage = ''; renderScBpo(); } }));
+  }
   function scBatchLines(lines) {
     const head = ['', 'PART', 'SO / PO', 'STAGE', 'NEXT ACTION', 'REQUIRED', 'EXPECTED', 'STATUS'];
     const body = lines.map((o) => el('tr', { class: 'clickrow', tabindex: 0, onclick: () => scEditLine(o), onkeydown: (e) => { if (e.key === 'Enter') scEditLine(o); } },
@@ -1872,8 +1915,10 @@
       el('div', { class: 'calcform' }, scField('PO submitted to vendor', po, 'x1'), scField('Needed at CAMCO by (optional)', need, 'x2')), out);
   }
   $('sc-new').onclick = () => { if (!scCanWrite()) { toast('Your access (' + (state.role || 'unknown') + ') is read-only here.', true); return; } scEditLine(null); };
-  $('sc-q').addEventListener('input', () => { clearTimeout(applyScView.t); applyScView.t = setTimeout(applyScView, 150); });
-  $('sc-closed').addEventListener('change', (e) => { SC.showClosed = e.target.checked; renderScChips(); applyScView(); });
+  $('sc-q').addEventListener('input', () => { clearTimeout(renderScBpo.t); renderScBpo.t = setTimeout(renderScBpo, 150); });
+  $('sc-closed').addEventListener('change', (e) => { SC.hideDone = e.target.checked; renderScBpo(); });
+  $('sc-expand').onclick = () => { SC.groupOpen = {}; SC.data.batches.forEach((b) => { SC.groupOpen[b.bpo_no + '|' + b.batch] = true; }); renderScBpo(); };
+  $('sc-collapse').onclick = () => { SC.groupOpen = {}; SC.data.batches.forEach((b) => { SC.groupOpen[b.bpo_no + '|' + b.batch] = false; }); renderScBpo(); };
   $('sc-csv').onclick = () => scExportCsv(SC.view);
   $('scd-back').onclick = () => openSubcon('subcon');
   $('scd-save').onclick = scSave;

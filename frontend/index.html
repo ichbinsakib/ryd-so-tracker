@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Shop Order Tracking Details</title>
-<link rel="stylesheet" href="styles.css?v=1c66ee60">
+<link rel="stylesheet" href="styles.css?v=e10f3e81">
 </head>
 <body>
 <aside id="sidenav" class="sidenav" aria-label="Sections" hidden>
@@ -215,21 +215,18 @@
   </div>
   <div id="sc-banner" role="alert"></div>
   <div id="sc-orders">
-    <details class="card batchcard" id="sc-batches-card" open><summary><b>Batches (BPO)</b> <span class="muted small" id="sc-batches-sub"></span></summary><div id="sc-batches"></div></details>
-    <section id="sc-kpis" class="focus" aria-label="Subcontract numbers"></section>
-    <ol id="sc-pipeline" class="flow" aria-label="Stage flow"></ol>
     <section class="listhead">
-      <h2>Orders</h2>
-      <div id="sc-chips" class="chips" role="group" aria-label="Filter orders"></div>
+      <h2>BPO part numbers</h2>
       <div class="listtools">
-        <input id="sc-q" type="search" placeholder="Search part, SO, PO, team…" aria-label="Search">
-        <button id="sc-csv" class="btn btn-sm" type="button" title="Download the orders shown as a CSV file">Export CSV</button>
-        <label class="inline"><input type="checkbox" id="sc-closed"> arrived</label>
+        <input id="sc-q" type="search" placeholder="Search part, RYD part, SO, PO, BPO…" aria-label="Search">
+        <button id="sc-expand" class="btn btn-sm" type="button">Expand all</button>
+        <button id="sc-collapse" class="btn btn-sm" type="button">Collapse all</button>
+        <button id="sc-csv" class="btn btn-sm" type="button" title="Download the part numbers shown as a CSV file">Export CSV</button>
+        <label class="inline"><input type="checkbox" id="sc-closed"> hide arrived</label>
       </div>
     </section>
     <div id="sc-status" class="statusline" aria-live="polite"></div>
-    <div class="tablewrap card"><table id="sc-grid" class="datatable"><thead></thead><tbody></tbody></table></div>
-    <div class="duo" id="sc-insights"><section class="card" id="sc-arrivals"></section><section class="card" id="sc-timings"></section></div>
+    <div id="sc-bpo" class="bpolist"></div>
   </div>
   <div id="sc-body"></div>
 </main>
@@ -383,6 +380,6 @@
 <script src="config.js?v=c2514725"></script>
 <script src="subcon.js?v=38fd8da0"></script>
 <script src="lifecycle.js?v=3d007b51"></script>
-<script src="app.js?v=38c4a46d"></script>
+<script src="app.js?v=87532942"></script>
 </body>
 </html>

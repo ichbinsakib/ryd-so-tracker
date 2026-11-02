@@ -570,3 +570,14 @@ body { background: var(--bg); color: var(--ink); }
 .datatable.mini th, .datatable.mini td { padding-top: 6px; padding-bottom: 6px; }
 .batchcard .tablewrap { max-height: 72vh; }
 .datatable.mini td:nth-child(2), .datatable.mini td:nth-child(3) { min-width: 120px; white-space: nowrap; } .datatable.mini td:nth-child(5) { min-width: 240px; }
+
+/* subcontractor page: BPO batches with their part numbers */
+.bpolist { display: grid; gap: 10px; }
+.bpogroup { padding: 0; overflow: hidden; }
+.bpohead { display: grid; grid-template-columns: 18px minmax(160px, 1.1fr) minmax(220px, 1.2fr) 120px minmax(160px, 1.4fr) 170px auto auto; gap: 12px; align-items: center; padding: 10px 14px; cursor: pointer; background: var(--panel-2); }
+.bpohead:hover { background: var(--accent-soft); } .bpohead .caret { color: var(--muted); }
+.bpotitle b { font-size: 15px; } .bpogroup[open], .bpohead[aria-expanded=true] { border-bottom: 1px solid var(--line); }
+.bpogroup .tablewrap { border: 0; border-top: 1px solid var(--line); border-radius: 0; max-height: none; }
+.bpogroup .datatable td { vertical-align: top; }
+@media (max-width: 1250px) { .bpohead { grid-template-columns: 18px 1fr 1fr; } .bpowhere, .bpodates, .bpoatt { grid-column: 2 / -1; } }
+.bpogroup .datatable td:nth-child(1) { min-width: 150px; white-space: nowrap; } .bpogroup .datatable td:nth-child(2) { min-width: 130px; } .bpogroup .datatable td:nth-child(6) { min-width: 240px; } .bpogroup .datatable td:nth-child(5) { min-width: 150px; }
