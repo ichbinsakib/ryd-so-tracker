@@ -1524,16 +1524,38 @@
     const a = el('a', { href: URL.createObjectURL(new Blob([lines.join('\r\n')], { type: 'text/csv' })), download: 'subcontractor-lines-' + today() + '.csv' });
     document.body.append(a); a.click(); a.remove();
   }
+  // each batch row opens in place and lists its orders: click a line to open it
+  function scBatchLines(lines) {
+    const head = ['', 'PART', 'SO / PO', 'STAGE', 'NEXT ACTION', 'REQUIRED', 'EXPECTED', 'STATUS'];
+    const body = lines.map((o) => el('tr', { class: 'clickrow', tabindex: 0, onclick: () => scEditLine(o), onkeydown: (e) => { if (e.key === 'Enter') scEditLine(o); } },
+      el('td', {}, el('span', { class: 'dot sc-dot-' + (o.open ? o.attention : 'ok') })),
+      el('td', {}, el('b', { text: o.part_no }), o.revision ? el('small', { class: 'muted', text: ' rev ' + o.revision }) : '', el('br'), el('small', { class: 'muted', text: qtyFmt(o.qty) + ' pcs' })),
+      el('td', { class: 'small', text: [o.so_no ? 'SO ' + o.so_no : '', o.po_no ? 'PO ' + o.po_no : ''].filter(Boolean).join(' · ') || '—' }),
+      el('td', {}, el('span', { class: 'stagepill', text: o.stage }), el('br'), el('small', { class: 'muted', text: o.status })),
+      el('td', { class: 'small', text: o.open ? (o.next || '—') : (o.complete ? 'Arrived ' + dshort(o.ms.received_camco) : '—') }),
+      el('td', { text: dshort(o.required_date) }), el('td', { text: dshort(o.expected) }),
+      el('td', {}, o.open ? (o.reasons.length ? o.reasons.slice(0, 2).map((r) => el('span', { class: 'badge ' + (r.level === 'crit' ? 'sc-bad' : 'sc-warn'), text: r.text })) : el('span', { class: 'badge sc-ok', text: 'On track' })) : el('span', { class: 'badge sc-muted', text: o.complete ? 'Arrived' : 'Closed' }))));
+    return el('div', { class: 'tablewrap' }, el('table', { class: 'datatable mini' }, el('thead', {}, el('tr', {}, head.map((h) => el('th', { text: h })))), el('tbody', {}, body.length ? body : [el('tr', {}, el('td', { colspan: head.length, class: 'muted', text: 'No orders in this batch.' }))])));
+  }
   function scBatchesView() {
-    const head = ['BPO', 'BATCH', 'LINES', 'OPEN', 'QTY (PCS)', 'PCS OPEN', 'PROGRESS', 'WHERE THEY ARE', 'REQUIRED', 'EXPECTED', 'ATTENTION', ''];
-    const rows = SC.data.batches.map((b) => el('tr', { class: 'clickrow', onclick: () => { SC.bpo = b.bpo_no; $('sc-q').value = b.batch; SC.chip = 'all'; SC.stage = ''; renderScChips(); renderScPipeline(); applyScView(); $('sc-grid').scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
-      el('td', {}, el('b', { text: b.bpo_no || '—' })), el('td', { text: b.batch || '—' }), el('td', { text: String(b.lines) }), el('td', { text: String(b.open) }), el('td', { text: qtyFmt(b.qty) }), el('td', { text: qtyFmt(b.remaining) }),
-      el('td', {}, scBar(b.progress, b.crit ? 'bad' : b.warn ? 'warn' : '')),
-      el('td', { class: 'small' }, Object.entries(b.stages).sort((x, y) => y[1] - x[1]).map(([s, n]) => n + ' × ' + s).join(', ') || 'All closed'),
-      el('td', { text: dshort(b.required) }), el('td', { text: dshort(b.expected) }),
-      el('td', {}, b.crit ? el('span', { class: 'badge sc-bad', text: b.crit + ' critical' }) : '', ' ', b.warn ? el('span', { class: 'badge sc-warn', text: b.warn + ' watch' }) : '', !b.crit && !b.warn && b.open ? el('span', { class: 'badge sc-ok', text: 'On track' }) : ''),
-      el('td', {}, scCanWrite() && b.open ? el('button', { class: 'btn btn-sm', type: 'button', text: 'Update batch', onclick: (e) => { e.stopPropagation(); scBatchDialog(b); } }) : '')));
-    return el('div', {}, el('p', { class: 'muted pad', text: 'Lines usually move together by BPO batch. "Update batch" applies one date, note or blocker to every open line in the batch and logs it on each line.' }), scTable(head, rows, 'No batches yet.'));
+    const head = ['', 'BPO', 'BATCH', 'LINES', 'OPEN', 'QTY (PCS)', 'PCS OPEN', 'PROGRESS', 'WHERE THEY ARE', 'REQUIRED', 'EXPECTED', 'ATTENTION', ''];
+    SC.openBatches = SC.openBatches || new Set();
+    const rows = SC.data.batches.flatMap((b) => {
+      const key = b.bpo_no + '|' + b.batch, lines = SC.data.lines.filter((o) => o.bpo_no === b.bpo_no && o.batch === b.batch), isOpen = SC.openBatches.has(key);
+      const detail = el('tr', { class: 'batchdetail', hidden: !isOpen }, el('td', { colspan: head.length }, scBatchLines(lines)));
+      const caret = el('span', { class: 'caret', text: isOpen ? '▾' : '▸' });
+      const toggle = () => { const open = !SC.openBatches.has(key); if (open) SC.openBatches.add(key); else SC.openBatches.delete(key); detail.hidden = !open; caret.textContent = open ? '▾' : '▸'; main.setAttribute('aria-expanded', String(open)); };
+      const main = el('tr', { class: 'clickrow batchrow', tabindex: 0, 'aria-expanded': String(isOpen), title: 'Click to list the orders in this batch', onclick: toggle, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } } },
+        el('td', { class: 'chev' }, caret),
+        el('td', {}, el('b', { text: b.bpo_no || '—' })), el('td', { text: b.batch || '—' }), el('td', { text: String(b.lines) }), el('td', { text: String(b.open) }), el('td', { text: qtyFmt(b.qty) }), el('td', { text: qtyFmt(b.remaining) }),
+        el('td', {}, scBar(b.progress, b.crit ? 'bad' : b.warn ? 'warn' : '')),
+        el('td', { class: 'small' }, Object.entries(b.stages).sort((x, y) => y[1] - x[1]).map(([st, n]) => n + ' × ' + st).join(', ') || 'All closed'),
+        el('td', { text: dshort(b.required) }), el('td', { text: dshort(b.expected) }),
+        el('td', {}, b.crit ? el('span', { class: 'badge sc-bad', text: b.crit + ' critical' }) : '', ' ', b.warn ? el('span', { class: 'badge sc-warn', text: b.warn + ' watch' }) : '', !b.crit && !b.warn && b.open ? el('span', { class: 'badge sc-ok', text: 'On track' }) : ''),
+        el('td', {}, scCanWrite() && b.open ? el('button', { class: 'btn btn-sm', type: 'button', text: 'Update batch', onclick: (e) => { e.stopPropagation(); scBatchDialog(b); } }) : ''));
+      return [main, detail];
+    });
+    return el('div', {}, el('p', { class: 'muted pad', text: 'Click a batch to see its orders. "Update batch" applies one date, note or blocker to every open order in the batch and logs it on each.' }), scTable(head, rows, 'No batches yet.'));
   }
 
   // ---- dialogs: one form body, re-shown with field errors until it saves or is cancelled

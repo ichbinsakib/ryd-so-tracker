@@ -562,3 +562,11 @@ body { background: var(--bg); color: var(--ink); }
 
 /* batches sit at the top of the Subcontractor page */
 .batchcard { margin-bottom: 12px; } .batchcard summary { cursor: pointer; padding: 2px 0; } .batchcard .tablewrap { max-height: 340px; overflow: auto; margin-top: 8px; }
+
+/* batch rows open in place */
+.batchrow .caret { color: var(--muted); font-size: 14px; } .batchrow[aria-expanded=true] { background: var(--accent-soft); }
+.batchdetail > td { background: var(--panel-2); padding: 6px 14px 12px 36px !important; }
+.batchdetail .tablewrap { max-height: none; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.datatable.mini th, .datatable.mini td { padding-top: 6px; padding-bottom: 6px; }
+.batchcard .tablewrap { max-height: 72vh; }
+.datatable.mini td:nth-child(2), .datatable.mini td:nth-child(3) { min-width: 120px; white-space: nowrap; } .datatable.mini td:nth-child(5) { min-width: 240px; }
