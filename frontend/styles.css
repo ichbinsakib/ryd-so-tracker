@@ -559,3 +559,6 @@ body { background: var(--bg); color: var(--ink); }
 /* excel import preview */
 .invprob { margin-top: 10px; padding: 8px 12px; border: 1px solid #f4c7c3; border-radius: 8px; background: var(--err-bg); color: var(--err); display: grid; gap: 3px; max-height: 160px; overflow: auto; }
 #dlg .tablewrap { max-height: 200px; overflow: auto; margin-top: 8px; }
+
+/* batches sit at the top of the Subcontractor page */
+.batchcard { margin-bottom: 12px; } .batchcard summary { cursor: pointer; padding: 2px 0; } .batchcard .tablewrap { max-height: 340px; overflow: auto; margin-top: 8px; }

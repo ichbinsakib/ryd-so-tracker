@@ -1526,7 +1526,7 @@
   }
   function scBatchesView() {
     const head = ['BPO', 'BATCH', 'LINES', 'OPEN', 'QTY (PCS)', 'PCS OPEN', 'PROGRESS', 'WHERE THEY ARE', 'REQUIRED', 'EXPECTED', 'ATTENTION', ''];
-    const rows = SC.data.batches.map((b) => el('tr', { class: 'clickrow', onclick: () => { SC.bpo = b.bpo_no; $('sc-q').value = b.batch; SC.chip = 'all'; SC.stage = ''; $('sc-batches-card').open = false; renderScChips(); applyScView(); window.scrollTo({ top: 0, behavior: 'smooth' }); } },
+    const rows = SC.data.batches.map((b) => el('tr', { class: 'clickrow', onclick: () => { SC.bpo = b.bpo_no; $('sc-q').value = b.batch; SC.chip = 'all'; SC.stage = ''; renderScChips(); renderScPipeline(); applyScView(); $('sc-grid').scrollIntoView({ behavior: 'smooth', block: 'start' }); } },
       el('td', {}, el('b', { text: b.bpo_no || '—' })), el('td', { text: b.batch || '—' }), el('td', { text: String(b.lines) }), el('td', { text: String(b.open) }), el('td', { text: qtyFmt(b.qty) }), el('td', { text: qtyFmt(b.remaining) }),
       el('td', {}, scBar(b.progress, b.crit ? 'bad' : b.warn ? 'warn' : '')),
       el('td', { class: 'small' }, Object.entries(b.stages).sort((x, y) => y[1] - x[1]).map(([s, n]) => n + ' × ' + s).join(', ') || 'All closed'),

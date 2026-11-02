@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Shop Order Tracking Details</title>
-<link rel="stylesheet" href="styles.css?v=574ac070">
+<link rel="stylesheet" href="styles.css?v=e1063c30">
 </head>
 <body>
 <aside id="sidenav" class="sidenav" aria-label="Sections" hidden>
@@ -215,7 +215,8 @@
   </div>
   <div id="sc-banner" role="alert"></div>
   <div id="sc-orders">
-    <section id="sc-kpis" class="kpis" aria-label="Subcontract numbers"></section>
+    <details class="card batchcard" id="sc-batches-card" open><summary><b>Batches (BPO)</b> <span class="muted small" id="sc-batches-sub"></span></summary><div id="sc-batches"></div></details>
+    <section id="sc-kpis" class="focus" aria-label="Subcontract numbers"></section>
     <ol id="sc-pipeline" class="flow" aria-label="Stage flow"></ol>
     <section class="listhead">
       <h2>Orders</h2>
@@ -229,7 +230,6 @@
     <div id="sc-status" class="statusline" aria-live="polite"></div>
     <div class="tablewrap card"><table id="sc-grid" class="datatable"><thead></thead><tbody></tbody></table></div>
     <div class="duo" id="sc-insights"><section class="card" id="sc-arrivals"></section><section class="card" id="sc-timings"></section></div>
-    <details class="card datacard" id="sc-batches-card"><summary><b>Batches (BPO)</b> <span class="muted small" id="sc-batches-sub"></span></summary><div id="sc-batches"></div></details>
   </div>
   <div id="sc-body"></div>
 </main>
@@ -383,6 +383,6 @@
 <script src="config.js?v=c2514725"></script>
 <script src="subcon.js?v=38fd8da0"></script>
 <script src="lifecycle.js?v=3d007b51"></script>
-<script src="app.js?v=fa64c636"></script>
+<script src="app.js?v=a5c21025"></script>
 </body>
 </html>
