@@ -537,7 +537,38 @@ async function subconAction(req: any, email: string, role: string | null) {
   return fail('BAD_REQUEST', 'Unknown action.');
 }
 
+// ---- status reminders: called by pg_cron every 15 minutes with a shared secret (no user session)
+const REMIND_TO = Deno.env.get('REMIND_TO') || 'sahamed@camcomfginc.com';
+const APP_URL = 'https://so.amanasystem.com';
+
+async function sendMail(to: string, m: { subject: string; text: string; html: string }) {
+  const user = Deno.env.get('GMAIL_USER'), pass = Deno.env.get('GMAIL_APP_PASSWORD');
+  if (!user || !pass) throw new Error('GMAIL_USER and GMAIL_APP_PASSWORD secrets are not set.');
+  const nodemailer = (await import('npm:nodemailer@6.9.14')).default;
+  const tx = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user, pass } });
+  await tx.sendMail({ from: '"Shop Order Tracker" <' + user + '>', to, subject: m.subject, text: m.text, html: m.html });
+}
+
+async function statusReminders(req: any) {
+  const key = Deno.env.get('CRON_KEY') || '';
+  if (key.length < 16 || typeof req.cronKey !== 'string' || (await sha256hex(req.cronKey)) !== (await sha256hex(key))) return fail('UNAUTHENTICATED', 'Not allowed.');
+  if (req.test === true) { await sendMail(REMIND_TO, { subject: 'SO reminder test', text: 'This is a test of the Shop Order status reminder email.', html: '<p>This is a test of the Shop Order status reminder email.</p>' }); return { ok: true, test: true, to: REMIND_TO }; }
+  const rows = must(await sb.from('shop_orders').select('id,data,status_since,remind_count,last_remind_at').in('data->>status', SOReminders.statuses())) as any[];
+  const items = SOReminders.due(rows, Date.now());
+  if (!items.length) return { ok: true, watching: rows.length, sent: 0 };
+  if (req.dryRun === true) return { ok: true, dryRun: true, watching: rows.length, due: items.length };
+  await sendMail(REMIND_TO, SOReminders.buildEmail(items, APP_URL));
+  const nowIso = new Date().toISOString();
+  for (const it of items) {
+    const u = await sb.from('shop_orders').update({ remind_count: it.number, last_remind_at: nowIso }).eq('id', it.id);
+    if (u.error) console.error('reminder bookkeeping failed', it.id, u.error.message);
+  }
+  await sb.from('app_audit').insert({ user_email: 'system', field: 'STATUS REMINDER', new_value: items.length + ' SOs to ' + REMIND_TO });
+  return { ok: true, watching: rows.length, sent: items.length };
+}
+
 async function handleRequest(req: any) {
+  if (req && req.action === 'statusReminders') return await statusReminders(req);
   if (req && req.action === 'login') return await login(req);
   const auth = await verifyToken(req && req.idToken);
   if (!auth.ok) return fail('UNAUTHENTICATED', (auth as any).error || 'Please sign in.');
