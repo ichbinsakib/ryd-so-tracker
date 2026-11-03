@@ -1606,10 +1606,10 @@
     return { all, base, shown: base.filter((b) => test(b) && (!BF.stages || BF.stages.includes(b.stage))), by };
   }
   function renderScBoard() {
-    const D = SC.data, { all, base, shown, by } = boardFilter(), canMove = scCanWrite();
+    const D = SC.data, { all, base, shown } = boardFilter();
     // overview for management: every number is a shortcut to the BPOs behind it
     const n = (f) => all.filter(f).length, st = (...keys) => (b) => keys.includes(b.stage);
-    const go = (chip, stages) => () => { BF.chip = chip; BF.stages = stages || null; renderScBoard(); $('sc-board').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); };
+    const go = (chip, stages) => () => { BF.chip = chip; BF.stages = stages || null; renderScBoard(); $('sc-track').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); };
     const tile = (label, count, tone, fn) => el('button', { class: 'bk ' + (tone || ''), type: 'button', onclick: fn }, el('span', { class: 'bkn', text: String(count) }), el('span', { class: 'bkl', text: label }));
     $('sc-kpis').replaceChildren(
       tile('Active BPOs', n((b) => b.stage !== 'closed'), '', go('active')), tile('Awaiting quotation', n(st('request', 'quoteReq')), '', go('active', ['request', 'quoteReq'])),
@@ -1622,46 +1622,12 @@
     $('sc-chips').replaceChildren(...BOARD_CHIPS.map(([c, label, f]) => el('button', { class: 'chip' + (BF.chip === c && !BF.stages ? ' on' : ''), type: 'button', 'aria-pressed': String(BF.chip === c && !BF.stages), onclick: () => { BF.chip = c; BF.stages = null; renderScBoard(); } }, label, el('b', { text: String(base.filter(f).length) }))));
     const vs = [...new Set(all.flatMap((b) => b.vendors))].sort(), sel = $('sc-vendor');
     sel.replaceChildren(el('option', { value: '', text: 'All subcontractors' }), ...vs.map((v) => el('option', { value: v, text: v }))); sel.value = vs.includes(BF.vendor) ? BF.vendor : (BF.vendor = '');
-    // the board
-    const shownKeys = new Set(shown.map((b) => b.key)), showClosed = BF.chip === 'closed' || (BF.stages && BF.stages.includes('closed'));
-    $('sc-board').replaceChildren(...D.boardStages.map((s) => {
-      const here = shown.filter((b) => b.stage === s.key), hiddenDone = s.key === 'closed' && !showClosed;
-      const count = hiddenDone ? base.filter((b) => b.stage === 'closed').length : here.length;
-      const col = el('section', { class: 'bcol' + (s.key === 'closed' ? ' bdone' : ''), 'data-stage': s.key },
-        el('header', { class: 'bcolhead' }, el('div', { class: 'bcoltitle' }, el('b', { text: s.label }), el('span', { class: 'bcount', text: String(count) })), el('small', { text: s.hint })),
-        el('div', { class: 'bcards' }, hiddenDone ? (count ? el('button', { class: 'btn btn-sm', type: 'button', text: 'Show ' + count + ' completed', onclick: go('closed') }) : el('p', { class: 'bempty', text: 'None yet' }))
-          : here.length ? here.map((b) => boardCard(b, by[b.key] || [], canMove)) : el('p', { class: 'bempty', text: canMove && (BF.chip === 'active' || BF.chip === 'closed') ? 'Drop a BPO here' : 'None' })));
-      if (canMove) {
-        col.addEventListener('dragover', (e) => { if (!BF.drag) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; col.classList.add('over'); });
-        col.addEventListener('dragleave', (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove('over'); });
-        col.addEventListener('drop', (e) => { e.preventDefault(); col.classList.remove('over'); const b = BF.drag; BF.drag = null; if (b && b.stage !== s.key) boardMove(b, s.key); });
-      }
-      return col;
-    }));
     renderTracker(shown);
     const ls = $('sc-status'); ls.className = 'statusline';
-    ls.textContent = shown.length + ' of ' + all.length + ' BPOs' + (shownKeys.size && canMove ? ' · drag a card to another stage to move it' : '');
+    ls.textContent = shown.length + ' of ' + all.length + ' BPOs · click a BPO to open it';
     if (BF.stages || BF.chip !== 'active' || BF.q || BF.vendor || BF.since) ls.append(' · ', el('button', { class: 'btn btn-sm', type: 'button', text: 'Clear filters', onclick: () => { Object.assign(BF, { chip: 'active', q: '', vendor: '', since: '', stages: null }); $('sc-q').value = ''; $('sc-since').value = ''; renderScBoard(); } }));
     if (!D.boardSaved) ls.append(' ', el('span', { class: 'badge sc-warn', text: 'Board moves are not saved yet: run supabase/subcon5.sql' }));
   }
-  function boardCard(b, lines, canMove) {
-    const ls = lines.filter((o) => !o.notRequired), first = ls[0];
-    const full = [bpoName(b), partsText(ls, 6), b.vendors.length ? 'Vendor: ' + b.vendors.join(', ') : 'Vendor: Not Recorded', 'Requested: ' + recDate(b.requestDate), 'In stage: ' + (b.daysInStage === null ? 'Not Recorded' : dayWord(b.daysInStage)), 'Last update: ' + recDate(b.latestUpdate), 'Expected: ' + recDate(b.expected), b.next ? 'Next: ' + b.next : '', COLOR_TEXT[b.color] + (b.manual ? ' · stage set by hand' : '')].filter(Boolean).join('\n');
-    const c = el('article', { class: 'bcard ' + b.color, tabindex: 0, draggable: canMove ? 'true' : 'false', title: full,
-      onclick: () => openBpo(b), onkeydown: (e) => { if (e.key === 'Enter') openBpo(b); } },
-      el('div', { class: 'bctop' }, el('i', { class: 'bdot ' + b.color }), el('b', { text: bpoName(b) }), el('span', { class: 'bage', text: b.daysInStage === null ? '' : b.daysInStage + 'd' }),
-        canMove ? el('button', { class: 'bmove', type: 'button', title: 'Move to another stage', 'aria-label': 'Move ' + bpoName(b) + ' to another stage', text: '⇄', onclick: (e) => { e.stopPropagation(); boardMove(b, null); } }) : ''),
-      el('div', { class: 'bline', text: b.parts + (b.parts === 1 ? ' part' : ' parts') + ' · ' + qtyFmt(b.qty) + ' pcs' + (b.vendors.length ? ' · ' + b.vendors[0] : '') }),
-      Object.keys(b.spread).length > 1 ? el('div', { class: 'bline', text: Object.keys(b.spread).sort((x, y) => boardIdx(x) - boardIdx(y)).map((k) => b.spread[k] + ' ' + boardLabel(k).replace(' / Approval', '').replace('PO / Order Placement', 'Order')).join(' · ') }) : '',
-      el('div', { class: 'bline muted', text: 'Req ' + recDate(b.requestDate) + (b.expected ? ' · Exp ' + recDate(b.expected) : '') }),
-      b.flags.length ? el('div', { class: 'bflag ' + (b.color === 'red' ? 'bad' : ''), text: b.flags[0] }) : '');
-    if (canMove) {
-      c.addEventListener('dragstart', (e) => { BF.drag = b; e.dataTransfer.setData('text/plain', b.key); e.dataTransfer.effectAllowed = 'move'; c.classList.add('dragging'); });
-      c.addEventListener('dragend', () => { c.classList.remove('dragging'); BF.drag = null; document.querySelectorAll('.bcol.over').forEach((x) => x.classList.remove('over')); });
-    }
-    return c;
-  }
-
   // moving a card: saved as history; the date it happened and a note are recorded with it
   async function boardMove(b, to) {
     if (!scCanWrite()) { toast('Your access (' + (state.role || 'unknown') + ') is read-only here.', true); return; }
