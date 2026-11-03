@@ -1673,7 +1673,7 @@
         el('td', {}, el('div', { class: 'cell2' }, el('span', {}, el('i', { class: 'bdot ' + b.color }), ' ', el('b', { text: b.bpo_no || 'No BPO' })), el('small', { text: [b.batch ? 'Batch ' + b.batch : '', b.vendors.join(', ')].filter(Boolean).join(' · ') }))),
         el('td', { class: 'partscell' }, partsText(ls, 3) || '—'), el('td', {}, nr(b.requestDate, recDate)),
         el('td', {}, b.daysSinceRequest === null ? nr(null) : el('div', { class: 'cell2' }, el('b', { text: dayWord(b.daysSinceRequest) }), el('small', { text: b.workdaysSinceRequest + ' working' }))),
-        el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill', text: boardLabel(b.stage) }), b.flags.length ? el('small', { class: b.color === 'red' ? 'sc-bad-text' : '', text: b.flags[0] }) : '')),
+        el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill', text: boardLabel(b.stage) }), b.finished > 0 && b.finished < b.parts ? el('small', { text: b.finished + ' of ' + b.parts + ' parts completed' }) : '', b.flags.length ? el('small', { class: b.color === 'red' ? 'sc-bad-text' : '', text: b.flags[0] }) : '')),
         el('td', {}, b.daysInStage === null ? nr(null) : el('div', { class: 'cell2' }, el('span', { text: dayWord(b.daysInStage) }), el('small', { text: b.workdaysInStage + ' working' }))),
         el('td', {}, nr(b.latestUpdate, recDate)), el('td', {}, b.stage === 'closed' ? '—' : b.next ? el('div', { class: 'cell2' }, el('span', { text: b.next }), el('small', { text: [b.nextWho ? (b.nextWho === 'Me' ? 'Me' : 'Waiting on ' + b.nextWho) : '', b.nextBy ? 'by ' + dshort(b.nextBy) : ''].filter(Boolean).join(' · ') })) : nr(null)),
         el('td', {}, nr(b.expected, recDate)));

@@ -185,3 +185,11 @@ test('board: dates that were never recorded stay empty, arrived and closed are t
   assert.equal(Sub.workdaysBetween('2026-10-30', '2026-11-03'), 2);   // Fri -> Tue: Mon + Tue
   assert.equal(Sub.build([Object.assign({ id: 4, part_no: 'N', sub_required: 'NO', ms: {} }, base, { sub_required: 'NO' })], day, undefined, []).board.length, 0);   // not required: not on the board
 });
+
+test('board: a BPO with one part on quality hold is not complete, and says how many parts are done', () => {
+  const base = { bpo_no: 'B9', batch: '1', qty: 100, priority: 'NORMAL', so_required: 'YES', sub_required: 'YES', exp: {}, orig: {} };
+  const done = (id) => Object.assign({ id, part_no: 'P' + id, ms: { rfq: '2026-06-01', received_camco: '2026-08-31', to_stock: '2026-09-04' } }, base);
+  const hold = Object.assign({ id: 9, part_no: 'H', qty_hold: 40, ms: { rfq: '2026-06-01', received_camco: '2026-08-31' } }, base);
+  const b = Sub.build([done(1), done(2), hold], '2026-11-04', undefined, []).board[0];
+  assert.equal(b.stage, 'arrived'); assert.equal(b.finished, 2); assert.equal(b.parts, 3); assert.ok(b.flags[0].includes('40 pcs on quality hold'));
+});

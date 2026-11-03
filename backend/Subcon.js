@@ -497,13 +497,15 @@ var SOSub = (function () {
       if (stage === 'transit' && overdueExp > 0) flags.push('Shipment ' + plural(overdueExp, 'day') + ' past the expected arrival');
       if (stale && !flags.length) flags.push(staleAge === null ? 'No update recorded' : 'No update for ' + plural(staleAge, 'day'));
       if (pastDue > 0) flags.push('Past the required date by ' + plural(pastDue, 'day'));
+      var held = active.filter(function (d) { return boardKeyOf(d) !== 'closed'; }).reduce(function (t, d) { return t + (d.qty_hold || 0); }, 0);
+      if (held > 0) flags.unshift(held + ' pcs on quality hold');
       var qty = active.reduce(function (t, d) { return t + (d.qty || 0); }, 0);
       out.push({
         key: k, bpo_no: g.bpo_no, batch: g.batch, spread: spread, stage: stage, derived: derived, manual: manual, since: since, daysInStage: sinceDays,
         workdaysInStage: since ? workdaysBetween(since, today) : null,
         requestDate: rfqs.length ? rfqs[0] : null, daysSinceRequest: sinceReq, workdaysSinceRequest: rfqs.length ? workdaysBetween(rfqs[0], today) : null,
         latestUpdate: latest, daysSinceUpdate: staleAge, expected: exp.length ? exp[exp.length - 1] : null, required: req.length ? req[req.length - 1] : null, overdueDays: Math.max(pastDue, overdueExp),
-        parts: active.length, open: open.length, qty: qty, shipped: active.reduce(function (t, d) { return t + (d.qty_shipped || 0); }, 0), received: active.reduce(function (t, d) { return t + (d.qty_received || 0); }, 0),
+        parts: active.length, finished: active.filter(function (d) { return boardKeyOf(d) === 'closed'; }).length, open: open.length, qty: qty, shipped: active.reduce(function (t, d) { return t + (d.qty_shipped || 0); }, 0), received: active.reduce(function (t, d) { return t + (d.qty_received || 0); }, 0),
         vendors: vendors, team: team, color: color, stale: stale, crit: crit, warn: warn, flags: flags, overdue: pastDue > 0 || overdueExp > 0 || crit > 0,
         next: pick ? pick.next : '', nextWho: pick ? (pick.owner_role === 'me' ? 'Me' : pick.waitingOn) : '', nextBy: pick ? pick.followup : null, issue: pick ? (pick.blocker || (pick.reasons[0] && pick.reasons[0].text) || '') : '',
         lineIds: active.map(function (d) { return d.id; })
