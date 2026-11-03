@@ -1641,13 +1641,13 @@
   }
   function boardCard(b, lines, canMove) {
     const ls = lines.filter((o) => !o.notRequired), first = ls[0];
-    const full = [bpoName(b), partsText(ls, 6), b.vendors.length ? 'Vendor: ' + b.vendors.join(', ') : 'Vendor: Not Recorded', 'Requested: ' + recDate(b.requestDate), 'In stage: ' + (b.daysInStage === null ? 'Not Recorded' : dayWord(b.daysInStage)), 'Last update: ' + recDate(b.latestUpdate), 'Expected: ' + recDate(b.expected), b.next ? 'Next: ' + b.next : '', COLOR_TEXT[b.color] + (b.manual ? ' · stage set by hand' : '')].filter(Boolean).join('
-');
+    const full = [bpoName(b), partsText(ls, 6), b.vendors.length ? 'Vendor: ' + b.vendors.join(', ') : 'Vendor: Not Recorded', 'Requested: ' + recDate(b.requestDate), 'In stage: ' + (b.daysInStage === null ? 'Not Recorded' : dayWord(b.daysInStage)), 'Last update: ' + recDate(b.latestUpdate), 'Expected: ' + recDate(b.expected), b.next ? 'Next: ' + b.next : '', COLOR_TEXT[b.color] + (b.manual ? ' · stage set by hand' : '')].filter(Boolean).join('\n');
     const c = el('article', { class: 'bcard ' + b.color, tabindex: 0, draggable: canMove ? 'true' : 'false', title: full,
       onclick: () => openBpo(b), onkeydown: (e) => { if (e.key === 'Enter') openBpo(b); } },
       el('div', { class: 'bctop' }, el('i', { class: 'bdot ' + b.color }), el('b', { text: bpoName(b) }), el('span', { class: 'bage', text: b.daysInStage === null ? '' : b.daysInStage + 'd' }),
         canMove ? el('button', { class: 'bmove', type: 'button', title: 'Move to another stage', 'aria-label': 'Move ' + bpoName(b) + ' to another stage', text: '⇄', onclick: (e) => { e.stopPropagation(); boardMove(b, null); } }) : ''),
       el('div', { class: 'bline', text: b.parts + (b.parts === 1 ? ' part' : ' parts') + ' · ' + qtyFmt(b.qty) + ' pcs' + (b.vendors.length ? ' · ' + b.vendors[0] : '') }),
+      Object.keys(b.spread).length > 1 ? el('div', { class: 'bline', text: Object.keys(b.spread).sort((x, y) => boardIdx(x) - boardIdx(y)).map((k) => b.spread[k] + ' ' + boardLabel(k).replace(' / Approval', '').replace('PO / Order Placement', 'Order')).join(' · ') }) : '',
       el('div', { class: 'bline muted', text: 'Req ' + recDate(b.requestDate) + (b.expected ? ' · Exp ' + recDate(b.expected) : '') }),
       b.flags.length ? el('div', { class: 'bflag ' + (b.color === 'red' ? 'bad' : ''), text: b.flags[0] }) : '');
     if (canMove) {

@@ -1206,7 +1206,9 @@ var SOSub = (function () {
       if (!active.length) return;
       var open = active.filter(function (d) { return d.open; }), keyOf = function (d) { return boardKeyOf(d); };
       var derived;
-      if (open.length) derived = open.map(keyOf).sort(function (a, b) { return boardIndex(a) - boardIndex(b); })[0];
+      var spread = {}; open.forEach(function (d) { var k2 = keyOf(d); spread[k2] = (spread[k2] || 0) + 1; });
+      // the card sits where most of its open parts are (a tie goes to the earlier stage), so one straggler does not hold the whole BPO back
+      if (open.length) derived = Object.keys(spread).sort(function (a, b) { return spread[b] - spread[a] || boardIndex(a) - boardIndex(b); })[0];
       else derived = active.every(function (d) { return keyOf(d) === 'closed'; }) ? 'closed' : 'arrived';
       var def = BOARD[boardIndex(derived)], since = null;
       active.filter(function (d) { return keyOf(d) === derived; }).forEach(function (d) {
@@ -1246,7 +1248,7 @@ var SOSub = (function () {
       if (pastDue > 0) flags.push('Past the required date by ' + plural(pastDue, 'day'));
       var qty = active.reduce(function (t, d) { return t + (d.qty || 0); }, 0);
       out.push({
-        key: k, bpo_no: g.bpo_no, batch: g.batch, stage: stage, derived: derived, manual: manual, since: since, daysInStage: sinceDays,
+        key: k, bpo_no: g.bpo_no, batch: g.batch, spread: spread, stage: stage, derived: derived, manual: manual, since: since, daysInStage: sinceDays,
         workdaysInStage: since ? workdaysBetween(since, today) : null,
         requestDate: rfqs.length ? rfqs[0] : null, daysSinceRequest: sinceReq, workdaysSinceRequest: rfqs.length ? workdaysBetween(rfqs[0], today) : null,
         latestUpdate: latest, daysSinceUpdate: staleAge, expected: exp.length ? exp[exp.length - 1] : null, required: req.length ? req[req.length - 1] : null, overdueDays: Math.max(pastDue, overdueExp),
