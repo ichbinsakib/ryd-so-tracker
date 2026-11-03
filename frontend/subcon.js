@@ -99,6 +99,7 @@ var SOSub = (function () {
     { h: 'Subcontracting required?', k: 'sub_required', kind: 'enum', options: ['YES', 'NO', 'PENDING'], note: 'Can the part be made by the subcontractor (China)? YES, NO or PENDING. NO closes the order as not required.' },
     { h: 'Decision note', k: 'decision_note', kind: 'text', note: 'The reason, especially when the answer is NO.' },
     { h: 'Team member', k: 'team_member', kind: 'text', note: 'Responsible subcontractor team member.' },
+    { h: 'Vendor / subcontractor', k: 'vendor', kind: 'text', note: 'Name of the vendor or subcontractor making the part.' },
     { h: 'Responsible person', k: 'owner', kind: 'text', note: 'Who must act next.' },
     { h: 'Communication ref', k: 'comm_ref', kind: 'text', note: 'Email subject or link.' },
     { h: 'SO #', k: 'so_no', kind: 'text', note: 'Subcontractor SO number from the costing manager.' },
@@ -184,7 +185,7 @@ var SOSub = (function () {
     var out = {
       order_ref: str(o.order_ref, 40), bpo_no: str(o.bpo_no, 40), batch: str(o.batch, 40), po_no: str(o.po_no, 60), so_no: str(o.so_no, 40), part_no: str(o.part_no, 80), ryd_part: str(o.ryd_part, 80),
       description: str(o.description, 200), revision: str(o.revision, 40), qty: o.qty === '' || o.qty == null ? 0 : Number(o.qty), priority: str(o.priority, 20).toUpperCase() || 'NORMAL', owner: str(o.owner, 80),
-      team_member: str(o.team_member, 80), comm_ref: str(o.comm_ref, 300), decision_note: str(o.decision_note, 500),
+      team_member: str(o.team_member, 80), vendor: str(o.vendor, 120), comm_ref: str(o.comm_ref, 300), decision_note: str(o.decision_note, 500),
       so_required: str(o.so_required, 10).toUpperCase() || 'PENDING', sub_required: str(o.sub_required, 10).toUpperCase() || 'PENDING', review_status: str(o.review_status, 60).toUpperCase(),
       blocker_type: str(o.blocker_type, 40), blocker: str(o.blocker, 500), next_action: str(o.next_action, 300), delay_reason: str(o.delay_reason, 500),
       note: str(o.note, 2000), escalated: o.escalated === true, closed: o.closed === true
@@ -411,7 +412,106 @@ var SOSub = (function () {
     });
   }
 
-  function build(rawLines, today, cfg) {
+  // ---- BPO board: one card per BPO (+ batch), in ten workflow columns.
+  // `ms` is the milestone a move into the column can record; `enter` the milestones that show when a part entered it.
+  var BOARD = [
+    { key: 'request', label: 'Request Sent', hint: 'Part info going to the team', ms: null, enter: [] },
+    { key: 'quoteReq', label: 'Quote Requested', hint: 'Waiting for the China quotation', ms: 'rfq', enter: ['rfq'] },
+    { key: 'quoteRcv', label: 'Quotation Received', hint: 'Quote in hand, not yet with Rich', ms: 'quote_received', enter: ['quote_received'] },
+    { key: 'review', label: 'Under Review / Approval', hint: 'Rich reviewing, negotiating, approving', ms: 'quote_to_rich', enter: ['quote_to_rich'] },
+    { key: 'order', label: 'PO / Order Placement', hint: 'SO, PO, vendor confirmation', ms: 'quote_approved', enter: ['quote_approved'] },
+    { key: 'production', label: 'In Production', hint: 'Vendor is making the parts', ms: 'production_start', enter: ['production_start'] },
+    { key: 'ready', label: 'Ready for Shipment', hint: 'Made, awaiting shipment', ms: 'ready_to_ship', enter: ['ready_to_ship'] },
+    { key: 'transit', label: 'In Transit', hint: 'On the way to CAMCO', ms: 'vendor_ship', enter: ['vendor_ship', 'forwarder_pickup', 'port_departure'] },
+    { key: 'arrived', label: 'Arrived at CAMCO', hint: 'Received, being inspected / stocked', ms: 'received_camco', enter: ['received_camco'] },
+    { key: 'closed', label: 'Completed / Closed', hint: 'Finished', ms: null, enter: ['to_stock'] }
+  ];
+  function boardIndex(key) { for (var i = 0; i < BOARD.length; i++) if (BOARD[i].key === key) return i; return -1; }
+  /** The column a described line belongs to by its dates (null when the part is not required). */
+  function boardKeyOf(d) {
+    var ms = d.ms || {};
+    if (d.notRequired) return null;
+    if (d.closed || ms.to_stock) return 'closed';
+    if (d.complete) return 'arrived';
+    var n = d.stageNo;
+    if (n <= 2) return 'request';
+    if (n === 3) return 'quoteReq';
+    if (n === 4) return ms.quote_to_rich ? 'review' : 'quoteRcv';
+    if (n <= 10) return 'order';
+    if (n === 11) return 'production';
+    return (ms.vendor_ship || ms.forwarder_pickup || ms.port_departure || ms.arrived_port) ? 'transit' : 'ready';
+  }
+  function workdaysBetween(a, b) {
+    var n = 0, s = dayNum(a), e = dayNum(b);
+    for (var i = s + 1; i <= e; i++) { var wd = new Date(i * 86400000).getUTCDay(); if (wd !== 0 && wd !== 6) n++; }
+    return n;
+  }
+  /** Cards for the board. `events` are the saved moves / notes (oldest first); the latest move is the card's column until it is set back to AUTO. */
+  function boardOf(described, events, today, cfg) {
+    cfg = cfg || CFG;
+    var map = {}, order = [];
+    described.forEach(function (d) { var k = d.bpo_no + '|' + d.batch; if (!map[k]) { map[k] = { bpo_no: d.bpo_no, batch: d.batch, lines: [], events: [] }; order.push(k); } map[k].lines.push(d); });
+    (events || []).forEach(function (e) { var k = e.bpo_no + '|' + e.batch; if (map[k]) map[k].events.push(e); });
+    var out = [];
+    order.forEach(function (k) {
+      var g = map[k], active = g.lines.filter(function (d) { return !d.notRequired; });
+      if (!active.length) return;
+      var open = active.filter(function (d) { return d.open; }), keyOf = function (d) { return boardKeyOf(d); };
+      var derived;
+      if (open.length) derived = open.map(keyOf).sort(function (a, b) { return boardIndex(a) - boardIndex(b); })[0];
+      else derived = active.every(function (d) { return keyOf(d) === 'closed'; }) ? 'closed' : 'arrived';
+      var def = BOARD[boardIndex(derived)], since = null;
+      active.filter(function (d) { return keyOf(d) === derived; }).forEach(function (d) {
+        var dates = def.enter.map(function (m) { return (d.ms || {})[m]; }).filter(Boolean).sort();
+        if (dates.length && (!since || dates[dates.length - 1] < since)) since = dates[dates.length - 1];
+      });
+      var moves = g.events.filter(function (e) { return e.kind === 'MOVE'; }), last = moves.length ? moves[moves.length - 1] : null;
+      var manual = !!(last && last.to_stage !== 'AUTO' && boardIndex(last.to_stage) >= 0);
+      var stage = manual ? last.to_stage : derived;
+      if (manual) since = last.event_date || String(last.at).slice(0, 10);
+      var rfqs = active.map(function (d) { return (d.ms || {}).rfq; }).filter(isDate).sort();
+      var lastDates = [];
+      active.forEach(function (d) { if (d.last_update) lastDates.push(d.last_update); if (d.lastMilestone) lastDates.push(d.lastMilestone.date); });
+      g.events.forEach(function (e) { lastDates.push(e.event_date || String(e.at).slice(0, 10)); });
+      lastDates = lastDates.filter(isDate).sort();
+      var latest = lastDates.length ? lastDates[lastDates.length - 1] : null;
+      var rank = { crit: 0, warn: 1, ok: 2 };
+      var pick = open.slice().sort(function (a, b) { return rank[a.attention] - rank[b.attention] || String(a.followup || '9999').localeCompare(String(b.followup || '9999')); })[0] || null;
+      var exp = active.map(function (d) { return d.expected; }).filter(Boolean).sort(), req = active.map(function (d) { return d.required_date; }).filter(Boolean).sort();
+      var vendors = [], team = [];
+      active.forEach(function (d) { if (d.vendor && vendors.indexOf(d.vendor) < 0) vendors.push(d.vendor); var p = d.team_member || d.owner; if (p && team.indexOf(p) < 0) team.push(p); });
+      var pastDue = open.reduce(function (t, d) { return Math.max(t, d.pastDue || 0); }, 0);
+      var sinceDays = since ? daysBetween(since, today) : null, sinceReq = rfqs.length ? daysBetween(rfqs[0], today) : null;
+      var staleAge = latest ? daysBetween(latest, today) : null;
+      var stale = open.length > 0 && stage !== 'closed' && stage !== 'arrived' && (staleAge === null ? (sinceReq !== null && sinceReq > cfg.staleDays) : staleAge > cfg.staleDays);
+      var crit = open.filter(function (d) { return d.attention === 'crit'; }).length, warn = open.filter(function (d) { return d.attention === 'warn'; }).length;
+      var overdueExp = exp.length && stage !== 'closed' && stage !== 'arrived' && open.length && exp[exp.length - 1] < today ? daysBetween(exp[exp.length - 1], today) : 0;
+      var color = stage === 'closed' ? 'grey' : (pastDue > 0 || crit > 0) ? 'red' : (warn > 0 || stale || (stage === 'arrived' && open.length)) ? 'yellow' : 'green';
+      if (stage === 'arrived' && !open.length) color = 'green';
+      var flags = [];
+      if (stage === 'quoteReq' && sinceDays !== null && sinceDays >= cfg.quoteAgeWarn) flags.push('No quotation response for ' + plural(sinceDays, 'day'));
+      if (stage === 'review' && sinceDays !== null && sinceDays >= cfg.approvalAgeWarn) flags.push('Awaiting approval for ' + plural(sinceDays, 'day'));
+      if (stage === 'production' && staleAge !== null && staleAge > cfg.staleDays) flags.push('No production update for ' + plural(staleAge, 'day'));
+      if (stage === 'production' && overdueExp > 0) flags.push('Production is ' + plural(overdueExp, 'day') + ' late');
+      if (stage === 'transit' && overdueExp > 0) flags.push('Shipment ' + plural(overdueExp, 'day') + ' past the expected arrival');
+      if (stale && !flags.length) flags.push(staleAge === null ? 'No update recorded' : 'No update for ' + plural(staleAge, 'day'));
+      if (pastDue > 0) flags.push('Past the required date by ' + plural(pastDue, 'day'));
+      var qty = active.reduce(function (t, d) { return t + (d.qty || 0); }, 0);
+      out.push({
+        key: k, bpo_no: g.bpo_no, batch: g.batch, stage: stage, derived: derived, manual: manual, since: since, daysInStage: sinceDays,
+        workdaysInStage: since ? workdaysBetween(since, today) : null,
+        requestDate: rfqs.length ? rfqs[0] : null, daysSinceRequest: sinceReq, workdaysSinceRequest: rfqs.length ? workdaysBetween(rfqs[0], today) : null,
+        latestUpdate: latest, daysSinceUpdate: staleAge, expected: exp.length ? exp[exp.length - 1] : null, required: req.length ? req[req.length - 1] : null, overdueDays: Math.max(pastDue, overdueExp),
+        parts: active.length, open: open.length, qty: qty, shipped: active.reduce(function (t, d) { return t + (d.qty_shipped || 0); }, 0), received: active.reduce(function (t, d) { return t + (d.qty_received || 0); }, 0),
+        vendors: vendors, team: team, color: color, stale: stale, crit: crit, warn: warn, flags: flags, overdue: pastDue > 0 || overdueExp > 0 || crit > 0,
+        next: pick ? pick.next : '', nextWho: pick ? (pick.owner_role === 'me' ? 'Me' : pick.waitingOn) : '', nextBy: pick ? pick.followup : null, issue: pick ? (pick.blocker || (pick.reasons[0] && pick.reasons[0].text) || '') : '',
+        lineIds: active.map(function (d) { return d.id; })
+      });
+    });
+    return out;
+  }
+
+  function build(rawLines, today, cfg, events) {
     cfg = cfg || CFG;
     var described = rawLines.map(function (l) { return describe(l, today, cfg); });
     var stats = leadStats(described);
@@ -430,7 +530,7 @@ var SOSub = (function () {
     var queue = open.filter(function (d) { return d.section === 'immediate' || d.section === 'overdue'; }).sort(byUrgency);
     function has(d, code) { return d.reasons.some(function (r) { return r.code === code; }); }
     return {
-      lines: described, queue: queue.map(function (d) { return d.id; }), sections: sections, batches: batches(described), leadStats: stats,
+      lines: described, queue: queue.map(function (d) { return d.id; }), sections: sections, batches: batches(described), leadStats: stats, board: boardOf(described, events || [], today, cfg),
       kpis: {
         open: open.length, needsAction: queue.length, critical: open.filter(function (d) { return d.attention === 'crit'; }).length,
         pastDue: open.filter(function (d) { return d.pastDue > 0; }).length, forecastLate: open.filter(function (d) { return d.forecastLate > 0; }).length,
@@ -446,6 +546,7 @@ var SOSub = (function () {
     UPDATE_KINDS: UPDATE_KINDS, SEGMENTS: SEGMENTS, CFG: CFG,
     TEMPLATE_COLUMNS: TEMPLATE_COLUMNS, normHeader: normHeader, fromTemplateRow: fromTemplateRow, mergeLine: mergeLine,
     isDate: isDate, daysBetween: daysBetween, addDays: addDays, cleanLine: cleanLine, cleanUpdate: cleanUpdate, completionGaps: completionGaps, milestoneLabel: milestoneLabel,
+    BOARD: BOARD, boardOf: boardOf, boardKeyOf: boardKeyOf, boardIndex: boardIndex, workdaysBetween: workdaysBetween,
     describe: describe, spansOf: spansOf, leadStats: leadStats, projectReceipt: projectReceipt, batches: batches, build: build
   };
 })();

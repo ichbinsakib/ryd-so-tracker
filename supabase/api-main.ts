@@ -338,14 +338,78 @@ async function subconAction(req: any, email: string, role: string | null) {
       const blank = rows.filter((x: any) => !String(x.order_ref || '').trim());
       if (blank.length) { const refs = await nextRefs(blank.length); for (let i = 0; i < blank.length; i++) { const u = await sb.from('sc_lines').update({ order_ref: refs[i] }).eq('id', blank[i].id); if (!u.error) blank[i].order_ref = refs[i]; } }
     }
-    const built = SOSub.build(rows, today);
-    return { ok: true, today, role, milestones: SOSub.MILESTONES, expected: SOSub.EXPECTED, stages: SOSub.STAGES, sectionDefs: SOSub.SECTIONS, decisions: SOSub.DECISIONS, reviewStatuses: SOSub.REVIEW_STATUSES, priorities: SOSub.PRIORITIES, blockers: SOSub.BLOCKERS, updateKinds: SOSub.UPDATE_KINDS, cfg: SOSub.CFG, ...built };
+    const evq = await sb.from('sc_bpo_events').select('id,bpo_no,batch,at,event_date,by_user,kind,from_stage,to_stage,text,applied').order('at', { ascending: true }).limit(20000);
+    const built = SOSub.build(rows, today, undefined, evq.error ? [] : (evq.data as any[]));   // before subcon5.sql is applied the board simply follows the dates
+    return { ok: true, today, role, boardStages: SOSub.BOARD, boardSaved: !evq.error, milestones: SOSub.MILESTONES, expected: SOSub.EXPECTED, stages: SOSub.STAGES, sectionDefs: SOSub.SECTIONS, decisions: SOSub.DECISIONS, reviewStatuses: SOSub.REVIEW_STATUSES, priorities: SOSub.PRIORITIES, blockers: SOSub.BLOCKERS, updateKinds: SOSub.UPDATE_KINDS, cfg: SOSub.CFG, ...built };
   }
   if (action === 'scUpdates') {
     const r = await sb.from('sc_updates').select('id,at,by_user,kind,text').eq('line_id', String(req.id)).order('at', { ascending: false }).limit(100);
     return { ok: true, updates: must(r as any) };
   }
+  if (action === 'scBpoLog') {
+    const bpo = String(req.bpo_no || ''), batch = String(req.batch || '');
+    const lr = must(await sb.from('sc_lines').select('id,part_no').eq('bpo_no', bpo).eq('batch', batch).limit(500) as any) as any[];
+    const ids = lr.map((x: any) => x.id), names: any = {}; lr.forEach((x: any) => { names[x.id] = x.part_no; });
+    let updates: any[] = [];
+    for (let i = 0; i < ids.length; i += 100) {
+      const u = must(await sb.from('sc_updates').select('id,line_id,at,by_user,kind,text').in('line_id', ids.slice(i, i + 100)).order('at', { ascending: false }).limit(500) as any) as any[];
+      updates = updates.concat(u.map((x: any) => ({ ...x, part_no: names[x.line_id] || '' })));
+    }
+    const ev = await sb.from('sc_bpo_events').select('id,at,event_date,by_user,kind,from_stage,to_stage,text,applied').eq('bpo_no', bpo).eq('batch', batch).order('at', { ascending: false }).limit(500);
+    return { ok: true, updates: updates.sort((a, b) => String(b.at).localeCompare(String(a.at))).slice(0, 500), events: ev.error ? [] : ev.data };
+  }
   if (!write) return fail('FORBIDDEN', 'Viewers cannot change subcontractor data.');
+  if (action === 'scMoveBpo' || action === 'scBpoNote' || action === 'scDeleteBpo') {
+    const bpo = String(req.bpo_no || ''), batch = String(req.batch || '');
+    const sel = await sb.from('sc_lines').select('*').eq('bpo_no', bpo).eq('batch', batch).limit(500);
+    const lines = must(sel as any) as any[]; if (!lines.length) return fail('NOT_FOUND', 'That BPO has no parts.');
+    const note = String(req.note || '').trim().slice(0, 1000);
+    const tag = (bpo || 'No BPO') + (batch ? ' batch ' + batch : '');
+    if (action === 'scDeleteBpo') {
+      if (role !== 'admin') return fail('FORBIDDEN', 'Only an admin can delete a BPO.');
+      if (String(req.confirm || '') !== 'DELETE') return fail('BAD_REQUEST', 'Deletion not confirmed.');
+      const ids = lines.map((x: any) => x.id);
+      for (let i = 0; i < ids.length; i += 100) { const d = await sb.from('sc_lines').delete().in('id', ids.slice(i, i + 100)); if (d.error) return fail('SERVER_ERROR', d.error.message); }
+      await sb.from('sc_bpo_events').delete().eq('bpo_no', bpo).eq('batch', batch);
+      await scAudit(email, tag, 'SUBCON BPO DELETED', lines.length + ' part numbers: ' + lines.slice(0, 10).map((x: any) => x.part_no).join(', '));
+      return { ok: true, count: lines.length };
+    }
+    if (action === 'scBpoNote') {
+      const kind = String(req.kind || 'NOTE'); if (!['NOTE', 'FOLLOW-UP'].includes(kind)) return fail('INVALID', 'Choose a type.', { fieldErrors: { kind: 'Choose a type.' } });
+      if (!note) return fail('INVALID', 'Write the update.', { fieldErrors: { text: 'Write the update.' } });
+      const date = SOSub.isDate(req.date) ? req.date : today;
+      const ins = await sb.from('sc_bpo_events').insert({ bpo_no: bpo, batch, by_user: email, kind, event_date: date, text: note });
+      if (ins.error) return fail('SERVER_ERROR', ins.error.message);
+      for (const x of lines.filter((l: any) => !l.closed)) await sb.from('sc_lines').update({ last_update: date > today ? today : date, updated_at: new Date().toISOString() }).eq('id', x.id);
+      return { ok: true };
+    }
+    // scMoveBpo: the move is saved as history; the milestone date is written only when asked, and only where the part has none
+    const to = String(req.to || ''), stages = SOSub.BOARD;
+    if (to !== 'AUTO' && !stages.some((s: any) => s.key === to)) return fail('BAD_REQUEST', 'Unknown stage.');
+    const date = SOSub.isDate(req.date) ? req.date : today;
+    if (date > today) return fail('INVALID', 'The date cannot be in the future.', { fieldErrors: { date: 'The date cannot be in the future.' } });
+    const evq = await sb.from('sc_bpo_events').select('bpo_no,batch,at,event_date,kind,to_stage').eq('bpo_no', bpo).eq('batch', batch).order('at', { ascending: true });
+    const card = SOSub.boardOf(lines.map((l: any) => SOSub.describe(l, today)), evq.error ? [] : evq.data, today)[0];
+    if (!card) return fail('INVALID', 'This BPO has no active parts to move.');
+    if (card.stage === to && !(to === 'AUTO')) return { ok: true, unchanged: true };
+    const def = stages.find((s: any) => s.key === to);
+    let applied = '';
+    if (req.apply && def && def.ms) {
+      const label = SOSub.milestoneLabel(def.ms); let n = 0;
+      for (const l of lines) {
+        if (l.closed || (l.ms || {})[def.ms]) continue;
+        const ms = { ...(l.ms || {}), [def.ms]: date };
+        const u = await sb.from('sc_lines').update({ ms, last_update: date, updated_at: new Date().toISOString() }).eq('id', l.id); if (u.error) return fail('SERVER_ERROR', u.error.message);
+        await sb.from('sc_updates').insert({ line_id: l.id, by_user: email, kind: 'CHANGE', text: 'Moved on the BPO board to ' + def.label + ': ' + label + ' ' + date + (note ? '. ' + note : '') });
+        n++;
+      }
+      applied = n ? label + ' ' + date + ' recorded on ' + n + ' part' + (n === 1 ? '' : 's') : 'All parts already had ' + label;
+    }
+    const ins = await sb.from('sc_bpo_events').insert({ bpo_no: bpo, batch, by_user: email, kind: 'MOVE', event_date: date, from_stage: card.stage, to_stage: to, text: note, applied });
+    if (ins.error) return fail('SERVER_ERROR', ins.error.message);
+    await scAudit(email, tag, 'SUBCON BPO MOVED', card.stage + ' → ' + to + (note ? ' · ' + note.slice(0, 200) : ''));
+    return { ok: true, from: card.stage, to, applied };
+  }
   const bad = (errors: any) => fail('INVALID', 'Please fix the highlighted fields.', { fieldErrors: errors });
   const dupMsg = fail('INVALID', 'That PO # is already tracked.', { fieldErrors: { po_no: 'That PO # is already tracked.' } });
   const dupRef = fail('INVALID', 'That order ref is already used.', { fieldErrors: { order_ref: 'That order ref is already used.' } });

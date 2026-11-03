@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Shop Order Tracking Details</title>
-<link rel="stylesheet" href="styles.css?v=e10f3e81">
+<link rel="stylesheet" href="styles.css?v=386e8fc9">
 </head>
 <body>
 <aside id="sidenav" class="sidenav" aria-label="Sections" hidden>
@@ -215,20 +215,34 @@
   </div>
   <div id="sc-banner" role="alert"></div>
   <div id="sc-orders">
+    <div id="sc-kpis" class="bkpis" aria-label="Subcontractor overview"></div>
     <section class="listhead">
-      <h2>BPO part numbers</h2>
+      <div id="sc-chips" class="chips" role="group" aria-label="Filter BPOs"></div>
       <div class="listtools">
-        <input id="sc-q" type="search" placeholder="Search part, RYD part, SO, PO, BPO…" aria-label="Search">
-        <button id="sc-expand" class="btn btn-sm" type="button">Expand all</button>
-        <button id="sc-collapse" class="btn btn-sm" type="button">Collapse all</button>
-        <button id="sc-csv" class="btn btn-sm" type="button" title="Download the part numbers shown as a CSV file">Export CSV</button>
-        <label class="inline"><input type="checkbox" id="sc-closed"> hide arrived</label>
+        <input id="sc-q" type="search" placeholder="Search BPO or part number…" aria-label="Search BPO or part number">
+        <select id="sc-vendor" aria-label="Subcontractor"><option value="">All subcontractors</option></select>
+        <label class="inline small">Requested since <input id="sc-since" type="date"></label>
+        <button id="sc-csv" class="btn btn-sm" type="button" title="Download the BPOs shown as a CSV file">Export CSV</button>
       </div>
     </section>
     <div id="sc-status" class="statusline" aria-live="polite"></div>
-    <div id="sc-bpo" class="bpolist"></div>
+    <div id="sc-board" class="board" aria-label="BPO board: drag a card to another stage"></div>
+    <section class="card bpotrack">
+      <div class="sechead"><h3>BPO Request &amp; Progress Tracker</h3><span class="muted small">When each BPO was requested and where it stands now. Click a heading to sort.</span></div>
+      <div class="tablewrap"><table id="sc-track" class="datatable"><thead></thead><tbody></tbody></table></div>
+    </section>
   </div>
   <div id="sc-body"></div>
+</main>
+
+<!-- One BPO: request to current status -->
+<main id="view-bpo" hidden>
+  <div id="bpo-banner" role="alert"></div>
+  <div class="pagehead">
+    <div><h1 id="bpo-title"></h1><p class="muted" id="bpo-sub"></p></div>
+    <div class="head-actions" id="bpo-actions"></div>
+  </div>
+  <div id="bpo-body"></div>
 </main>
 
 <!-- One subcontractor order: same layout as the SO page -->
@@ -378,8 +392,8 @@
 </dialog>
 
 <script src="config.js?v=c2514725"></script>
-<script src="subcon.js?v=78875c5c"></script>
+<script src="subcon.js?v=a8217057"></script>
 <script src="lifecycle.js?v=3d007b51"></script>
-<script src="app.js?v=a2a2d7ea"></script>
+<script src="app.js?v=ea88993b"></script>
 </body>
 </html>

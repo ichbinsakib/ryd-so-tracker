@@ -36,10 +36,21 @@ const scLines = [
   { id: 's4', part_no: 'CHN-410', qty: 300, so_no: 'S5001', po_no: 'PO-77', priority: 'NORMAL', sub_required: 'YES', so_required: 'YES', required_date: iso(30), ms: { rfq: iso(-60), quote_received: iso(-52), quote_to_rich: iso(-50), quote_approved: iso(-46), so_requested: iso(-45), so_costing: iso(-44), so_received: iso(-40), po_prep_start: iso(-39), po_created: iso(-37), po_sent_approval: iso(-36), po_approved: iso(-35), po_to_vendor: iso(-34), ack: iso(-32), production_start: iso(-28) }, exp: { exp_prod: iso(-3), exp_arrival: iso(32) }, orig: { exp_prod: iso(-10) }, last_update: iso(-2) },
   { id: 's5', part_no: 'CHN-520', qty: 120, so_no: 'S5002', po_no: 'PO-78', priority: 'NORMAL', sub_required: 'YES', so_required: 'YES', ms: { rfq: iso(-90), quote_received: iso(-80), quote_approved: iso(-75), so_requested: iso(-74), so_received: iso(-70), po_created: iso(-66), po_approved: iso(-64), po_to_vendor: iso(-63), production_start: iso(-55), ready_to_ship: iso(-20), vendor_ship: iso(-15), received_camco: iso(-3) }, exp: {} }
 ].map((l) => Object.assign({ bpo_no: '', batch: '', so_no: '', po_no: '', ryd_part: '', description: '', owner: '', team_member: '', comm_ref: '', decision_note: '', review_status: '', blocker_type: '', blocker: '', next_action: '', delay_reason: '', note: '', escalated: false, closed: false, qty_shipped: 0, qty_received: 0, qty_hold: 0, qty_rejected: 0, qty_stocked: 0, sent_date: null, customer_due_date: null, next_action_date: null, revised_date: null, last_update: null, orig: {}, exp: {} }, l));
+['BPO-001', 'BPO-001', 'BPO-002', 'BPO-003', 'BPO-003'].forEach((b, i) => { Object.assign(scLines[i], { bpo_no: b, batch: 'A', vendor: i < 3 ? 'Ningbo Precision' : 'Shenzhen Metal', ryd_part: 'RYD-' + (900 + i), description: i % 2 ? 'Bracket, machined' : '' }); });
+const scEvents = [];
 function scMock(rq) {
   const today = rq.today || iso(0);
-  if (rq.action === 'scList') return Object.assign({ ok: true, today, role: 'admin', milestones: Sub.MILESTONES, expected: Sub.EXPECTED, stages: Sub.STAGES, sectionDefs: Sub.SECTIONS, decisions: Sub.DECISIONS, reviewStatuses: Sub.REVIEW_STATUSES, priorities: Sub.PRIORITIES, blockers: Sub.BLOCKERS, updateKinds: Sub.UPDATE_KINDS, cfg: Sub.CFG }, Sub.build(scLines, today));
+  if (rq.action === 'scList') return Object.assign({ ok: true, today, role: 'admin', milestones: Sub.MILESTONES, expected: Sub.EXPECTED, stages: Sub.STAGES, sectionDefs: Sub.SECTIONS, decisions: Sub.DECISIONS, reviewStatuses: Sub.REVIEW_STATUSES, priorities: Sub.PRIORITIES, blockers: Sub.BLOCKERS, updateKinds: Sub.UPDATE_KINDS, cfg: Sub.CFG, boardStages: Sub.BOARD, boardSaved: true }, Sub.build(scLines, today, undefined, scEvents));
   if (rq.action === 'scUpdates') return { ok: true, updates: [] };
+  if (rq.action === 'scBpoLog') return { ok: true, updates: [], events: scEvents.filter((e) => e.bpo_no === rq.bpo_no && e.batch === rq.batch).slice().reverse() };
+  if (rq.action === 'scMoveBpo') {
+    const card = Sub.boardOf(Sub.build(scLines, today, undefined, scEvents).lines, scEvents, today).find((c) => c.bpo_no === rq.bpo_no && c.batch === rq.batch);
+    const def = Sub.BOARD.find((s) => s.key === rq.to); let applied = '';
+    if (rq.apply && def && def.ms) scLines.filter((l) => l.bpo_no === rq.bpo_no && l.batch === rq.batch).forEach((l) => { if (!l.ms[def.ms]) l.ms[def.ms] = rq.date || today; });
+    scEvents.push({ id: 'e' + scEvents.length, bpo_no: rq.bpo_no, batch: rq.batch, at: new Date().toISOString(), event_date: rq.date || today, by_user: 'mock', kind: 'MOVE', from_stage: card.stage, to_stage: rq.to, text: rq.note || '', applied });
+    return { ok: true, from: card.stage, to: rq.to, applied };
+  }
+  if (rq.action === 'scBpoNote') { scEvents.push({ id: 'e' + scEvents.length, bpo_no: rq.bpo_no, batch: rq.batch, at: new Date().toISOString(), event_date: rq.date || today, by_user: 'mock', kind: rq.kind, from_stage: '', to_stage: '', text: rq.note, applied: '' }); return { ok: true }; }
   if (rq.action === 'scSaveLine') { const c = Sub.cleanLine(rq.line || {}); if (!c.ok) return { ok: false, code: 'INVALID', error: 'Please fix the highlighted fields.', fieldErrors: c.errors }; const i = scLines.findIndex((l) => l.id === rq.line.id); if (i >= 0) Object.assign(scLines[i], c.value); else scLines.push(Object.assign({ id: 's' + (scLines.length + 1), orig: {} }, c.value)); return { ok: true }; }
   if (rq.action === 'scImportTemplate') {
     const problems = [], plan = [], seen = new Set();

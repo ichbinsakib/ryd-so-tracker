@@ -156,3 +156,32 @@ test('RYD part number: has its own column and is taken from Description when a s
   assert.equal(Sub.fromTemplateRow({ 'Part #': '19493', 'Description': 'Bracket' }).ryd_part, undefined);
   assert.equal(Sub.fromTemplateRow({ 'Part #': '19493', 'Description': 'RYD 1', 'RYD part #': 'RYD 2' }).ryd_part, 'RYD 2');
 });
+
+// ---- BPO board
+test('board: a BPO sits in its least advanced open part, and a saved move overrides the dates until set back to AUTO', () => {
+  const day = '2026-11-03';
+  const line = (id, ms, extra) => Object.assign({ id, bpo_no: 'B1', batch: 'A', part_no: 'P' + id, qty: 10, priority: 'NORMAL', so_required: 'YES', sub_required: 'YES', ms, exp: {}, orig: {} }, extra);
+  const lines = [line(1, { rfq: '2026-10-01', quote_received: '2026-10-09', quote_to_rich: '2026-10-10' }), line(2, { rfq: '2026-10-01' })];
+  const b = Sub.build(lines, day, undefined, []).board[0];
+  assert.equal(b.stage, 'quoteReq');                       // part 2 is still waiting for its quotation
+  assert.equal(b.requestDate, '2026-10-01');
+  assert.equal(b.daysSinceRequest, 33);
+  assert.equal(b.manual, false);
+  const ev = [{ bpo_no: 'B1', batch: 'A', kind: 'MOVE', to_stage: 'review', at: '2026-11-02T10:00:00Z', event_date: '2026-11-01' }];
+  const m = Sub.build(lines, day, undefined, ev).board[0];
+  assert.equal(m.stage, 'review'); assert.equal(m.manual, true); assert.equal(m.daysInStage, 2); assert.equal(m.derived, 'quoteReq');
+  const back = Sub.build(lines, day, undefined, ev.concat([{ bpo_no: 'B1', batch: 'A', kind: 'MOVE', to_stage: 'AUTO', at: '2026-11-03T08:00:00Z', event_date: '2026-11-03' }])).board[0];
+  assert.equal(back.stage, 'quoteReq'); assert.equal(back.manual, false);
+});
+test('board: dates that were never recorded stay empty, arrived and closed are told apart, working days skip weekends', () => {
+  const day = '2026-11-03';
+  const base = { bpo_no: 'B2', batch: '', qty: 5, priority: 'NORMAL', so_required: 'YES', sub_required: 'YES', exp: {}, orig: {} };
+  const none = Sub.build([Object.assign({ id: 1, part_no: 'X', ms: {} }, base)], day, undefined, []).board[0];
+  assert.equal(none.requestDate, null); assert.equal(none.daysSinceRequest, null); assert.equal(none.stage, 'request');
+  const got = Sub.build([Object.assign({ id: 2, part_no: 'Y', ms: { rfq: '2026-09-01', received_camco: '2026-10-20' } }, base)], day, undefined, []).board[0];
+  assert.equal(got.stage, 'arrived');
+  const done = Sub.build([Object.assign({ id: 3, part_no: 'Z', closed: true, ms: { rfq: '2026-09-01', received_camco: '2026-10-20' } }, base)], day, undefined, []).board[0];
+  assert.equal(done.stage, 'closed'); assert.equal(done.color, 'grey');
+  assert.equal(Sub.workdaysBetween('2026-10-30', '2026-11-03'), 2);   // Fri -> Tue: Mon + Tue
+  assert.equal(Sub.build([Object.assign({ id: 4, part_no: 'N', sub_required: 'NO', ms: {} }, base, { sub_required: 'NO' })], day, undefined, []).board.length, 0);   // not required: not on the board
+});

@@ -36,7 +36,7 @@
   }
   const tabForStage = (n) => { const i = tabList().findIndex((t) => t[1].includes(n)); return i < 0 ? 0 : i; };
   const PEOPLE_KEYS = ['champion', 'req_by', 'owner'];
-  const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail', 'view-subcon', 'view-dash', 'view-scdetail'];
+  const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail', 'view-subcon', 'view-dash', 'view-scdetail', 'view-bpo'];
 
   // ---------- helpers
   function el(tag, attrs, ...kids) {
@@ -69,7 +69,7 @@
   const niceName = (email) => email.split('@')[0].split(/[._-]+/).filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join(' ');
   function store(k, v) { try { if (v === undefined) return sessionStorage.getItem(k); v === null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch (e) { return null; } }
   function show(id) { VIEWS.forEach((v) => { $(v).hidden = v !== id; }); navSync(id); window.scrollTo(0, 0); }
-  const CRUMBS = { 'view-dash': 'Dashboard', 'view-admin': 'Inhouse', 'view-detail': 'Inhouse › Shop order', 'view-new': 'Inhouse › Open an SO', 'view-users': 'Administration › Users', 'view-home': 'Home', 'view-scdetail': 'Subcontractor › Order' };
+  const CRUMBS = { 'view-dash': 'Dashboard', 'view-admin': 'Inhouse', 'view-detail': 'Inhouse › Shop order', 'view-new': 'Inhouse › Open an SO', 'view-users': 'Administration › Users', 'view-home': 'Home', 'view-scdetail': 'Subcontractor › Order', 'view-bpo': 'Subcontractor › BPO' };
   // sidebar badges: how many things need you in each area
   function navBadge(id, n, tone) { const b = $(id); if (!b) return; b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n || ''); b.className = 'navbadge ' + (tone || 'warn'); }
   function setNavCollapsed(on) { document.body.classList.toggle('nav-collapsed', on); try { localStorage.setItem('navCollapsed', on ? '1' : '0'); } catch (e) { /* private mode */ } const t = $('nav-toggle'); t.title = on ? 'Expand the menu' : 'Collapse the menu'; }
@@ -77,7 +77,7 @@
     const hide = id === 'view-login' || id === 'view-loading';
     $('sidenav').hidden = hide; document.body.classList.toggle('has-nav', !hide); $('nav-burger').hidden = hide; document.body.classList.remove('nav-open');
     $('crumb').textContent = hide ? '' : id === 'view-subcon' ? (SC.section === 'leads' ? 'Planning › Lead Time Calculation' : 'Subcontractor') : (CRUMBS[id] || '');
-    const on = id === 'view-scdetail' ? 'nav-subcon' : id === 'view-subcon' ? (SC.section === 'leads' ? 'nav-lead' : 'nav-subcon') : id === 'view-dash' ? 'nav-dash' : 'nav-inhouse';
+    const on = id === 'view-scdetail' || id === 'view-bpo' ? 'nav-subcon' : id === 'view-subcon' ? (SC.section === 'leads' ? 'nav-lead' : 'nav-subcon') : id === 'view-dash' ? 'nav-dash' : 'nav-inhouse';
     ['nav-dash', 'nav-inhouse', 'nav-subcon', 'nav-lead'].forEach((n) => { $(n).classList.toggle('on', n === on); if (n === on) $(n).setAttribute('aria-current', 'page'); else $(n).removeAttribute('aria-current'); });
   }
   function toast(msg, isErr) {
@@ -313,7 +313,9 @@
       ids.forEach((id) => { const o = SC.data.lines.find((l) => l.id === id); if (o) out.push('- ' + [o.part_no, o.so_no ? 'SO ' + o.so_no : '', o.stage + ' / ' + o.status, o.next ? 'Action: ' + o.next : '', o.owner_role === 'me' ? 'Who: me' : o.waitingOn ? 'Waiting on: ' + o.waitingOn : '', o.followup ? 'Follow-up: ' + o.followup : ''].filter(Boolean).join(' | ')); }); out.push(''); });
     return out.join('\n');
   }
-  async function openScFiltered(chip, stage) { await openSubcon('subcon'); SC.chip = chip; SC.stage = stage || ''; SC.bpo = ''; $('sc-q').value = ''; renderScBpo(); }
+  // the dashboard's stage tiles open the board on the matching columns
+  const SC_GROUP_COLUMNS = { 'Decision': ['request'], 'Quotation': ['request', 'quoteReq', 'quoteRcv', 'review'], 'SO request & number': ['order'], 'PO': ['order'], 'Production': ['production'], 'Shipment & arrival': ['ready', 'transit', 'arrived'] };
+  async function openScFiltered(chip, stage) { await openSubcon('subcon'); Object.assign(BF, { chip: 'active', q: '', vendor: '', since: '', stages: SC_GROUP_COLUMNS[stage] || null }); $('sc-q').value = ''; renderScBoard(); }
   const LONG_DATE = () => new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   const within = (iso, n) => { if (!isIso(iso || '')) return false; const d = daysUntil(parseDate(iso)); return d !== null && d >= 0 && d <= n; };
   // everything that needs you, inhouse and subcontractor together, most urgent first
@@ -1396,7 +1398,8 @@
   // ---------- wiring
   // ---------- subcontractor tracking (coordinator view of the BPO lines the subcontractor team executes)
   const SC = { section: 'subcon', chip: 'all', stage: '', q: '', bpo: '', showClosed: false, data: null, view: [] };
-  const scCanWrite = () => !!state.role && state.role !== 'viewer';   // the server decides for real (editor or admin)
+  const scRole = () => state.role || (SC.data && SC.data.role) || null;
+  const scCanWrite = () => !!scRole() && scRole() !== 'viewer';   // the server decides for real (editor or admin)
   const dshort = (s) => (isIso(s || '') ? shortDate(parseDate(s)) : '—');
   const qtyFmt = (n) => Number(n || 0).toLocaleString();
   async function openSubcon(section) {
@@ -1425,8 +1428,9 @@
     if (leads) { $('sc-body').replaceChildren(scLeadCalc(), scLeadStats()); return; }
     navBadge('nb-subcon', D.kpis.needsAction);
     const open = D.lines.filter((o) => o.open), pcs = open.reduce((t, o) => t + (o.remaining || 0), 0);
-    $('sc-sub').textContent = D.batches.length + (D.batches.length === 1 ? ' batch' : ' batches') + ' · ' + D.lines.length + ' part numbers · ' + open.length + ' open · ' + qtyFmt(pcs) + ' pcs still open';
-    renderScBpo();
+    $('sc-sub').textContent = D.board.length + (D.board.length === 1 ? ' BPO' : ' BPOs') + ' · ' + D.lines.length + ' part numbers · ' + open.length + ' open · ' + qtyFmt(pcs) + ' pcs still open';
+    renderScBoard();
+    if (!$('view-bpo').hidden) renderBpo();
   }
   const scOpen = () => SC.data.lines.filter((o) => o.open);
   function renderScKpis() {
@@ -1542,32 +1546,258 @@
       el('td', {}, o.open ? (o.reasons.length ? o.reasons.slice(0, 2).map((r) => el('span', { class: 'badge ' + (r.level === 'crit' ? 'sc-bad' : 'sc-warn'), text: r.text })) : el('span', { class: 'badge sc-ok', text: 'On track' })) : el('span', { class: 'badge sc-muted', text: o.complete ? 'Arrived' : o.notRequired ? 'Not required' : 'Closed' }))));
     return el('div', { class: 'tablewrap' }, el('table', { class: 'datatable mini' }, el('thead', {}, el('tr', {}, head.map((h) => el('th', { text: h })))), el('tbody', {}, body)));
   }
-  function renderScBpo() {
-    const D = SC.data, q = $('sc-q').value.trim().toLowerCase(); SC.groupOpen = SC.groupOpen || {};
-    const keep = (o) => scChipMatch(o, SC.chip) && (!SC.hideDone || !o.complete) && (!SC.stage || (o.open && scGroupOf(o) === SC.stage))
-      && (!q || [o.order_ref, o.so_no, o.po_no, o.part_no, o.ryd_part, o.description, o.bpo_no, o.batch, o.stage, o.status, o.team_member, o.note].some((v) => norm(v).toLowerCase().includes(q)));
-    const shown = [], groups = [];
-    D.batches.forEach((b) => {
-      const all = D.lines.filter((o) => o.bpo_no === b.bpo_no && o.batch === b.batch), lines = all.filter(keep);
-      if (!lines.length) return; shown.push(...lines);
-      const key = b.bpo_no + '|' + b.batch, open = key in SC.groupOpen ? SC.groupOpen[key] : (!!q || b.open > 0), filtered = lines.length !== all.length;
-      const toggle = () => { SC.groupOpen[key] = !open; renderScBpo(); };
-      groups.push(el('section', { class: 'card bpogroup' },
-        el('div', { class: 'bpohead', role: 'button', tabindex: 0, 'aria-expanded': String(open), onclick: toggle, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } } },
-          el('span', { class: 'caret', text: open ? '▾' : '▸' }),
-          el('span', { class: 'bpotitle' }, el('b', { text: b.bpo_no || 'No BPO' }), el('span', { class: 'muted', text: b.batch ? '  Batch ' + b.batch : '' })),
-          el('span', { class: 'bpometa' }, el('b', { text: String(filtered ? lines.length + ' of ' + all.length : all.length) }), ' part numbers · ', el('b', { text: qtyFmt(b.qty) }), ' pcs · ', el('b', { text: qtyFmt(b.remaining) }), ' open'),
-          el('span', { class: 'bpobar' }, scBar(b.progress, b.crit ? 'bad' : b.warn ? 'warn' : '')),
-          el('span', { class: 'bpowhere small muted', text: Object.entries(b.stages).sort((x, y) => y[1] - x[1]).map(([st, n]) => n + ' × ' + st).join(', ') || 'all arrived' }),
-          el('span', { class: 'bpodates small' }, el('span', { class: 'muted', text: 'req ' }), dshort(b.required), el('span', { class: 'muted', text: '  exp ' }), dshort(b.expected)),
-          el('span', { class: 'bpoatt' }, b.crit ? el('span', { class: 'badge sc-bad', text: b.crit + ' critical' }) : '', ' ', b.warn ? el('span', { class: 'badge sc-warn', text: b.warn + ' watch' }) : '', !b.crit && !b.warn && b.open ? el('span', { class: 'badge sc-ok', text: 'On track' }) : ''),
-          scCanWrite() && b.open ? el('button', { class: 'btn btn-sm', type: 'button', text: 'Update batch', onclick: (e) => { e.stopPropagation(); scBatchDialog(b); } }) : ''),
-        open ? scBpoTable(lines) : ''));
+  // ---------- BPO board: one draggable card per BPO, the tracker table and the BPO page
+  const BF = { chip: 'active', q: '', vendor: '', since: '', sort: 'days', dir: -1, stages: null, drag: null };
+  const BOARD_CHIPS = [
+    ['active', 'All Active BPOs', (b) => b.stage !== 'closed'],
+    ['quote', 'Awaiting Quotation', (b) => ['request', 'quoteReq'].includes(b.stage)],
+    ['review', 'Under Review', (b) => ['quoteRcv', 'review'].includes(b.stage)],
+    ['order', 'Order Placed', (b) => b.stage === 'order'],
+    ['production', 'Production', (b) => b.stage === 'production'],
+    ['ready', 'Ready for Shipment', (b) => b.stage === 'ready'],
+    ['transit', 'In Transit', (b) => b.stage === 'transit'],
+    ['arrived', 'Arrived', (b) => b.stage === 'arrived'],
+    ['closed', 'Completed', (b) => b.stage === 'closed'],
+    ['overdue', 'Overdue', (b) => b.overdue && b.stage !== 'closed'],
+    ['stale', 'No Recent Update', (b) => b.stale]
+  ];
+  const boardLabel = (k) => { const s = ((SC.data && SC.data.boardStages) || []).find((x) => x.key === k); return s ? s.label : k === 'AUTO' ? 'Automatic' : k; };
+  const boardIdx = (k) => ((SC.data && SC.data.boardStages) || []).findIndex((x) => x.key === k);
+  const recDate = (s) => (isIso(s || '') ? shortDate(parseDate(s)) : 'Not Recorded');
+  const dayWord = (n) => n + (n === 1 ? ' day' : ' days');
+  const linesOfBpo = (b) => SC.data.lines.filter((o) => o.bpo_no === b.bpo_no && o.batch === b.batch && !o.notRequired);
+  const cardByKey = (k) => (SC.data && SC.data.board ? SC.data.board.find((b) => b.key === k) : null);
+  const partLabel = (o) => o.part_no + (rydOf(o) ? ' / ' + rydOf(o) : '');
+  const partsText = (ls, max) => ls.slice(0, max).map(partLabel).join(', ') + (ls.length > max ? ' +' + (ls.length - max) + ' more' : '');
+  const bpoName = (b) => (b.bpo_no || 'No BPO') + (b.batch ? ' · ' + b.batch : '');
+  const COLOR_TEXT = { green: 'On track', yellow: 'Needs attention', red: 'Overdue / urgent', grey: 'Completed' };
+
+  function boardFilter() {
+    const D = SC.data, all = D.board || [], q = BF.q.toLowerCase(), by = {};
+    D.lines.forEach((o) => { (by[o.bpo_no + '|' + o.batch] = by[o.bpo_no + '|' + o.batch] || []).push(o); });
+    const hay = (b) => [b.bpo_no, b.batch, b.vendors.join(' '), b.team.join(' ')].concat((by[b.key] || []).map((o) => [o.part_no, o.ryd_part, o.description, o.order_ref, o.po_no, o.so_no].join(' '))).join(' ').toLowerCase();
+    const test = (BOARD_CHIPS.find((c) => c[0] === BF.chip) || BOARD_CHIPS[0])[2];
+    const base = all.filter((b) => (!q || hay(b).includes(q)) && (!BF.vendor || b.vendors.includes(BF.vendor)) && (!BF.since || (b.requestDate && b.requestDate >= BF.since)));
+    return { all, base, shown: base.filter((b) => test(b) && (!BF.stages || BF.stages.includes(b.stage))), by };
+  }
+  function renderScBoard() {
+    const D = SC.data, { all, base, shown, by } = boardFilter(), canMove = scCanWrite();
+    // overview for management: every number is a shortcut to the BPOs behind it
+    const n = (f) => all.filter(f).length, st = (...keys) => (b) => keys.includes(b.stage);
+    const go = (chip, stages) => () => { BF.chip = chip; BF.stages = stages || null; renderScBoard(); $('sc-board').scrollIntoView({ behavior: 'smooth', block: 'nearest' }); };
+    const tile = (label, count, tone, fn) => el('button', { class: 'bk ' + (tone || ''), type: 'button', onclick: fn }, el('span', { class: 'bkn', text: String(count) }), el('span', { class: 'bkl', text: label }));
+    $('sc-kpis').replaceChildren(
+      tile('Active BPOs', n((b) => b.stage !== 'closed'), '', go('active')), tile('Awaiting quotation', n(st('request', 'quoteReq')), '', go('active', ['request', 'quoteReq'])),
+      tile('Quotation received', n(st('quoteRcv')), '', go('active', ['quoteRcv'])), tile('Under approval', n(st('review')), '', go('active', ['review'])),
+      tile('Orders placed', n(st('order')), '', go('active', ['order'])), tile('In production', n(st('production')), '', go('active', ['production'])),
+      tile('Ready for shipment', n(st('ready')), '', go('active', ['ready'])), tile('In transit', n(st('transit')), '', go('active', ['transit'])),
+      tile('Arrived at CAMCO', n(st('arrived')), '', go('active', ['arrived'])), tile('Completed', n(st('closed')), '', go('closed')),
+      tile('Overdue', n((b) => b.overdue && b.stage !== 'closed'), n((b) => b.overdue && b.stage !== 'closed') ? 'bad' : '', go('overdue')), tile('No recent update', n((b) => b.stale), n((b) => b.stale) ? 'warn' : '', go('stale')));
+    navBadge('nb-subcon', D.kpis.needsAction);
+    $('sc-chips').replaceChildren(...BOARD_CHIPS.map(([c, label, f]) => el('button', { class: 'chip' + (BF.chip === c && !BF.stages ? ' on' : ''), type: 'button', 'aria-pressed': String(BF.chip === c && !BF.stages), onclick: () => { BF.chip = c; BF.stages = null; renderScBoard(); } }, label, el('b', { text: String(base.filter(f).length) }))));
+    const vs = [...new Set(all.flatMap((b) => b.vendors))].sort(), sel = $('sc-vendor');
+    sel.replaceChildren(el('option', { value: '', text: 'All subcontractors' }), ...vs.map((v) => el('option', { value: v, text: v }))); sel.value = vs.includes(BF.vendor) ? BF.vendor : (BF.vendor = '');
+    // the board
+    const shownKeys = new Set(shown.map((b) => b.key)), showClosed = BF.chip === 'closed' || (BF.stages && BF.stages.includes('closed'));
+    $('sc-board').replaceChildren(...D.boardStages.map((s) => {
+      const here = shown.filter((b) => b.stage === s.key), hiddenDone = s.key === 'closed' && !showClosed;
+      const count = hiddenDone ? base.filter((b) => b.stage === 'closed').length : here.length;
+      const col = el('section', { class: 'bcol' + (s.key === 'closed' ? ' bdone' : ''), 'data-stage': s.key },
+        el('header', { class: 'bcolhead' }, el('div', { class: 'bcoltitle' }, el('b', { text: s.label }), el('span', { class: 'bcount', text: String(count) })), el('small', { text: s.hint })),
+        el('div', { class: 'bcards' }, hiddenDone ? (count ? el('button', { class: 'btn btn-sm', type: 'button', text: 'Show ' + count + ' completed', onclick: go('closed') }) : el('p', { class: 'bempty', text: 'None yet' }))
+          : here.length ? here.map((b) => boardCard(b, by[b.key] || [], canMove)) : el('p', { class: 'bempty', text: canMove && (BF.chip === 'active' || BF.chip === 'closed') ? 'Drop a BPO here' : 'None' })));
+      if (canMove) {
+        col.addEventListener('dragover', (e) => { if (!BF.drag) return; e.preventDefault(); e.dataTransfer.dropEffect = 'move'; col.classList.add('over'); });
+        col.addEventListener('dragleave', (e) => { if (!col.contains(e.relatedTarget)) col.classList.remove('over'); });
+        col.addEventListener('drop', (e) => { e.preventDefault(); col.classList.remove('over'); const b = BF.drag; BF.drag = null; if (b && b.stage !== s.key) boardMove(b, s.key); });
+      }
+      return col;
+    }));
+    renderTracker(shown);
+    const ls = $('sc-status'); ls.className = 'statusline';
+    ls.textContent = shown.length + ' of ' + all.length + ' BPOs' + (shownKeys.size && canMove ? ' · drag a card to another stage to move it' : '');
+    if (BF.stages || BF.chip !== 'active' || BF.q || BF.vendor || BF.since) ls.append(' · ', el('button', { class: 'btn btn-sm', type: 'button', text: 'Clear filters', onclick: () => { Object.assign(BF, { chip: 'active', q: '', vendor: '', since: '', stages: null }); $('sc-q').value = ''; $('sc-since').value = ''; renderScBoard(); } }));
+    if (!D.boardSaved) ls.append(' ', el('span', { class: 'badge sc-warn', text: 'Board moves are not saved yet: run supabase/subcon5.sql' }));
+  }
+  function boardCard(b, lines, canMove) {
+    const ls = lines.filter((o) => !o.notRequired), first = ls[0];
+    const row = (k, v, cls) => el('div', {}, el('small', { text: k }), el('span', { class: cls || '', text: v }));
+    const c = el('article', { class: 'bcard ' + b.color, tabindex: 0, draggable: canMove ? 'true' : 'false', title: COLOR_TEXT[b.color] + (b.manual ? ' · stage set by hand' : ''),
+      onclick: () => openBpo(b), onkeydown: (e) => { if (e.key === 'Enter') openBpo(b); } },
+      el('div', { class: 'bctop' }, el('i', { class: 'bdot ' + b.color }), el('b', { text: bpoName(b) }), canMove ? el('button', { class: 'bmove', type: 'button', title: 'Move to another stage', 'aria-label': 'Move ' + bpoName(b) + ' to another stage', text: '⇄', onclick: (e) => { e.stopPropagation(); boardMove(b, null); } }) : ''),
+      el('div', { class: 'bparts', text: partsText(ls, 2) || 'No parts' }),
+      first && first.description && !rydOf(first) ? el('small', { class: 'bdesc', text: first.description }) : '',
+      el('div', { class: 'bmeta' },
+        row('Vendor', b.vendors.length ? b.vendors.join(', ') : 'Not Recorded', b.vendors.length ? '' : 'nr'), row('Qty', qtyFmt(b.qty) + ' pcs · ' + b.parts + (b.parts === 1 ? ' part' : ' parts')),
+        row('Requested', recDate(b.requestDate), b.requestDate ? '' : 'nr'), row('In stage', b.daysInStage === null ? 'Not Recorded' : dayWord(b.daysInStage), b.daysInStage === null ? 'nr' : ''),
+        row('Last update', recDate(b.latestUpdate), b.latestUpdate ? '' : 'nr'), row('Expected', recDate(b.expected), b.expected ? '' : 'nr')),
+      b.next && b.stage !== 'closed' ? el('div', { class: 'bnext' }, el('small', { text: 'Next' }), ' ', b.next) : '',
+      b.flags.length ? el('div', { class: 'bflag ' + (b.color === 'red' ? 'bad' : ''), text: b.flags[0] }) : '');
+    if (canMove) {
+      c.addEventListener('dragstart', (e) => { BF.drag = b; e.dataTransfer.setData('text/plain', b.key); e.dataTransfer.effectAllowed = 'move'; c.classList.add('dragging'); });
+      c.addEventListener('dragend', () => { c.classList.remove('dragging'); BF.drag = null; document.querySelectorAll('.bcol.over').forEach((x) => x.classList.remove('over')); });
+    }
+    return c;
+  }
+
+  // moving a card: saved as history; the date it happened and a note are recorded with it
+  async function boardMove(b, to) {
+    if (!scCanWrite()) { toast('Your access (' + (state.role || 'unknown') + ') is read-only here.', true); return; }
+    const D = SC.data, stages = D.boardStages;
+    const sel = scSelect(stages.map((s) => [s.key, s.label]).concat(b.manual ? [['AUTO', 'Follow the dates again (automatic)']] : []), to || b.stage);
+    const date = dateIn(today()), note = el('textarea', { rows: 3, placeholder: 'What happened? (optional)' }), apply = el('input', { type: 'checkbox' }), tail = el('span');
+    const aw = el('label', { class: 'inline' }, apply, tail);
+    const sync = () => {
+      const def = stages.find((s) => s.key === sel.value), m = def && def.ms ? D.milestones.find((x) => x.key === def.ms) : null;
+      aw.hidden = !m || sel.value === b.stage; if (m) tail.textContent = ' Also record “' + m.label + '” with this date on the parts that have none'; apply.checked = !!m && boardIdx(sel.value) > boardIdx(b.stage);
+    };
+    sel.addEventListener('change', sync); sync();
+    const body = el('div', { class: 'scform' }, el('p', {}, el('b', { text: bpoName(b) }), ' is in ', el('b', { text: boardLabel(b.stage) }), b.manual ? ' (set by hand)' : ' (from its dates)', '.'),
+      scField('Move to', sel, 'to'), scField('Date it happened', date, 'date', false, 'Used for “days in stage”. Today by default.'), aw, scField('Note', note, 'text'));
+    const r = await scDialog('Move BPO', body, () => ({ bpo_no: b.bpo_no, batch: b.batch, to: sel.value, date: date.value, note: note.value, apply: apply.checked && !aw.hidden }), 'scMoveBpo', 'Move');
+    if (!r) return;
+    toast(r.unchanged ? 'It is already in that stage.' : 'Moved to ' + boardLabel(r.to) + '.' + (r.applied ? ' ' + r.applied + '.' : ''));
+    await loadSubcon(); if (!$('view-bpo').hidden) loadBpoLog();
+  }
+
+  // tracker table: when it was requested, where it is, what is next
+  const TRACK = [['BPO', 'bpo'], ['Part number', 'part'], ['Request sent', 'request'], ['Days since request', 'days'], ['Current stage', 'stage'], ['In stage', 'instage'], ['Latest update', 'update'], ['Next action', 'next'], ['Expected completion', 'expected']];
+  function trackVal(b, k, by) {
+    return { bpo: b.bpo_no + ' ' + b.batch, part: ((by[b.key] || [])[0] || {}).part_no || '', request: b.requestDate, days: b.daysSinceRequest, stage: boardIdx(b.stage), instage: b.daysInStage, update: b.latestUpdate, next: b.next, expected: b.expected }[k];
+  }
+  function sortedTrack(rows) {
+    const by = {}; SC.data.lines.forEach((o) => { (by[o.bpo_no + '|' + o.batch] = by[o.bpo_no + '|' + o.batch] || []).push(o); });
+    return rows.slice().sort((a, b) => {
+      const x = trackVal(a, BF.sort, by), y = trackVal(b, BF.sort, by), nx = x === null || x === undefined || x === '', ny = y === null || y === undefined || y === '';
+      if (nx || ny) return nx === ny ? 0 : nx ? 1 : -1;   // “Not Recorded” always last
+      return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true })) * BF.dir;
     });
-    SC.view = shown;
-    $('sc-bpo').replaceChildren(...(groups.length ? groups : [el('p', { class: 'muted card', text: D.lines.length ? 'No part numbers match your filter.' : 'No orders yet. Use "New order" or "Import Excel".' })]));
-    const ls = $('sc-status'); ls.className = 'statusline'; ls.textContent = shown.length + ' of ' + D.lines.length + ' part numbers in ' + groups.length + (groups.length === 1 ? ' batch' : ' batches');
-    if (SC.stage || SC.chip !== 'all') ls.append(' · filtered by ' + [SC.chip !== 'all' ? (SC_CHIPS.find((c) => c[0] === SC.chip) || [0, SC.chip])[1] : '', SC.stage ? 'stage ' + SC.stage : ''].filter(Boolean).join(' and ') + ' ', el('button', { class: 'btn btn-sm', type: 'button', text: 'Clear filter', onclick: () => { SC.chip = 'all'; SC.stage = ''; renderScBpo(); } }));
+  }
+  function renderTracker(rows) {
+    const by = {}; SC.data.lines.forEach((o) => { (by[o.bpo_no + '|' + o.batch] = by[o.bpo_no + '|' + o.batch] || []).push(o); });
+    SC.view = sortedTrack(rows);
+    $('sc-track').tHead.replaceChildren(el('tr', {}, TRACK.map(([h, k]) => el('th', { class: 'sortable', 'aria-sort': BF.sort === k ? (BF.dir > 0 ? 'ascending' : 'descending') : 'none', tabindex: 0, text: h + (BF.sort === k ? (BF.dir > 0 ? ' ▲' : ' ▼') : ''),
+      onclick: () => { if (BF.sort === k) BF.dir = -BF.dir; else { BF.sort = k; BF.dir = k === 'days' || k === 'instage' ? -1 : 1; } renderTracker(rows); }, onkeydown: (e) => { if (e.key === 'Enter') e.target.click(); } }))));
+    const nr = (v, f) => (v === null || v === undefined || v === '' ? el('span', { class: 'nr', text: 'Not Recorded' }) : el('span', { text: f ? f(v) : String(v) }));
+    $('sc-track').tBodies[0].replaceChildren(...(SC.view.length ? SC.view.map((b) => {
+      const ls = (by[b.key] || []).filter((o) => !o.notRequired);
+      return el('tr', { class: 'clickrow', tabindex: 0, onclick: () => openBpo(b), onkeydown: (e) => { if (e.key === 'Enter') openBpo(b); } },
+        el('td', {}, el('div', { class: 'cell2' }, el('span', {}, el('i', { class: 'bdot ' + b.color }), ' ', el('b', { text: b.bpo_no || 'No BPO' })), el('small', { text: [b.batch ? 'Batch ' + b.batch : '', b.vendors.join(', ')].filter(Boolean).join(' · ') }))),
+        el('td', { class: 'partscell' }, partsText(ls, 3) || '—'), el('td', {}, nr(b.requestDate, recDate)),
+        el('td', {}, b.daysSinceRequest === null ? nr(null) : el('div', { class: 'cell2' }, el('b', { text: dayWord(b.daysSinceRequest) }), el('small', { text: b.workdaysSinceRequest + ' working' }))),
+        el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill', text: boardLabel(b.stage) }), b.flags.length ? el('small', { class: b.color === 'red' ? 'sc-bad-text' : '', text: b.flags[0] }) : '')),
+        el('td', {}, b.daysInStage === null ? nr(null) : el('div', { class: 'cell2' }, el('span', { text: dayWord(b.daysInStage) }), el('small', { text: b.workdaysInStage + ' working' }))),
+        el('td', {}, nr(b.latestUpdate, recDate)), el('td', {}, b.stage === 'closed' ? '—' : b.next ? el('div', { class: 'cell2' }, el('span', { text: b.next }), el('small', { text: [b.nextWho ? (b.nextWho === 'Me' ? 'Me' : 'Waiting on ' + b.nextWho) : '', b.nextBy ? 'by ' + dshort(b.nextBy) : ''].filter(Boolean).join(' · ') })) : nr(null)),
+        el('td', {}, nr(b.expected, recDate)));
+    }) : [el('tr', {}, el('td', { colspan: TRACK.length, class: 'muted', text: SC.data.board.length ? 'No BPOs match your filters.' : 'No BPOs yet. Use "New order" or "Import Excel".' }))]));
+  }
+  function scTrackerCsv() {
+    const esc = (v) => { v = norm(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const rows = [['BPO', 'Batch', 'Part numbers', 'Subcontractor', 'Request sent', 'Days since request', 'Working days since request', 'Current stage', 'Days in stage', 'Latest update', 'Next action', 'Expected completion', 'Status']]
+      .concat((SC.view || []).map((b) => [b.bpo_no, b.batch, linesOfBpo(b).map(partLabel).join('; '), b.vendors.join('; '), b.requestDate || 'Not Recorded', b.daysSinceRequest === null ? '' : b.daysSinceRequest, b.workdaysSinceRequest === null ? '' : b.workdaysSinceRequest, boardLabel(b.stage), b.daysInStage === null ? '' : b.daysInStage, b.latestUpdate || 'Not Recorded', b.next, b.expected || 'Not Recorded', COLOR_TEXT[b.color]]));
+    const a = el('a', { href: URL.createObjectURL(new Blob([rows.map((r) => r.map(esc).join(',')).join('\r\n')], { type: 'text/csv' })), download: 'bpo-tracker-' + today() + '.csv' });
+    document.body.append(a); a.click(); a.remove();
+  }
+
+  // ---------- one BPO: request to current status, complete history
+  const BP = { key: null, log: null };
+  const BPO_TIMELINE = [['BPO information sent / quotation requested', 'rfq', 'Request to the subcontractor team'], ['China quotation received', 'quote_received', 'Price received'], ['Quotation submitted to Rich', 'quote_to_rich', 'With Rich for review'],
+    ['Quotation approved', 'quote_approved', 'Approved'], ['Subcontractor SO requested', 'so_requested', 'SO requested'], ['SO number received', 'so_received', 'SO number from costing manager'], ['Order placed (PO to vendor)', 'po_to_vendor', 'Order placed'],
+    ['Vendor acknowledged the order', 'ack', 'Subcontractor confirmation'], ['Production started', 'production_start', 'In progress'], ['Production completed', 'ready_to_ship', 'Ready to ship'], ['Shipment dispatched', 'vendor_ship', 'In transit'],
+    ['Material received at CAMCO', 'received_camco', 'Arrived at CAMCO'], ['Moved to stock', 'to_stock', 'Completed']];
+  async function openBpo(b) {
+    if (!(await leaveGuard())) return;
+    BP.key = b.key; BP.log = null; banner('bpo-banner', '', ''); show('view-bpo'); renderBpo(); loadBpoLog();
+  }
+  async function loadBpoLog() {
+    const b = cardByKey(BP.key); if (!b) return;
+    const r = await api('scBpoLog', { bpo_no: b.bpo_no, batch: b.batch });
+    if (BP.key !== b.key) return;
+    if (!r.ok) { banner('bpo-banner', 'err', r.error); return; }
+    BP.log = r; renderBpo();
+  }
+  function renderBpo() {
+    const b = cardByKey(BP.key);
+    if (!b) { openSubcon('subcon'); return; }
+    const ls = linesOfBpo(b), D = SC.data, canWrite = scCanWrite(), n = ls.length;
+    $('bpo-title').textContent = bpoName(b); $('crumb').textContent = 'Subcontractor › ' + bpoName(b);
+    $('bpo-sub').textContent = b.requestDate ? 'Requested ' + recDate(b.requestDate) + ' · ' + dayWord(b.daysSinceRequest) + ' ago (' + b.workdaysSinceRequest + ' working days) · now in ' + boardLabel(b.stage) + (b.daysInStage !== null ? ' for ' + dayWord(b.daysInStage) : '')
+      : 'Request date Not Recorded · now in ' + boardLabel(b.stage);
+    const act = [];
+    if (canWrite) {
+      act.push(el('button', { class: 'btn btn-primary', type: 'button', text: 'Move stage…', onclick: () => boardMove(b, null) }));
+      act.push(el('button', { class: 'btn', type: 'button', text: '＋ Add part', onclick: () => scEditLine({ bpo_no: b.bpo_no, batch: b.batch }) }));
+      if (b.open) act.push(el('button', { class: 'btn', type: 'button', text: 'Update all parts', onclick: async () => { await scBatchDialog({ bpo_no: b.bpo_no, batch: b.batch, open: b.open }); } }));
+    }
+    if (scRole() === 'admin') act.push(el('button', { class: 'btn btn-danger', type: 'button', text: '🗑 Delete BPO', onclick: () => bpoDelete(b, ls) }));
+    $('bpo-actions').replaceChildren(...act);
+    const kv = (rows) => el('dl', { class: 'bkv' }, rows.flatMap(([k, v, cls]) => [el('dt', { text: k }), el('dd', { class: cls || '' }, v)]));
+    const nr = (v, f) => (v === null || v === undefined || v === '' ? el('span', { class: 'nr', text: 'Not Recorded' }) : (f ? f(v) : String(v)));
+    // A. basic information
+    const secA = el('section', { class: 'card bsec' }, el('h3', { text: 'A. Basic information' }),
+      kv([['BPO number', b.bpo_no || 'No BPO'], ['Batch', nr(b.batch)], ['Parts / quantity', n + (n === 1 ? ' part number' : ' part numbers') + ' · ' + qtyFmt(b.qty) + ' pcs'], ['Subcontractor / vendor', nr(b.vendors.join(', '))],
+        ['Responsible person', nr(b.team.join(', '))], ['Initial request date', nr(b.requestDate, recDate)], ['Required at CAMCO', nr(b.required, recDate)]]),
+      scBpoTable(ls));
+    // B. timeline: only dates that were recorded
+    const dates = (key) => ls.map((o) => (o.ms || {})[key]).filter(Boolean).sort();
+    const tl = BPO_TIMELINE.map(([label, key, remark]) => {
+      const ds = dates(key), uniq = [...new Set(ds)];
+      const when = !ds.length ? 'Not Recorded' : uniq.length === 1 ? recDate(uniq[0]) : recDate(uniq[0]) + ' – ' + recDate(uniq[uniq.length - 1]);
+      const part = ds.length && ds.length < n ? ' · ' + ds.length + ' of ' + n + ' parts' : '';
+      return el('tr', {}, el('td', { text: label }), el('td', {}, ds.length ? el('b', { text: when }) : el('span', { class: 'nr', text: when })), el('td', { class: ds.length ? '' : 'muted', text: ds.length ? remark + part : '—' }));
+    });
+    const moves = BP.log ? BP.log.events.filter((e) => e.kind === 'MOVE') : null;
+    const secB = el('section', { class: 'card bsec' }, el('h3', { text: 'B. Complete timeline' }),
+      el('div', { class: 'tablewrap' }, el('table', { class: 'datatable mini' }, el('thead', {}, el('tr', {}, ['Activity', 'Date', 'Status / remarks'].map((h) => el('th', { text: h })))), el('tbody', {}, tl))),
+      el('h4', { text: 'Board movement history' }),
+      moves === null ? el('p', { class: 'muted', text: 'Loading…' }) : moves.length ? el('div', { class: 'tablewrap' }, el('table', { class: 'datatable mini' }, el('thead', {}, el('tr', {}, ['Date', 'Move', 'By', 'Note'].map((h) => el('th', { text: h })))),
+        el('tbody', {}, moves.map((e) => el('tr', {}, el('td', {}, el('div', { class: 'cell2' }, el('b', { text: recDate(e.event_date || String(e.at).slice(0, 10)) }), el('small', { text: 'saved ' + new Date(e.at).toLocaleString() }))),
+          el('td', { text: (e.from_stage ? boardLabel(e.from_stage) : '—') + ' → ' + boardLabel(e.to_stage) }), el('td', { text: e.by_user }), el('td', {}, e.text || '', e.applied ? el('small', { class: 'muted', text: (e.text ? ' · ' : '') + e.applied }) : '')))))) : el('p', { class: 'muted', text: 'No moves recorded yet. The stage follows the dates.' }));
+    // C. current status
+    const expKey = { production: ['exp_prod', 'Production completion'], ready: ['exp_ship', 'Shipment'], transit: ['exp_arrival', 'Arrival at CAMCO'], order: ['exp_prod', 'Production completion'] }[b.stage];
+    const expDates = expKey ? ls.map((o) => (o.exp || {})[expKey[0]]).filter(Boolean).sort() : [];
+    const nextMs = expKey ? [expKey[1], expDates.length ? expDates[expDates.length - 1] : null] : b.stage === 'closed' ? null : ['Next follow-up', b.nextBy];
+    const secC = el('section', { class: 'card bsec' }, el('h3', { text: 'C. Current status' }),
+      kv([['Current stage', el('span', {}, el('span', { class: 'stagepill', text: boardLabel(b.stage) }), b.manual ? el('small', { class: 'muted', text: '  set by hand' + (b.derived !== b.stage ? ' · dates say ' + boardLabel(b.derived) : '') }) : '')],
+        ['Status', el('span', {}, el('i', { class: 'bdot ' + b.color }), ' ' + COLOR_TEXT[b.color])],
+        ['Time in this stage', b.daysInStage === null ? nr(null) : dayWord(b.daysInStage) + ' calendar · ' + b.workdaysInStage + ' working' + (b.since ? ' (since ' + recDate(b.since) + ')' : '')],
+        ['Since the request', b.daysSinceRequest === null ? nr(null) : dayWord(b.daysSinceRequest) + ' calendar · ' + b.workdaysSinceRequest + ' working'],
+        ['Latest update', b.latestUpdate ? recDate(b.latestUpdate) + (b.daysSinceUpdate !== null ? ' (' + dayWord(b.daysSinceUpdate) + ' ago)' : '') : nr(null), b.stale ? 'sc-bad-text' : ''],
+        ['Current issue', nr(b.flags.concat(b.issue && !b.flags.includes(b.issue) ? [b.issue] : []).join(' · '))], ['Next required action', b.stage === 'closed' ? '—' : nr(b.next)],
+        ['Action with', b.stage === 'closed' ? '—' : nr(b.nextWho === 'Me' ? 'Me' : b.nextWho)], ['Expected next milestone', nextMs ? (nextMs[1] ? nextMs[0] + ' · ' + recDate(nextMs[1]) : nextMs[0] + ' · Not Recorded') : '—'],
+        ['Expected at CAMCO', nr(b.expected, recDate)], ['Quantity', 'ordered ' + qtyFmt(b.qty) + ' · shipped ' + qtyFmt(b.shipped) + ' · received ' + qtyFmt(b.received)]]));
+    // D. communication history
+    const secD = el('section', { class: 'card bsec' }, el('h3', { text: 'D. Communication history' }), bpoLogForm(b, canWrite), bpoLogList());
+    $('bpo-body').replaceChildren(el('div', { class: 'bgrid' }, el('div', {}, secC, secA), el('div', {}, secB, secD)));
+  }
+  function bpoLogForm(b, canWrite) {
+    if (!canWrite) return '';
+    const kind = scSelect([['NOTE', 'Note'], ['FOLLOW-UP', 'Follow-up']], 'FOLLOW-UP'), date = dateIn(today()), text = el('textarea', { rows: 2, placeholder: 'What was asked or answered? Email, call, message…' });
+    const btn = el('button', { class: 'btn btn-primary btn-sm', type: 'button', text: 'Add' });
+    btn.onclick = async () => {
+      if (!text.value.trim()) { toast('Write the update first.', true); return; }
+      btn.disabled = true; const r = await api('scBpoNote', { bpo_no: b.bpo_no, batch: b.batch, kind: kind.value, date: date.value, note: text.value }); btn.disabled = false;
+      if (!r.ok) { toast(r.error || 'Could not save.', true); return; }
+      text.value = ''; toast('Saved.'); await loadSubcon(); loadBpoLog();
+    };
+    return el('div', { class: 'logform' }, el('div', { class: 'logrow' }, kind, date, btn), text);
+  }
+  function bpoLogList() {
+    if (!BP.log) return el('p', { class: 'muted', text: 'Loading…' });
+    const items = [];
+    BP.log.events.filter((e) => e.kind !== 'MOVE').forEach((e) => items.push({ when: e.event_date || String(e.at).slice(0, 10), at: e.at, kind: e.kind, text: e.text, by: e.by_user, part: '' }));
+    BP.log.events.filter((e) => e.kind === 'MOVE').forEach((e) => items.push({ when: e.event_date || String(e.at).slice(0, 10), at: e.at, kind: 'MOVE', text: 'Moved ' + (e.from_stage ? boardLabel(e.from_stage) + ' → ' : 'to ') + boardLabel(e.to_stage) + (e.text ? '. ' + e.text : '') + (e.applied ? ' (' + e.applied + ')' : ''), by: e.by_user, part: '' }));
+    BP.log.updates.forEach((u) => items.push({ when: String(u.at).slice(0, 10), at: u.at, kind: u.kind, text: u.text, by: u.by_user, part: u.part_no }));
+    items.sort((a, c) => String(c.at).localeCompare(String(a.at)));
+    if (!items.length) return el('p', { class: 'muted', text: 'Nothing recorded yet. Add each follow-up and reply here so the whole story stays in one place.' });
+    return el('ul', { class: 'loglist' }, items.slice(0, 200).map((i) => el('li', {}, el('div', { class: 'loghead' }, el('span', { class: 'badge sc-muted', text: i.kind }), ' ', el('b', { text: recDate(i.when) }), el('small', { class: 'muted', text: ' ' + [i.by, i.part ? 'part ' + i.part : ''].filter(Boolean).join(' · ') })), el('div', { text: i.text }))));
+  }
+  async function bpoDelete(b, ls) {
+    const body = el('div', {}, el('p', {}, 'Delete ', el('b', { text: bpoName(b) }), ' with its ', el('b', { text: ls.length + (ls.length === 1 ? ' part number' : ' part numbers') }), ', their dates and update logs, and the board history? This cannot be undone.'), el('p', { class: 'muted small', text: 'Parts: ' + partsText(ls, 8) }));
+    if (!(await confirmDialog('Delete this BPO?', body, 'Delete permanently', true))) return;
+    const r = await api('scDeleteBpo', { bpo_no: b.bpo_no, batch: b.batch, confirm: 'DELETE' });
+    if (!r.ok) { toast(r.error || 'Could not delete.', true); return; }
+    toast('Deleted ' + bpoName(b) + ' (' + r.count + ' parts).'); await openSubcon('subcon');
   }
   function scBatchLines(lines) {
     const head = ['', 'PART', 'SO / PO', 'STAGE', 'NEXT ACTION', 'REQUIRED', 'EXPECTED', 'STATUS'];
@@ -1646,7 +1876,7 @@
       so_required: scSelect(ynp, o.so_required || 'PENDING'), sub_required: scSelect(ynp, o.sub_required || 'PENDING'), decision_note: scInput('text', o.decision_note, { placeholder: 'Reason, especially when the answer is No' }),
       order_ref: scInput('text', o.order_ref, { placeholder: 'Assigned automatically' }), part_no: scInput('text', o.part_no), revision: scInput('text', o.revision), description: scInput('text', o.description), qty: scInput('number', o.qty, { min: 0, step: 'any' }),
       priority: scSelect(D.priorities.map((p) => [p, p]), o.priority || 'NORMAL'), required_date: dateIn(o.required_date), customer_due_date: dateIn(o.customer_due_date),
-      team_member: scInput('text', o.team_member, { placeholder: 'Person on the subcontractor team' }), owner: scInput('text', o.owner, { placeholder: 'Who must act next' }), comm_ref: scInput('text', o.comm_ref, { placeholder: 'Email subject or link' }),
+      team_member: scInput('text', o.team_member, { placeholder: 'Person on the subcontractor team' }), vendor: scInput('text', o.vendor, { placeholder: 'Vendor / subcontractor making the part' }), owner: scInput('text', o.owner, { placeholder: 'Who must act next' }), comm_ref: scInput('text', o.comm_ref, { placeholder: 'Email subject or link' }),
       so_no: scInput('text', o.so_no), po_no: scInput('text', o.po_no), bpo_no: scInput('text', o.bpo_no, { placeholder: 'e.g. BPO-003' }), batch: scInput('text', o.batch), ryd_part: scInput('text', o.ryd_part), sent_date: dateIn(o.sent_date),
       review_status: scSelect([...new Set(['', ...D.reviewStatuses, o.review_status || ''])].map((x) => [x, x ? x.charAt(0) + x.slice(1).toLowerCase() : '— not submitted —']), o.review_status || ''),
       qty_shipped: scInput('number', o.qty_shipped, { min: 0, step: 'any' }), qty_received: scInput('number', o.qty_received, { min: 0, step: 'any' }), qty_hold: scInput('number', o.qty_hold, { min: 0, step: 'any' }),
@@ -1669,7 +1899,7 @@
       [scField('SO required?', f.so_required, 'so_required'), scField('Subcontracting required?', f.sub_required, 'sub_required'), scField('Reason / note', f.decision_note, 'decision_note'),
         scField('Order ref', f.order_ref, 'order_ref'), scField('CAMCO part #', f.part_no, 'part_no', true), scField('RYD part #', f.ryd_part, 'ryd_part'), scField('Revision', f.revision, 'revision'), scField('Description', f.description, 'description'), scField('Qty required', f.qty, 'qty'),
         scField('Priority', f.priority, 'priority'), scField('Required at CAMCO', f.required_date, 'required_date'), scField('Customer due / line-down date', f.customer_due_date, 'customer_due_date'),
-        scField('Subcontractor team member', f.team_member, 'team_member'), scField('Responsible person (next action)', f.owner, 'owner'), scField('Communication reference', f.comm_ref, 'comm_ref'),
+        scField('Subcontractor team member', f.team_member, 'team_member'), scField('Vendor / subcontractor', f.vendor, 'vendor'), scField('Responsible person (next action)', f.owner, 'owner'), scField('Communication reference', f.comm_ref, 'comm_ref'),
         scField('BPO #', f.bpo_no, 'bpo_no'), scField('Batch', f.batch, 'batch')],
       [...msFields('Quotation'), scField('Review status (Rich / team)', f.review_status, 'review_status')],
       [...msFields('Subcontractor SO'), scField('SO #', f.so_no, 'so_no')],
@@ -1916,11 +2146,10 @@
       el('div', { class: 'calcform' }, scField('PO submitted to vendor', po, 'x1'), scField('Needed at CAMCO by (optional)', need, 'x2')), out);
   }
   $('sc-new').onclick = () => { if (!scCanWrite()) { toast('Your access (' + (state.role || 'unknown') + ') is read-only here.', true); return; } scEditLine(null); };
-  $('sc-q').addEventListener('input', () => { clearTimeout(renderScBpo.t); renderScBpo.t = setTimeout(renderScBpo, 150); });
-  $('sc-closed').addEventListener('change', (e) => { SC.hideDone = e.target.checked; renderScBpo(); });
-  $('sc-expand').onclick = () => { SC.groupOpen = {}; SC.data.batches.forEach((b) => { SC.groupOpen[b.bpo_no + '|' + b.batch] = true; }); renderScBpo(); };
-  $('sc-collapse').onclick = () => { SC.groupOpen = {}; SC.data.batches.forEach((b) => { SC.groupOpen[b.bpo_no + '|' + b.batch] = false; }); renderScBpo(); };
-  $('sc-csv').onclick = () => scExportCsv(SC.view);
+  $('sc-q').addEventListener('input', () => { clearTimeout(renderScBoard.t); renderScBoard.t = setTimeout(() => { BF.q = $('sc-q').value.trim(); renderScBoard(); }, 150); });
+  $('sc-vendor').addEventListener('change', (e) => { BF.vendor = e.target.value; renderScBoard(); });
+  $('sc-since').addEventListener('change', (e) => { BF.since = e.target.value; renderScBoard(); });
+  $('sc-csv').onclick = scTrackerCsv;
   $('scd-back').onclick = () => openSubcon('subcon');
   $('scd-save').onclick = scSave;
   $('scd-discard').onclick = () => { state.dirty = false; scEditLine(SCD.o.id ? SC.data.lines.find((l) => l.id === SCD.o.id) || SCD.o : null); };
