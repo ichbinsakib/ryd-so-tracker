@@ -1210,6 +1210,9 @@ var SOSub = (function () {
       // the card sits where most of its open parts are (a tie goes to the earlier stage), so one straggler does not hold the whole BPO back
       if (open.length) derived = Object.keys(spread).sort(function (a, b) { return spread[b] - spread[a] || boardIndex(a) - boardIndex(b); })[0];
       else derived = active.every(function (d) { return keyOf(d) === 'closed'; }) ? 'closed' : 'arrived';
+      // a part that arrived but sits on quality hold (replacement coming) does not keep the rest of the BPO from being complete
+      var heldParts = active.filter(function (d) { return keyOf(d) === 'arrived' && (d.qty_hold || 0) > 0; });
+      if (!open.length && heldParts.length && active.every(function (d) { return keyOf(d) === 'closed' || heldParts.indexOf(d) >= 0; }) && active.some(function (d) { return keyOf(d) === 'closed'; })) derived = 'closed';
       var def = BOARD[boardIndex(derived)], since = null;
       active.filter(function (d) { return keyOf(d) === derived; }).forEach(function (d) {
         var dates = def.enter.map(function (m) { return (d.ms || {})[m]; }).filter(Boolean).sort();
@@ -1236,7 +1239,7 @@ var SOSub = (function () {
       var stale = open.length > 0 && stage !== 'closed' && stage !== 'arrived' && (staleAge === null ? (sinceReq !== null && sinceReq > cfg.staleDays) : staleAge > cfg.staleDays);
       var crit = open.filter(function (d) { return d.attention === 'crit'; }).length, warn = open.filter(function (d) { return d.attention === 'warn'; }).length;
       var overdueExp = exp.length && stage !== 'closed' && stage !== 'arrived' && open.length && exp[exp.length - 1] < today ? daysBetween(exp[exp.length - 1], today) : 0;
-      var color = stage === 'closed' ? 'grey' : (pastDue > 0 || crit > 0) ? 'red' : (warn > 0 || stale || (stage === 'arrived' && open.length)) ? 'yellow' : 'green';
+      var color = stage === 'closed' ? (heldParts.length ? 'yellow' : 'grey') : (pastDue > 0 || crit > 0) ? 'red' : (warn > 0 || stale || (stage === 'arrived' && open.length)) ? 'yellow' : 'green';
       if (stage === 'arrived' && !open.length) color = 'green';
       var flags = [];
       if (stage === 'quoteReq' && sinceDays !== null && sinceDays >= cfg.quoteAgeWarn) flags.push('No quotation response for ' + plural(sinceDays, 'day'));
@@ -1248,13 +1251,24 @@ var SOSub = (function () {
       if (pastDue > 0) flags.push('Past the required date by ' + plural(pastDue, 'day'));
       var held = active.filter(function (d) { return boardKeyOf(d) !== 'closed'; }).reduce(function (t, d) { return t + (d.qty_hold || 0); }, 0);
       if (held > 0) flags.unshift(held + ' pcs on quality hold');
+      var WORDS = { request: 'not yet sent', quoteReq: 'waiting for the quote', quoteRcv: 'quote received', review: 'with Rich for approval', order: 'on order', production: 'in production', ready: 'ready to ship', transit: 'in transit', arrived: 'received, not yet in stock' };
+      var cnt = {}; active.forEach(function (d) { var k3 = keyOf(d); if (k3 !== 'closed' && heldParts.indexOf(d) < 0) cnt[k3] = (cnt[k3] || 0) + 1; });
+      var done = active.filter(function (d) { return keyOf(d) === 'closed'; }).length, heldQty = heldParts.reduce(function (t, d) { return t + (d.qty_hold || 0); }, 0), bits = [];
+      if (done === active.length) bits.push('All ' + done + ' in stock');
+      else {
+        if (done) bits.push(done + ' of ' + active.length + ' in stock');
+        Object.keys(cnt).sort(function (a, b) { return boardIndex(a) - boardIndex(b); }).forEach(function (k3) { bits.push((Object.keys(cnt).length === 1 && !done ? 'All ' : '') + cnt[k3] + ' ' + WORDS[k3]); });
+        if (heldParts.length) bits.push(heldParts.length + (heldParts.length === 1 ? ' part' : ' parts') + ' on quality hold (' + heldQty.toLocaleString('en-US') + ' pcs, replacement pending)');
+      }
+      var rsts = []; open.forEach(function (d) { var r3 = String(d.review_status || '').trim(); if (r3 && r3 !== 'APPROVED' && rsts.indexOf(r3) < 0) rsts.push(r3); });
+      if (rsts.length === 1 && ['request', 'quoteReq', 'quoteRcv', 'review'].indexOf(derived) >= 0) bits.push('status: ' + rsts[0].toLowerCase());
       var qty = active.reduce(function (t, d) { return t + (d.qty || 0); }, 0);
       out.push({
         key: k, bpo_no: g.bpo_no, batch: g.batch, spread: spread, stage: stage, derived: derived, manual: manual, since: since, daysInStage: sinceDays,
         workdaysInStage: since ? workdaysBetween(since, today) : null,
         requestDate: rfqs.length ? rfqs[0] : null, daysSinceRequest: sinceReq, workdaysSinceRequest: rfqs.length ? workdaysBetween(rfqs[0], today) : null,
         latestUpdate: latest, daysSinceUpdate: staleAge, expected: exp.length ? exp[exp.length - 1] : null, required: req.length ? req[req.length - 1] : null, overdueDays: Math.max(pastDue, overdueExp),
-        parts: active.length, finished: active.filter(function (d) { return boardKeyOf(d) === 'closed'; }).length, open: open.length, qty: qty, shipped: active.reduce(function (t, d) { return t + (d.qty_shipped || 0); }, 0), received: active.reduce(function (t, d) { return t + (d.qty_received || 0); }, 0),
+        summary: bits.join(' · '), exceptions: heldParts.length, parts: active.length, finished: active.filter(function (d) { return boardKeyOf(d) === 'closed'; }).length, open: open.length, qty: qty, shipped: active.reduce(function (t, d) { return t + (d.qty_shipped || 0); }, 0), received: active.reduce(function (t, d) { return t + (d.qty_received || 0); }, 0),
         vendors: vendors, team: team, color: color, stale: stale, crit: crit, warn: warn, flags: flags, overdue: pastDue > 0 || overdueExp > 0 || crit > 0,
         next: pick ? pick.next : '', nextWho: pick ? (pick.owner_role === 'me' ? 'Me' : pick.waitingOn) : '', nextBy: pick ? pick.followup : null, issue: pick ? (pick.blocker || (pick.reasons[0] && pick.reasons[0].text) || '') : '',
         lineIds: active.map(function (d) { return d.id; })

@@ -186,10 +186,14 @@ test('board: dates that were never recorded stay empty, arrived and closed are t
   assert.equal(Sub.build([Object.assign({ id: 4, part_no: 'N', sub_required: 'NO', ms: {} }, base, { sub_required: 'NO' })], day, undefined, []).board.length, 0);   // not required: not on the board
 });
 
-test('board: a BPO with one part on quality hold is not complete, and says how many parts are done', () => {
+test('board: a BPO whose only open item is an arrived part on quality hold counts as completed, and says so in plain words', () => {
   const base = { bpo_no: 'B9', batch: '1', qty: 100, priority: 'NORMAL', so_required: 'YES', sub_required: 'YES', exp: {}, orig: {} };
   const done = (id) => Object.assign({ id, part_no: 'P' + id, ms: { rfq: '2026-06-01', received_camco: '2026-08-31', to_stock: '2026-09-04' } }, base);
   const hold = Object.assign({ id: 9, part_no: 'H', qty_hold: 40, ms: { rfq: '2026-06-01', received_camco: '2026-08-31' } }, base);
   const b = Sub.build([done(1), done(2), hold], '2026-11-04', undefined, []).board[0];
-  assert.equal(b.stage, 'arrived'); assert.equal(b.finished, 2); assert.equal(b.parts, 3); assert.ok(b.flags[0].includes('40 pcs on quality hold'));
+  assert.equal(b.stage, 'closed'); assert.equal(b.exceptions, 1); assert.equal(b.color, 'yellow');
+  assert.equal(b.summary, '2 of 3 in stock · 1 part on quality hold (40 pcs, replacement pending)');
+  assert.ok(b.flags[0].includes('40 pcs on quality hold'));
+  const mixed = Sub.build([done(1), Object.assign({ id: 5, part_no: 'M', ms: { rfq: '2026-06-01', production_start: '2026-08-01' } }, base)], '2026-11-04', undefined, []).board[0];
+  assert.equal(mixed.stage, 'production'); assert.equal(mixed.summary, '1 of 2 in stock · 1 in production');
 });
