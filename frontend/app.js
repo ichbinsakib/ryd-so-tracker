@@ -510,7 +510,27 @@
     else rows.sort((a, b) => (a.lc ? a.lc.rank : 9e9) - (b.lc ? b.lc.rank : 9e9));
     state.view = rows; state.page = 0; renderTable();
   }
+  // simple view: open SOs grouped by the stage they are in, each with what to do next
+  function setSimple(on) {
+    state.simple = on; if (on && state.chip !== 'mine') state.chip = 'all'; $('view-admin').classList.toggle('simple', on); $('btn-view').textContent = on ? 'Detailed view' : 'Simple view';
+    try { localStorage.setItem('inhouseView', on ? 'simple' : 'detail'); } catch (e) { /* private mode */ }
+  }
+  function renderBoard() {
+    const rows = state.view.filter(rowOpen), mineN = (state.dash ? state.dash.rows : []).filter((r) => rowOpen(r) && isMine(r)).length, allN = (state.dash ? state.dash.rows : []).filter(rowOpen).length;
+    const scope = (c, label, n) => el('button', { class: 'chip' + ((state.chip === 'mine') === (c === 'mine') ? ' on' : ''), type: 'button', onclick: () => { state.chip = c; applyView(); } }, label, el('b', { text: String(n) }));
+    const groups = STAGE_GROUPS.map(([title]) => [title, rows.filter((r) => groupOf(r) === title)]);
+    const other = rows.filter((r) => !groupOf(r)); if (other.length) groups.push(['On hold / other', other]);
+    const sec = groups.filter(([, g]) => g.length).map(([title, g]) => el('section', { class: 'bstage' },
+      el('h3', {}, title, el('b', { text: String(g.length) }), g.some(isMine) ? el('span', { class: 'badge sc-warn', text: g.filter(isMine).length + ' need you' }) : ''),
+      ...g.map((r) => { const lc = r.lc, d = rowDue(r);
+        return el('div', { class: 'brow', tabindex: 0, onclick: () => openById(r.id), onkeydown: (e) => { if (e.key === 'Enter') openById(r.id); } },
+          el('span', { class: 'bso' }, el('b', { text: norm(r.so_no) || 'Part check' }), el('span', { class: 'muted', text: ' ' + norm(r.part_no) }), el('small', { text: [norm(r.customer), norm(r.qty) ? norm(r.qty) + ' pcs' : ''].filter(Boolean).join(' · ') })),
+          el('span', { class: 'bnext' }, el('span', { text: lc && lc.next ? lc.next : '—' }), el('small', { text: lc ? (lc.owner === 'me' ? 'You' + (lc.actionDate ? ' · by ' + dshort(lc.actionDate) : '') : lc.waitingOn ? 'Waiting on ' + lc.waitingOn : '') : '' })),
+          dueNode(d, false)); })));
+    $('board').replaceChildren(el('div', { class: 'chips' }, scope('all', 'All open', allN), scope('mine', 'Needs my action', mineN)), ...(sec.length ? sec : [el('p', { class: 'muted', text: 'No open SOs match.' })]));
+  }
   function renderTable() {
+    if (state.simple) { renderBoard(); const ls = $('list-status'); ls.className = 'statusline'; ls.textContent = ''; return; }
     $('grid').tHead.replaceChildren(el('tr', {}, ['', 'SO / PART', 'STAGE', 'NEXT ACTION', 'DUE', 'MATERIAL', ''].map((h) => el('th', { text: h }))));
     const pages = Math.max(1, Math.ceil(state.view.length / state.pageSize));
     state.page = Math.min(state.page, pages - 1);
@@ -1621,17 +1641,14 @@
   }
   function boardCard(b, lines, canMove) {
     const ls = lines.filter((o) => !o.notRequired), first = ls[0];
-    const row = (k, v, cls) => el('div', {}, el('small', { text: k }), el('span', { class: cls || '', text: v }));
-    const c = el('article', { class: 'bcard ' + b.color, tabindex: 0, draggable: canMove ? 'true' : 'false', title: COLOR_TEXT[b.color] + (b.manual ? ' · stage set by hand' : ''),
+    const full = [bpoName(b), partsText(ls, 6), b.vendors.length ? 'Vendor: ' + b.vendors.join(', ') : 'Vendor: Not Recorded', 'Requested: ' + recDate(b.requestDate), 'In stage: ' + (b.daysInStage === null ? 'Not Recorded' : dayWord(b.daysInStage)), 'Last update: ' + recDate(b.latestUpdate), 'Expected: ' + recDate(b.expected), b.next ? 'Next: ' + b.next : '', COLOR_TEXT[b.color] + (b.manual ? ' · stage set by hand' : '')].filter(Boolean).join('
+');
+    const c = el('article', { class: 'bcard ' + b.color, tabindex: 0, draggable: canMove ? 'true' : 'false', title: full,
       onclick: () => openBpo(b), onkeydown: (e) => { if (e.key === 'Enter') openBpo(b); } },
-      el('div', { class: 'bctop' }, el('i', { class: 'bdot ' + b.color }), el('b', { text: bpoName(b) }), canMove ? el('button', { class: 'bmove', type: 'button', title: 'Move to another stage', 'aria-label': 'Move ' + bpoName(b) + ' to another stage', text: '⇄', onclick: (e) => { e.stopPropagation(); boardMove(b, null); } }) : ''),
-      el('div', { class: 'bparts', text: partsText(ls, 2) || 'No parts' }),
-      first && first.description && !rydOf(first) ? el('small', { class: 'bdesc', text: first.description }) : '',
-      el('div', { class: 'bmeta' },
-        row('Vendor', b.vendors.length ? b.vendors.join(', ') : 'Not Recorded', b.vendors.length ? '' : 'nr'), row('Qty', qtyFmt(b.qty) + ' pcs · ' + b.parts + (b.parts === 1 ? ' part' : ' parts')),
-        row('Requested', recDate(b.requestDate), b.requestDate ? '' : 'nr'), row('In stage', b.daysInStage === null ? 'Not Recorded' : dayWord(b.daysInStage), b.daysInStage === null ? 'nr' : ''),
-        row('Last update', recDate(b.latestUpdate), b.latestUpdate ? '' : 'nr'), row('Expected', recDate(b.expected), b.expected ? '' : 'nr')),
-      b.next && b.stage !== 'closed' ? el('div', { class: 'bnext' }, el('small', { text: 'Next' }), ' ', b.next) : '',
+      el('div', { class: 'bctop' }, el('i', { class: 'bdot ' + b.color }), el('b', { text: bpoName(b) }), el('span', { class: 'bage', text: b.daysInStage === null ? '' : b.daysInStage + 'd' }),
+        canMove ? el('button', { class: 'bmove', type: 'button', title: 'Move to another stage', 'aria-label': 'Move ' + bpoName(b) + ' to another stage', text: '⇄', onclick: (e) => { e.stopPropagation(); boardMove(b, null); } }) : ''),
+      el('div', { class: 'bline', text: b.parts + (b.parts === 1 ? ' part' : ' parts') + ' · ' + qtyFmt(b.qty) + ' pcs' + (b.vendors.length ? ' · ' + b.vendors[0] : '') }),
+      el('div', { class: 'bline muted', text: 'Req ' + recDate(b.requestDate) + (b.expected ? ' · Exp ' + recDate(b.expected) : '') }),
       b.flags.length ? el('div', { class: 'bflag ' + (b.color === 'red' ? 'bad' : ''), text: b.flags[0] }) : '');
     if (canMove) {
       c.addEventListener('dragstart', (e) => { BF.drag = b; e.dataTransfer.setData('text/plain', b.key); e.dataTransfer.effectAllowed = 'move'; c.classList.add('dragging'); });
@@ -2177,6 +2194,9 @@
   $('new-submit').onclick = submitNew;
   $('q').addEventListener('input', () => { clearTimeout(applyView.t); applyView.t = setTimeout(applyView, 150); });
   $('sort').addEventListener('change', (e) => { state.sort = e.target.value; applyView(); });
+  let simplePref = true; try { simplePref = localStorage.getItem('inhouseView') !== 'detail'; } catch (e) { /* private mode */ }
+  setSimple(simplePref);
+  $('btn-view').onclick = () => { setSimple(!state.simple); if (state.dash) applyView(); };
   $('incl-closed').addEventListener('change', () => loadDashboard());
   $('pg-prev').onclick = () => { state.page--; renderTable(); };
   $('pg-next').onclick = () => { state.page++; renderTable(); };

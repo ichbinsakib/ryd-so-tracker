@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Shop Order Tracking Details</title>
-<link rel="stylesheet" href="styles.css?v=386e8fc9">
+<link rel="stylesheet" href="styles.css?v=4377f82b">
 </head>
 <body>
 <aside id="sidenav" class="sidenav" aria-label="Sections" hidden>
@@ -140,9 +140,11 @@
         <option value="so">SO# (newest)</option>
       </select>
       <label class="inline"><input type="checkbox" id="incl-closed"> closed</label>
+      <button id="btn-view" class="btn btn-sm" type="button"></button>
     </div>
   </section>
   <div id="list-status" class="statusline" aria-live="polite"></div>
+  <div id="board" class="board"></div>
   <div class="tablewrap card"><table id="grid" class="datatable"><thead></thead><tbody></tbody></table></div>
   <nav class="pager">
     <button id="pg-prev" class="btn">‹ Prev</button>
@@ -394,6 +396,6 @@
 <script src="config.js?v=c2514725"></script>
 <script src="subcon.js?v=a8217057"></script>
 <script src="lifecycle.js?v=3d007b51"></script>
-<script src="app.js?v=ea88993b"></script>
+<script src="app.js?v=17847c76"></script>
 </body>
 </html>
