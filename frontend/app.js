@@ -517,7 +517,7 @@
   }
   function renderBoard() {
     const rows = state.view.filter(rowOpen), mineN = (state.dash ? state.dash.rows : []).filter((r) => rowOpen(r) && isMine(r)).length, allN = (state.dash ? state.dash.rows : []).filter(rowOpen).length;
-    const scope = (c, label, n) => el('button', { class: 'chip' + ((state.chip === 'mine') === (c === 'mine') ? ' on' : ''), type: 'button', onclick: () => { state.chip = c; applyView(); } }, label, el('b', { text: String(n) }));
+    const scope = (c, label, n) => el('button', { class: 'chip' + (state.chip === c ? ' on' : ''), type: 'button', onclick: () => { state.chip = c; applyView(); } }, label, el('b', { text: String(n) }));
     const groups = STAGE_GROUPS.map(([title]) => [title, rows.filter((r) => groupOf(r) === title)]);
     const other = rows.filter((r) => !groupOf(r)); if (other.length) groups.push(['On hold / other', other]);
     const sec = groups.filter(([, g]) => g.length).map(([title, g]) => el('section', { class: 'bstage' },
@@ -527,7 +527,12 @@
           el('span', { class: 'bso' }, el('b', { text: norm(r.so_no) || 'Part check' }), el('span', { class: 'muted', text: ' ' + norm(r.part_no) }), el('small', { text: [norm(r.customer), norm(r.qty) ? norm(r.qty) + ' pcs' : ''].filter(Boolean).join(' · ') })),
           el('span', { class: 'bnext' }, el('span', { text: lc && lc.next ? lc.next : '—' }), el('small', { text: lc ? (lc.owner === 'me' ? 'You' + (lc.actionDate ? ' · by ' + dshort(lc.actionDate) : '') : lc.waitingOn ? 'Waiting on ' + lc.waitingOn : '') : '' })),
           dueNode(d, false)); })));
-    $('board').replaceChildren(el('div', { class: 'chips' }, scope('all', 'All open', allN), scope('mine', 'Needs my action', mineN)), ...(sec.length ? sec : [el('p', { class: 'muted', text: 'No open SOs match.' })]));
+    const cnt = state.dash && state.dash.counts ? state.dash.counts : null, all = state.dash ? state.dash.rows : [];
+    const METRICS = [['1. ANALYSIS', 'Analysis', 'analysis for SO release'], ['1.ANR', 'ANR', 'approved, not released'], ['2.RFS', 'RFS', 'request for SO'], ['3.OPEN', 'Open', 'SO open'], ['5.HOLD', 'On hold', ''], ['4.CLOSE', 'Closed', '']];
+    const tile = ([st, label, sub]) => { const n = cnt ? cnt[st] || 0 : st === '4.CLOSE' ? null : all.filter((r) => norm(r.status).trim() === st).length, closed = st === '4.CLOSE';
+      return el(closed ? 'div' : 'button', { class: 'mtile' + (state.chip === st ? ' on' : ''), type: closed ? undefined : 'button', title: sub, onclick: closed ? undefined : () => { state.chip = state.chip === st ? 'all' : st; applyView(); } },
+        el('b', { text: n === null ? '—' : String(n) }), el('span', { text: label }), sub ? el('small', { text: sub }) : ''); };
+    $('board').replaceChildren(el('div', { class: 'metrics' }, ...METRICS.map(tile)), el('div', { class: 'chips' }, scope('all', 'All open', allN), scope('mine', 'Needs my action', mineN)), ...(sec.length ? sec : [el('p', { class: 'muted', text: 'No open SOs match.' })]));
   }
   function renderTable() {
     if (state.simple) { renderBoard(); const ls = $('list-status'); ls.className = 'statusline'; ls.textContent = ''; return; }

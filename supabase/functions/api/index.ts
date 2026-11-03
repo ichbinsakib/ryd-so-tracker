@@ -1853,11 +1853,12 @@ var SOService = (function () {
       'closure_verified_date', 'next_followup_date', 'escalated', 'blocker', 'owner', 'last_followup_date'];
     var idxs = DASH_KEYS.map(function (k) { return K[k].index; });
     if (idIndex >= 0) idxs.push(idIndex);
-    var rows = [], life = lifecycle(), today = /^\d{4}-\d{2}-\d{2}$/.test(String(req.today || '')) ? req.today : String(adapter.now()).slice(0, 10);
+    var rows = [], counts = {}, life = lifecycle(), today = /^\d{4}-\d{2}-\d{2}$/.test(String(req.today || '')) ? req.today : String(adapter.now()).slice(0, 10);
     adapter.readColumns(idxs, true).forEach(function (r) {
       var v = r.values;
       if (blank(v[K.part_no.index]) && blank(v[K.so_no.index])) return;
       var status = String(v[K.status.index] || '').trim();
+      counts[status] = (counts[status] || 0) + 1;
       if (!req.includeClosed && status === '4.CLOSE') return;
       var dd = {}; DASH_KEYS.forEach(function (k) { dd[k] = dashText(v[K[k].index]); });
       var lc = life.describe(dd, today);
@@ -1875,7 +1876,7 @@ var SOService = (function () {
     var low = function (r) { var a = [r.soBar, r.matBar].filter(function (x) { return x !== null; }); return a.length ? Math.min.apply(null, a) : 1000; };
     rows.sort(function (a, b) { return low(a) - low(b); });
     return {
-      ok: true, role: 'admin', email: email, refreshedAt: adapter.now(), rows: rows,
+      ok: true, role: 'admin', email: email, refreshedAt: adapter.now(), rows: rows, counts: counts,
       stock: { has: stock.has, count: stock.count, meta: stock.meta },
       steel: { meta: readSteelMeta(adapter) }, writable: idIndex >= 0
     };

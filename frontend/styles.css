@@ -649,3 +649,8 @@ body { background: var(--bg); color: var(--ink); }
 .bflag { font-size: 11px; padding: 1px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bmove { width: 22px; height: 20px; font-size: 12px; }
 .bempty { margin: 8px 0; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.mtile { font: inherit; text-align: left; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); padding: 10px 14px; display: grid; gap: 0; }
+button.mtile { cursor: pointer; } button.mtile:hover { border-color: var(--accent); }
+.mtile.on { border-color: var(--accent); background: var(--accent-soft); }
+.mtile b { font-size: 26px; line-height: 1.1; } .mtile span { font-weight: 600; } .mtile small { color: var(--muted); font-size: 11.5px; }
