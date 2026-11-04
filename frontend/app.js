@@ -1558,11 +1558,12 @@
   // ---- the page: BPO batches, each listing its part numbers
   const rydOf = (o) => o.ryd_part || (/^RYD/i.test(norm(o.description)) ? norm(o.description) : '');   // some sheets keep the RYD number in Description
   function scBpoTable(lines) {
-    const head = ['CAMCO PART #', 'RYD PART #', 'QTY', 'SO / PO', 'STAGE', 'NEXT ACTION', 'REQUIRED', 'EXPECTED', 'STATUS'];
+    const head = ['CAMCO PART #', 'RYD PART #', 'QTY', 'REQUESTED', 'SO / PO', 'STAGE', 'NEXT ACTION', 'REQUIRED', 'EXPECTED', 'STATUS'];
     const body = lines.map((o) => el('tr', { class: 'clickrow', tabindex: 0, onclick: () => scEditLine(o), onkeydown: (e) => { if (e.key === 'Enter') scEditLine(o); } },
       el('td', {}, el('div', { class: 'cell2' }, el('span', {}, el('span', { class: 'dot sc-dot-' + (o.open ? o.attention : 'ok') }), ' ', el('b', { text: o.part_no }), o.revision ? el('small', { class: 'muted', text: ' rev ' + o.revision }) : ''), o.description && !rydOf(o) ? el('small', { text: o.description }) : '')),
       el('td', {}, rydOf(o) ? el('b', { text: rydOf(o) }) : el('span', { class: 'muted', text: '—' })),
       el('td', {}, qtyFmt(o.qty), o.qty_hold > 0 ? el('br') : '', o.qty_hold > 0 ? el('small', { class: 'sc-bad-text', text: qtyFmt(o.qty_hold) + ' on hold' }) : ''),
+      el('td', {}, (o.ms || {}).rfq ? el('span', { text: recDate(o.ms.rfq) }) : el('span', { class: 'nr', text: 'Not Recorded' })),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { text: o.so_no ? 'SO ' + o.so_no : '—' }), el('small', { text: o.po_no ? 'PO ' + o.po_no : '' }))),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill', text: o.stage }), el('small', { text: o.status }))),
       el('td', {}, el('div', { class: 'cell2' }, el('span', { text: o.open ? (o.next || '—') : (o.complete ? 'Arrived ' + dshort(o.ms.received_camco) : '—') }),
@@ -1725,8 +1726,8 @@
     // A. basic information
     const secA = el('section', { class: 'card bsec' }, el('h3', { text: 'A. Basic information' }),
       kv([['BPO number', b.bpo_no || 'No BPO'], ['Batch', nr(b.batch)], ['Parts / quantity', n + (n === 1 ? ' part number' : ' part numbers') + ' · ' + qtyFmt(b.qty) + ' pcs'], ['Subcontractor / vendor', nr(b.vendors.join(', '))],
-        ['Responsible person', nr(b.team.join(', '))], ['Initial request date', nr(b.requestDate, recDate)], ['Required at CAMCO', nr(b.required, recDate)]]),
-      scBpoTable(ls));
+        ['Responsible person', nr(b.team.join(', '))], ['Initial request date', nr(b.requestDate, recDate)], ['Required at CAMCO', nr(b.required, recDate)]]));
+    const secParts = el('section', { class: 'card bsec bwide' }, el('h3', { text: 'Part numbers in this BPO (' + n + ')' }), scBpoTable(ls));
     // B. timeline: only dates that were recorded
     const dates = (key) => ls.map((o) => (o.ms || {})[key]).filter(Boolean).sort();
     const tl = BPO_TIMELINE.map(([label, key, remark]) => {
@@ -1757,7 +1758,7 @@
         ['Expected at CAMCO', nr(b.expected, recDate)], ['Quantity', 'ordered ' + qtyFmt(b.qty) + ' · shipped ' + qtyFmt(b.shipped) + ' · received ' + qtyFmt(b.received)]]));
     // D. communication history
     const secD = el('section', { class: 'card bsec' }, el('h3', { text: 'D. Communication history' }), bpoLogForm(b, canWrite), bpoLogList());
-    $('bpo-body').replaceChildren(el('div', { class: 'bgrid' }, el('div', {}, secC, secA), el('div', {}, secB, secD)));
+    $('bpo-body').replaceChildren(secParts, el('div', { class: 'bgrid' }, el('div', {}, secC, secA), el('div', {}, secB, secD)));
   }
   function bpoLogForm(b, canWrite) {
     if (!canWrite) return '';
