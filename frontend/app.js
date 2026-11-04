@@ -318,6 +318,8 @@
   async function openScFiltered(chip, stage) { await openSubcon('subcon'); Object.assign(BF, { chip: 'active', q: '', vendor: '', since: '', stages: SC_GROUP_COLUMNS[stage] || null }); $('sc-q').value = ''; renderScBoard(); }
   const LONG_DATE = () => new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   const within = (iso, n) => { if (!isIso(iso || '')) return false; const d = daysUntil(parseDate(iso)); return d !== null && d >= 0 && d <= n; };
+  // a BPO needs you when it is late, has gone quiet, has a critical part, or the next step is yours (counted per BPO, not per part)
+  const scNeeds = (sc) => ((sc && sc.board) || []).filter((b) => b.stage !== 'closed' && (b.overdue || b.stale || b.crit > 0 || b.nextWho === 'Me'));
   // everything that needs you, inhouse and subcontractor together, most urgent first
   function dashActions(dash, sc) {
     const items = [];
@@ -326,12 +328,11 @@
       items.push({ kind: 'Inhouse', crit, rank: lc.rank, title: (norm(r.so_no) ? 'SO ' + norm(r.so_no) : 'Part check') + ' · ' + norm(r.part_no), sub: [norm(r.customer), norm(r.qty) ? norm(r.qty) + ' pcs' : '', r.stage].filter(Boolean).join(' · '),
         action: lc.next || lc.status, who: lc.owner === 'me' ? 'Me' : lc.waitingOn, by: lc.actionDate || lc.followup, why: lc.reasons.slice(0, 2), open: () => openById(r.id) });
     });
-    if (sc) {
-      const byId = new Map(sc.lines.map((l) => [l.id, l]));
-      [...sc.sections.overdue, ...sc.sections.immediate].forEach((id) => { const o = byId.get(id); if (!o) return;
-        items.push({ kind: 'Subcontractor', crit: o.attention === 'crit', rank: (o.attention === 'crit' ? 0 : 100000) + 5000, title: o.part_no + ' · ' + qtyFmt(o.qty) + ' pcs', sub: [o.so_no ? 'SO ' + o.so_no : '', o.stage].filter(Boolean).join(' · '),
-          action: o.next || o.status, who: o.owner_role === 'me' ? 'Me' : o.waitingOn, by: o.followup, why: o.reasons.slice(0, 2), open: () => scEditLine(o) }); });
-    }
+    scNeeds(sc).forEach((b) => {
+      const crit = b.color === 'red';
+      items.push({ kind: 'Subcontractor', crit, rank: (crit ? 0 : 100000) + 5000, title: bpoName(b) + ' · ' + b.parts + (b.parts === 1 ? ' part' : ' parts'), sub: b.summary || boardLabel(b.stage),
+        action: b.next || boardLabel(b.stage), who: b.nextWho, by: b.nextBy, why: b.flags.slice(0, 2).map((t) => ({ level: crit ? 'crit' : 'warn', text: t })), open: () => openBpo(b) });
+    });
     return items.sort((a, b) => (b.crit - a.crit) || (a.rank - b.rank));
   }
   function dashUpcoming(dash, sc) {
@@ -349,7 +350,7 @@
   const kindTag = (k) => el('span', { class: 'tag-kind ' + (k === 'Inhouse' ? 'in' : 'sub'), text: k });
   function renderDash(dash, sc) {
     const rows = dash ? dash.rows.filter(rowOpen) : [], open = sc ? sc.lines.filter((o) => o.open) : [];
-    const mineIn = rows.filter(isMine).length, mineSc = sc ? sc.kpis.needsAction : 0;
+    const mineIn = rows.filter(isMine).length, mineSc = scNeeds(sc).length;
     const lateIn = rows.filter((r) => r.lc && r.lc.daysToDue !== null && r.lc.daysToDue < 0).length, lateSc = open.filter((o) => o.section === 'overdue').length;
     const risk = rows.filter(matRisk), lateMat = risk.filter((r) => r.lc.matStatus === 'Late').length;
     const soonIn = rows.filter((r) => dueWithin(r, 14)).length, soonSc = open.filter((o) => within(o.expected, 14)).length;
@@ -1451,7 +1452,7 @@
     $('sc-sub').textContent = leads ? 'Elapsed calendar days between milestones, from your tracked orders, and when a new PO should arrive.' : 'Every part sent to the subcontractor team, from quotation to confirmed arrival at CAMCO.';
     $('sc-actions').hidden = leads || !scCanWrite(); $('sc-orders').hidden = leads; $('sc-body').hidden = !leads;
     if (leads) { $('sc-body').replaceChildren(scLeadCalc(), scLeadStats()); return; }
-    navBadge('nb-subcon', D.kpis.needsAction);
+    navBadge('nb-subcon', scNeeds(D).length);
     const open = D.lines.filter((o) => o.open), pcs = open.reduce((t, o) => t + (o.remaining || 0), 0);
     $('sc-sub').textContent = D.board.length + (D.board.length === 1 ? ' BPO' : ' BPOs') + ' · ' + D.lines.length + ' part numbers · ' + open.length + ' open · ' + qtyFmt(pcs) + ' pcs still open';
     renderScBoard();
@@ -1619,7 +1620,7 @@
       tile('Ready for shipment', n(st('ready')), '', go('active', ['ready'])), tile('In transit', n(st('transit')), '', go('active', ['transit'])),
       tile('Arrived at CAMCO', n(st('arrived')), '', go('active', ['arrived'])), tile('Completed', n(st('closed')), '', go('closed')),
       tile('Overdue', n((b) => b.overdue && b.stage !== 'closed'), n((b) => b.overdue && b.stage !== 'closed') ? 'bad' : '', go('overdue')), tile('No recent update', n((b) => b.stale), n((b) => b.stale) ? 'warn' : '', go('stale')));
-    navBadge('nb-subcon', D.kpis.needsAction);
+    navBadge('nb-subcon', scNeeds(D).length);
     $('sc-chips').replaceChildren(...BOARD_CHIPS.map(([c, label, f]) => el('button', { class: 'chip' + (BF.chip === c && !BF.stages ? ' on' : ''), type: 'button', 'aria-pressed': String(BF.chip === c && !BF.stages), onclick: () => { BF.chip = c; BF.stages = null; renderScBoard(); } }, label, el('b', { text: String(base.filter(f).length) }))));
     const vs = [...new Set(all.flatMap((b) => b.vendors))].sort(), sel = $('sc-vendor');
     sel.replaceChildren(el('option', { value: '', text: 'All subcontractors' }), ...vs.map((v) => el('option', { value: v, text: v }))); sel.value = vs.includes(BF.vendor) ? BF.vendor : (BF.vendor = '');
