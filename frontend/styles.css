@@ -660,3 +660,9 @@ button.mtile { cursor: pointer; } button.mtile:hover { border-color: var(--accen
 .bwide .datatable { width: 100%; table-layout: auto; } .bwide .datatable td, .bwide .datatable th { padding: 6px 8px; vertical-align: top; }
 .bwide .datatable td .stagepill { white-space: nowrap; } .bwide .datatable td:nth-child(1), .bwide .datatable td:nth-child(2) { white-space: nowrap; }
 .bwide .tablewrap { overflow: visible !important; } .bwide .datatable td:nth-child(7) { min-width: 220px; } .bwide .datatable td:nth-child(10) { min-width: 120px; }
+
+/* lead time calculator */
+.ltform { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; } .ltinput { flex: 1 1 220px; max-width: 360px; }
+.lttiles { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+.lttile { padding: 10px 16px; border-radius: 10px; background: var(--info-bg); min-width: 130px; } .lttile small { display: block; font-weight: 700; letter-spacing: .04em; color: var(--muted); } .lttile b { font-size: 20px; }
+.lttile.ltbig b { font-size: 26px; color: var(--info); }

@@ -2593,6 +2593,26 @@ async function logAction(req: any, email: string, role: string | null) {
   return fail('BAD_REQUEST', 'Unknown action.');
 }
 
+// Lead time calculator (the LT worksheet): routing steps of a part and the days each work center takes.
+async function ltAction(req: any, role: string | null) {
+  if (!role) return fail('FORBIDDEN', 'You are not allowed to use this app.');
+  const part = String(req.part_no === undefined || req.part_no === null ? '' : req.part_no).trim();
+  if (!part) return fail('INVALID', 'Enter a part number.');
+  if (part.length > 80) return fail('INVALID', 'That part number is too long.');
+  const key = SOCore.normalizePart(part);
+  const rt = must(await sb.from('lt_routings').select('part,ops').eq('part_key', key).limit(1) as any) as any[];
+  const st = must(await sb.from('stock_items').select('quantity').eq('part_key', key).limit(1) as any) as any[];
+  const stock = st.length && st[0].quantity !== null ? Number(st[0].quantity) : null;
+  if (!rt.length) return { ok: true, found: false, part, stock };
+  const ops: any[] = Array.isArray(rt[0].ops) ? rt[0].ops : [];
+  const wcs = [...new Set(ops.map((o: any) => String(o[1] || '').trim()).filter(Boolean))];
+  const days: any = {};
+  if (wcs.length) (must(await sb.from('lt_workcenters').select('workcenter,lead_days').in('workcenter', wcs) as any) as any[]).forEach((w: any) => { days[w.workcenter] = w.lead_days === null ? null : Number(w.lead_days); });
+  const steps = ops.map((o: any) => { const wc = String(o[1] || '').trim(); return { op: o[0], workcenter: wc, description: o[2] || '', days: wc in days ? days[wc] : null }; });
+  const total = steps.reduce((t: number, x: any) => t + (typeof x.days === 'number' ? x.days : 0), 0);
+  return { ok: true, found: true, part: rt[0].part, stock, steps, total };
+}
+
 async function subconAction(req: any, email: string, role: string | null) {
   if (!role) return fail('FORBIDDEN', 'You are not allowed to use this app.');
   const write = role === 'editor' || role === 'admin';
@@ -2856,6 +2876,7 @@ async function handleRequest(req: any) {
 
   if (typeof req.action === 'string' && req.action.startsWith('sc')) return await subconAction(req, email, role);
   if (typeof req.action === 'string' && req.action.startsWith('lg')) return await logAction(req, email, role);
+  if (req.action === 'ltLookup') return await ltAction(req, role);
 
   const opts = await prefetch(req, email, role, users, cfg);
   const snap = SOPg.create(opts);

@@ -1448,9 +1448,9 @@
     const D = SC.data, leads = SC.section === 'leads';
     navSync('view-subcon');
     $('sc-title').textContent = leads ? 'Lead Time Calculation' : 'Subcontractor';
-    $('sc-sub').textContent = leads ? 'Elapsed calendar days between milestones, from your tracked orders, and when a new PO should arrive.' : 'Every part sent to the subcontractor team, from quotation to confirmed arrival at CAMCO.';
+    $('sc-sub').textContent = leads ? 'Lead time of a part from its routing, elapsed days between milestones from your tracked orders, and when a new PO should arrive.' : 'Every part sent to the subcontractor team, from quotation to confirmed arrival at CAMCO.';
     $('sc-actions').hidden = leads || !scCanWrite(); $('sc-orders').hidden = leads; $('sc-body').hidden = !leads;
-    if (leads) { $('sc-body').replaceChildren(scLeadCalc(), scLeadStats()); return; }
+    if (leads) { $('sc-body').replaceChildren(ltCalc(), scLeadCalc(), scLeadStats()); return; }
     navBadge('nb-subcon', scNeeds(D).length);
     const open = D.lines.filter((o) => o.open), pcs = open.reduce((t, o) => t + (o.remaining || 0), 0);
     $('sc-sub').textContent = D.board.length + (D.board.length === 1 ? ' BPO' : ' BPOs') + ' · ' + D.lines.length + ' part numbers · ' + open.length + ' open · ' + qtyFmt(pcs) + ' pcs still open';
@@ -2117,6 +2117,33 @@
     return el('div', {}, el('h3', { class: 'pad', text: 'Elapsed calendar days between milestones (from your tracked orders)' }), el('div', { class: 'tablewrap card' }, el('table', { class: 'datatable' },
       el('thead', {}, el('tr', {}, ['MILESTONES', 'ORDERS', 'AVERAGE', 'MEDIAN', 'FASTEST–SLOWEST', ''].map((t) => el('th', { text: t })))), el('tbody', {}, rows))),
       el('p', { class: 'muted small pad', text: 'Calendar days (weekends included), actual dates only. An interval is left out when either date is missing or the dates are out of order.' }));
+  }
+  // ---- lead time calculator (same as the LT worksheet): type a part number, see its routing steps, stock and the overall lead time
+  function ltCalc() {
+    const inp = el('input', { type: 'text', class: 'ltinput', placeholder: 'Part number, e.g. 1042968', autocomplete: 'off', 'aria-label': 'Part number' });
+    const go = el('button', { class: 'btn btn-primary', type: 'button', text: 'Calculate' }), out = el('div', { class: 'ltout' });
+    const tile = (label, value, cls) => el('div', { class: 'lttile' + (cls ? ' ' + cls : '') }, el('small', { text: label }), el('b', { text: value }));
+    async function run() {
+      const p = inp.value.trim();
+      if (!p) { out.replaceChildren(el('p', { class: 'muted', text: 'Enter a part number.' })); return; }
+      go.disabled = true; out.replaceChildren(el('p', { class: 'muted', text: 'Looking up…' }));
+      const r = await api('ltLookup', { part_no: p });
+      go.disabled = false;
+      if (!r.ok) { if (r.code === 'UNAUTHENTICATED') return showLogin(r.error); out.replaceChildren(el('p', { class: 'error', text: r.error || 'Could not calculate.' })); return; }
+      const stock = r.stock === null || r.stock === undefined ? 'Not in stock list' : fmtN(r.stock, 0);
+      if (!r.found) { out.replaceChildren(el('div', { class: 'lttiles' }, tile('STOCK', stock)), el('p', { class: 'calcnote', text: 'No routing is on file for part ' + r.part + '. Check the part number.' })); return; }
+      const missing = r.steps.filter((x) => x.days === null).length;
+      out.replaceChildren(
+        el('div', { class: 'lttiles' }, tile('PART', r.part), tile('STOCK', stock), tile('OVERALL LEAD TIME', r.total + ' days', 'ltbig')),
+        el('div', { class: 'tablewrap card' }, el('table', { class: 'datatable' },
+          el('thead', {}, el('tr', {}, ['OP', 'WORKCENTER', 'DESCRIPTION', 'LEAD TIME'].map((t) => el('th', { text: t })))),
+          el('tbody', {}, r.steps.map((x) => el('tr', {}, el('td', { text: x.op }), el('td', { text: x.workcenter }), el('td', { text: x.description }), el('td', { class: x.days === null ? 'muted' : '' }, x.days === null ? '—' : String(x.days)))))),
+        ),
+        missing ? el('p', { class: 'muted small', text: missing + (missing === 1 ? ' step has' : ' steps have') + ' no lead time on file for its work center and counts as 0.' }) : '');
+    }
+    go.onclick = run; inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+    return el('section', { class: 'card calc' }, el('h3', { text: 'Lead time for a part' }), el('p', { class: 'muted', text: 'Adds up the days of every routing step of the part, the same as the LT worksheet.' }),
+      el('div', { class: 'ltform' }, inp, go), out);
   }
   function scLeadCalc() {
     const st = SC.data.leadStats, chain = st.slice(0, 4), enough = chain.every((s) => s.n >= 3);
