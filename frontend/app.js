@@ -1448,9 +1448,9 @@
     const D = SC.data, leads = SC.section === 'leads';
     navSync('view-subcon');
     $('sc-title').textContent = leads ? 'Lead Time Calculation' : 'Subcontractor';
-    $('sc-sub').textContent = leads ? 'Lead time of a part from its routing, elapsed days between milestones from your tracked orders, and when a new PO should arrive.' : 'Every part sent to the subcontractor team, from quotation to confirmed arrival at CAMCO.';
+    $('sc-sub').textContent = leads ? 'Lead time of a part from its routing steps, the same as the LT worksheet.' : 'Every part sent to the subcontractor team, from quotation to confirmed arrival at CAMCO.';
     $('sc-actions').hidden = leads || !scCanWrite(); $('sc-orders').hidden = leads; $('sc-body').hidden = !leads;
-    if (leads) { $('sc-body').replaceChildren(ltCalc(), scLeadCalc(), scLeadStats()); return; }
+    if (leads) { $('sc-body').replaceChildren(ltCalc()); return; }
     navBadge('nb-subcon', scNeeds(D).length);
     const open = D.lines.filter((o) => o.open), pcs = open.reduce((t, o) => t + (o.remaining || 0), 0);
     $('sc-sub').textContent = D.board.length + (D.board.length === 1 ? ' BPO' : ' BPOs') + ' · ' + D.lines.length + ' part numbers · ' + open.length + ' open · ' + qtyFmt(pcs) + ' pcs still open';
@@ -2125,14 +2125,6 @@
   }
   $('sc-export').onclick = scExportExcel;
 
-  // ---- lead times: what each stage really takes, and when a new PO should arrive
-  function scLeadStats() {
-    const rows = SC.data.leadStats.map((s) => el('tr', {}, el('td', { text: s.label }), el('td', { text: String(s.n) }), el('td', {}, s.avg == null ? '—' : el('b', { text: s.avg + ' d' })), el('td', { text: s.median == null ? '—' : s.median + ' d' }),
-      el('td', { text: s.min == null ? '—' : s.min + '–' + s.max + ' d' }), el('td', { class: 'muted', text: s.skipped ? s.skipped + ' skipped (dates out of order)' : '' })));
-    return el('div', {}, el('h3', { class: 'pad', text: 'Elapsed calendar days between milestones (from your tracked orders)' }), el('div', { class: 'tablewrap card' }, el('table', { class: 'datatable' },
-      el('thead', {}, el('tr', {}, ['MILESTONES', 'ORDERS', 'AVERAGE', 'MEDIAN', 'FASTEST–SLOWEST', ''].map((t) => el('th', { text: t })))), el('tbody', {}, rows))),
-      el('p', { class: 'muted small pad', text: 'Calendar days (weekends included), actual dates only. An interval is left out when either date is missing or the dates are out of order.' }));
-  }
   // ---- lead time calculator (same as the LT worksheet): type a part number, see its routing steps, stock and the overall lead time
   function ltCalc() {
     const inp = el('input', { type: 'text', class: 'ltinput', placeholder: 'Part number, e.g. 1042968', autocomplete: 'off', 'aria-label': 'Part number' });
@@ -2159,23 +2151,6 @@
     go.onclick = run; inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
     return el('section', { class: 'card calc' }, el('h3', { text: 'Lead time for a part' }), el('p', { class: 'muted', text: 'Adds up the days of every routing step of the part, the same as the LT worksheet.' }),
       el('div', { class: 'ltform' }, inp, go), out);
-  }
-  function scLeadCalc() {
-    const st = SC.data.leadStats, chain = st.slice(0, 4), enough = chain.every((s) => s.n >= 3);
-    const po = scInput('date', today()), need = scInput('date', ''), out = el('div', {});
-    const run = () => {
-      if (!enough) { out.replaceChildren(el('p', { class: 'muted', text: 'Not enough history yet: each of the first four stages needs at least 3 lines with both dates. Import the BPO sheet or keep milestone dates up to date.' })); return; }
-      const sum = (k) => chain.reduce((t, s) => t + s[k], 0), avg = sum('avg'), best = sum('min'), worst = sum('max');
-      const add = (iso, n) => { const t = parseDate(iso); if (!t) return ''; t.setDate(t.getDate() + n); return fmtD(t); };
-      const rows = [['Best case', best], ['Typical (average)', avg], ['Worst case', worst]].map(([l, n]) => el('tr', {}, el('td', { text: l }), el('td', {}, el('b', { text: n + ' days' })), el('td', { text: po.value ? dshort(add(po.value, n)) : '—' })));
-      const parts = [el('div', { class: 'tablewrap card' }, el('table', { class: 'datatable' }, el('thead', {}, el('tr', {}, ['SCENARIO', 'PO TO RECEIPT AT CAMCO', 'EXPECTED AT CAMCO'].map((t) => el('th', { text: t })))), el('tbody', {}, rows)))];
-      if (need.value) parts.push(el('p', { class: 'calcnote', text: 'To have parts at CAMCO by ' + dshort(need.value) + ', the PO should reach the vendor by ' + dshort(add(need.value, -avg)) + ' (typical) or ' + dshort(add(need.value, -worst)) + ' to be safe (worst case seen).' }));
-      out.replaceChildren(...parts);
-    };
-    [po, need].forEach((n) => { n.addEventListener('input', run); n.addEventListener('change', run); });
-    run();
-    return el('section', { class: 'card calc' }, el('h3', { text: 'When will a new PO arrive?' }), el('p', { class: 'muted', text: 'Uses the average, fastest and slowest time your past lines took from PO submitted to the vendor until received at CAMCO.' }),
-      el('div', { class: 'calcform' }, scField('PO submitted to vendor', po, 'x1'), scField('Needed at CAMCO by (optional)', need, 'x2')), out);
   }
   $('sc-new').onclick = () => { if (!scCanWrite()) { toast('Your access (' + (state.role || 'unknown') + ') is read-only here.', true); return; } scEditLine(null); };
   $('sc-q').addEventListener('input', () => { clearTimeout(renderScBoard.t); renderScBoard.t = setTimeout(() => { BF.q = $('sc-q').value.trim(); renderScBoard(); }, 150); });
