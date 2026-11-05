@@ -1705,6 +1705,21 @@
     if (!r.ok) { banner('bpo-banner', 'err', r.error); return; }
     BP.log = r; renderBpo();
   }
+  // Excel copy of the parts table on a BPO page
+  async function scBpoExcel(b, ls) {
+    try { await loadSheetJs(); } catch (e) { toast(e.message, true); return; }
+    const head = ['CAMCO PART #', 'REV', 'RYD PART #', 'DESCRIPTION', 'QTY', 'QTY ON HOLD', 'REQUESTED', 'SO #', 'PO #', 'STAGE', 'STATUS', 'NEXT ACTION', 'WHO / WAITING ON', 'FOLLOW-UP', 'REQUIRED', 'EXPECTED', 'ISSUES'];
+    const d = (v) => (v && isIso(String(v)) ? new Date(String(v) + 'T00:00:00Z') : v || '');
+    const rows = ls.map((o) => [o.part_no || '', o.revision || '', rydOf(o) || '', o.description || '', Number(o.qty) || 0, Number(o.qty_hold) || 0, d((o.ms || {}).rfq), o.so_no || '', o.po_no || '', o.stage || '', o.status || '',
+      o.open ? (o.next || '') : (o.complete ? 'Arrived' : ''), o.open ? (o.owner_role === 'me' ? 'Me' : o.waitingOn || '') : '', o.open ? d(o.followup) : '', d(o.required_date), d(o.expected),
+      o.open ? (o.reasons || []).map((r) => r.text).join('; ') : (o.complete ? 'Arrived' : '')]);
+    const aoa = [head].concat(rows), ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true });
+    [6, 13, 14, 15].forEach((j) => { for (let r = 1; r < aoa.length; r++) { const c = ws[XLSX.utils.encode_cell({ r, c: j })]; if (c && c.t === 'd') c.z = 'yyyy-mm-dd'; } });
+    ws['!cols'] = [14, 6, 18, 28, 9, 11, 12, 9, 10, 18, 26, 56, 22, 12, 12, 12, 40].map((w) => ({ wch: w })); ws['!freeze'] = { xSplit: 1, ySplit: 1 };
+    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'Parts');
+    XLSX.writeFile(wb, bpoName(b).replace(/[^A-Za-z0-9._-]+/g, '-') + '-' + today() + '.xlsx', { cellDates: true });
+    toast('Exported ' + rows.length + ' parts to Excel.');
+  }
   function renderBpo() {
     const b = cardByKey(BP.key);
     if (!b) { openSubcon('subcon'); return; }
@@ -1713,7 +1728,7 @@
     $('bpo-sub').textContent = b.requestDate ? 'Requested ' + recDate(b.requestDate) + ' · ' + dayWord(b.daysSinceRequest) + ' ago (' + b.workdaysSinceRequest + ' working days) · now in ' + boardLabel(b.stage) + (b.daysInStage !== null ? ' for ' + dayWord(b.daysInStage) : '')
       : 'Request date Not Recorded · now in ' + boardLabel(b.stage);
     if (b.summary) $('bpo-sub').textContent += ' · ' + b.summary;
-    const act = [];
+    const act = [el('button', { class: 'btn', type: 'button', text: '⬇ Export Excel', title: 'Download the parts table below as an Excel file', onclick: () => scBpoExcel(b, ls) })];
     if (canWrite) {
       act.push(el('button', { class: 'btn btn-primary', type: 'button', text: 'Move stage…', onclick: () => boardMove(b, null) }));
       act.push(el('button', { class: 'btn', type: 'button', text: '＋ Add part', onclick: () => scEditLine({ bpo_no: b.bpo_no, batch: b.batch }) }));
