@@ -2407,6 +2407,7 @@ async function prefetch(req: any, email: string, role: string | null, users: any
   const wantsAll = ADMIN_ONLY_ROWS.has(action) && role === 'admin';
   let rows: any[] = [];
   if (wantsAll) rows = await allOrderRows();
+  else if (action === 'mySOs' && role === 'editor') rows = await allOrderRows(); // editors work the whole shop floor; viewers stay limited to their own
   else if (action === 'mySOs') {
     const me = users.find((u: any) => u.email === email);
     const name = (me && me.name) || email.split('@')[0];
@@ -2805,8 +2806,16 @@ const REMIND_TO = Deno.env.get('REMIND_TO') || 'sahamed@camcomfginc.com';
 const APP_URL = 'https://so.amanasystem.com';
 
 async function sendMail(to: string, m: { subject: string; text: string; html: string }) {
+  // Preferred: a small Apps Script web app that sends from a Google account (no app password needed).
+  const hook = Deno.env.get('MAIL_WEBHOOK_URL'), mailKey = Deno.env.get('MAIL_KEY');
+  if (hook) {
+    const r = await fetch(hook, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ key: mailKey || '', subject: m.subject, text: m.text, html: m.html }), redirect: 'follow' });
+    let out: any = null; try { out = await r.json(); } catch (_e) { /* not JSON */ }
+    if (!out || out.ok !== true) throw new Error('Mailer failed: ' + (out && out.error ? out.error : 'HTTP ' + r.status));
+    return;
+  }
   const user = Deno.env.get('GMAIL_USER'), pass = Deno.env.get('GMAIL_APP_PASSWORD');
-  if (!user || !pass) throw new Error('GMAIL_USER and GMAIL_APP_PASSWORD secrets are not set.');
+  if (!user || !pass) throw new Error('Set MAIL_WEBHOOK_URL + MAIL_KEY, or GMAIL_USER + GMAIL_APP_PASSWORD.');
   const nodemailer = (await import('npm:nodemailer@6.9.14')).default;
   const tx = nodemailer.createTransport({ host: 'smtp.gmail.com', port: 465, secure: true, auth: { user, pass } });
   await tx.sendMail({ from: '"Shop Order Tracker" <' + user + '>', to, subject: m.subject, text: m.text, html: m.html });
