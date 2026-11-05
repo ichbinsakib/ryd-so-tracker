@@ -76,9 +76,9 @@
   function navSync(id) {
     const hide = id === 'view-login' || id === 'view-loading';
     $('sidenav').hidden = hide; document.body.classList.toggle('has-nav', !hide); $('nav-burger').hidden = hide; document.body.classList.remove('nav-open');
-    $('crumb').textContent = hide ? '' : id === 'view-subcon' ? (SC.section === 'leads' ? 'Planning › Lead Time Calculation' : 'Subcontractor') : (CRUMBS[id] || '');
-    const on = id === 'view-scdetail' || id === 'view-bpo' ? 'nav-subcon' : id === 'view-subcon' ? (SC.section === 'leads' ? 'nav-lead' : 'nav-subcon') : id === 'view-dash' ? 'nav-dash' : 'nav-inhouse';
-    ['nav-dash', 'nav-inhouse', 'nav-subcon', 'nav-lead'].forEach((n) => { $(n).classList.toggle('on', n === on); if (n === on) $(n).setAttribute('aria-current', 'page'); else $(n).removeAttribute('aria-current'); });
+    $('crumb').textContent = hide ? '' : id === 'view-subcon' ? (SC.section === 'leads' ? 'Planning › Lead Time Calculation' : SC.section === 'price' ? 'Planning › Price Increase Tracking' : 'Subcontractor') : (CRUMBS[id] || '');
+    const on = id === 'view-scdetail' || id === 'view-bpo' ? 'nav-subcon' : id === 'view-subcon' ? (SC.section === 'leads' ? 'nav-lead' : SC.section === 'price' ? 'nav-price' : 'nav-subcon') : id === 'view-dash' ? 'nav-dash' : 'nav-inhouse';
+    ['nav-dash', 'nav-inhouse', 'nav-subcon', 'nav-lead', 'nav-price'].forEach((n) => { $(n).classList.toggle('on', n === on); if (n === on) $(n).setAttribute('aria-current', 'page'); else $(n).removeAttribute('aria-current'); });
   }
   function toast(msg, isErr) {
     const t = $('toast'); t.textContent = msg; t.className = 'toast' + (isErr ? ' err' : ''); t.hidden = false;
@@ -223,7 +223,7 @@
     const admin = isAdmin();
     $('dash-title').textContent = 'Inhouse';
     $('dash-sub').textContent = 'Progress of every sales order that is not closed.';
-    $('fresh-cards').hidden = state.role === 'viewer'; $('admin-users').hidden = !admin; $('admin-new').hidden = state.role === 'viewer';
+    $('fresh-cards').hidden = state.role === 'viewer'; $('admin-users').hidden = !admin; $('nav-price').hidden = !admin; $('admin-new').hidden = state.role === 'viewer';
   }
   function goHome() {
     state.dirty = false; state.current = null; updateSaveBar();
@@ -1429,8 +1429,9 @@
   const qtyFmt = (n) => Number(n || 0).toLocaleString();
   async function openSubcon(section) {
     if (!(await leaveGuard())) return;
-    state.dirty = false; SC.section = section === 'leads' ? 'leads' : 'subcon';
+    state.dirty = false; SC.section = section === 'leads' ? 'leads' : section === 'price' && isAdmin() ? 'price' : 'subcon';
     show('view-subcon'); $('btn-refresh').hidden = true; banner('sc-banner', '', '');
+    if (SC.section === 'price') { renderSubcon(); return; }
     await loadSubcon();
   }
   async function loadSubcon() {
@@ -1445,12 +1446,12 @@
   const scGroupOf = (o) => { const g = SC_GROUPS.find((x) => x[1].includes(o.stageNo)); return g ? g[0] : ''; };
   const SC_SEC_STAGE = { quote: 'Quotation', approval: 'Quotation', so: 'SO request & number', po: 'PO', production: 'Production', delivery: 'Shipment & arrival' };
   function renderSubcon() {
-    const D = SC.data, leads = SC.section === 'leads';
+    const D = SC.data, price = SC.section === 'price', leads = SC.section === 'leads' || price;
     navSync('view-subcon');
-    $('sc-title').textContent = leads ? 'Lead Time Calculation' : 'Subcontractor';
-    $('sc-sub').textContent = leads ? 'Lead time of a part from its routing steps, the same as the LT worksheet.' : 'Every part sent to the subcontractor team, from quotation to confirmed arrival at CAMCO.';
+    $('sc-title').textContent = price ? 'Price Increase Tracking' : leads ? 'Lead Time Calculation' : 'Subcontractor';
+    $('sc-sub').textContent = price ? 'Which price increases were sent to Skye, when they take effect, and which need a follow-up.' : leads ? 'Lead time of a part from its routing steps, the same as the LT worksheet.' : 'Every part sent to the subcontractor team, from quotation to confirmed arrival at CAMCO.';
     $('sc-actions').hidden = leads || !scCanWrite(); $('sc-orders').hidden = leads; $('sc-body').hidden = !leads;
-    if (leads) { $('sc-body').replaceChildren(ltCalc(), ...(state.role === 'admin' ? [priceSection()] : [])); return; }
+    if (leads) { $('sc-body').replaceChildren(price ? (isAdmin() ? priceSection() : el('p', { class: 'muted', text: 'Admins only.' })) : ltCalc()); return; }
     navBadge('nb-subcon', scNeeds(D).length);
     const open = D.lines.filter((o) => o.open), pcs = open.reduce((t, o) => t + (o.remaining || 0), 0);
     $('sc-sub').textContent = D.board.length + (D.board.length === 1 ? ' BPO' : ' BPOs') + ' · ' + D.lines.length + ' part numbers · ' + open.length + ' open · ' + qtyFmt(pcs) + ' pcs still open';
@@ -2170,13 +2171,13 @@
   function priceSection() {
     const box = el('section', { class: 'card pricesec', id: 'price-section' });
     async function load() {
-      box.replaceChildren(el('h3', { text: 'Price Increase Tracking' }), el('p', { class: 'muted', text: 'Loading…' }));
+      box.replaceChildren(el('p', { class: 'muted', text: 'Loading…' }));
       const r = await api('puList', {});
       if (!r.ok) { if (r.code === 'UNAUTHENTICATED') return showLogin(r.error); PU.err = r.error || 'Could not load price updates.'; PU.rows = null; } else { PU.rows = r.rows; PU.err = ''; }
       draw();
     }
     function draw() {
-      const head = el('div', { class: 'puhead' }, el('div', {}, el('h3', { text: 'Price Increase Tracking' }),
+      const head = el('div', { class: 'puhead' }, el('div', {},
         el('p', { class: 'muted', text: 'Price updates sent to Skye Ingraham, built from your CAMCO mailbox. Admin only. A sent email is not treated as accepted until Skye confirms.' })),
         el('button', { class: 'btn btn-sm', type: 'button', text: 'Refresh', onclick: load }));
       if (PU.err) { box.replaceChildren(head, el('p', { class: 'error', text: PU.err })); return; }
@@ -2265,6 +2266,7 @@
   $('nav-inhouse').onclick = async () => { if (!state.token || !state.role) return; if (!(await leaveGuard())) return; goHome(); };
   $('nav-subcon').onclick = () => openSubcon('subcon');
   $('nav-lead').onclick = () => openSubcon('leads');
+  $('nav-price').onclick = () => openSubcon('price');
 
   window.addEventListener('beforeunload', (e) => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
   $('btn-home').onclick = (e) => { e.preventDefault(); openDash(); };
