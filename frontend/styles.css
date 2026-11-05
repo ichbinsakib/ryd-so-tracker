@@ -666,3 +666,18 @@ button.mtile { cursor: pointer; } button.mtile:hover { border-color: var(--accen
 .lttiles { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
 .lttile { padding: 10px 16px; border-radius: 10px; background: var(--info-bg); min-width: 130px; } .lttile small { display: block; font-weight: 700; letter-spacing: .04em; color: var(--muted); } .lttile b { font-size: 20px; }
 .lttile.ltbig b { font-size: 26px; color: var(--info); }
+
+/* ---- Price Increase Tracking (admin only) */
+.pricesec { margin-top: 18px; }
+.puhead { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 8px; } .puhead h3 { margin: 0 0 2px; }
+.pukpis { margin-top: 10px; } .pukpis .bk.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.pubar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin: 4px 0 10px; }
+.pubar input[type=search] { min-width: 220px; }
+.publ td { vertical-align: top; } .pusub { display: block; color: var(--muted); font-size: 11.5px; }
+.publ .pualert { min-width: 240px; max-width: 340px; white-space: normal; }
+.publ tr.pu-bad > td:first-child { box-shadow: inset 3px 0 0 var(--err); } .publ tr.pu-warn > td:first-child { box-shadow: inset 3px 0 0 #d9a400; }
+.pudetail > td { background: var(--panel-2); white-space: normal; }
+.pugrid { display: grid; grid-template-columns: 1.1fr 1.4fr 0.8fr; gap: 18px; padding: 6px 4px; } .pugrid h4 { margin: 8px 0 4px; font-size: 12.5px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; } .pugrid h4:first-child { margin-top: 0; }
+.putrail { margin: 0; padding-left: 18px; display: grid; gap: 6px; } .putrail b { display: block; font-size: 12.5px; }
+.pucontrols { display: grid; gap: 8px; align-content: start; } .pucontrols label { display: grid; gap: 2px; font-size: 12px; color: var(--muted); }
+@media (max-width: 900px) { .pugrid { grid-template-columns: 1fr; } }

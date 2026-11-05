@@ -1450,7 +1450,7 @@
     $('sc-title').textContent = leads ? 'Lead Time Calculation' : 'Subcontractor';
     $('sc-sub').textContent = leads ? 'Lead time of a part from its routing steps, the same as the LT worksheet.' : 'Every part sent to the subcontractor team, from quotation to confirmed arrival at CAMCO.';
     $('sc-actions').hidden = leads || !scCanWrite(); $('sc-orders').hidden = leads; $('sc-body').hidden = !leads;
-    if (leads) { $('sc-body').replaceChildren(ltCalc()); return; }
+    if (leads) { $('sc-body').replaceChildren(ltCalc(), ...(state.role === 'admin' ? [priceSection()] : [])); return; }
     navBadge('nb-subcon', scNeeds(D).length);
     const open = D.lines.filter((o) => o.open), pcs = open.reduce((t, o) => t + (o.remaining || 0), 0);
     $('sc-sub').textContent = D.board.length + (D.board.length === 1 ? ' BPO' : ' BPOs') + ' · ' + D.lines.length + ' part numbers · ' + open.length + ' open · ' + qtyFmt(pcs) + ' pcs still open';
@@ -2151,6 +2151,100 @@
     go.onclick = run; inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
     return el('section', { class: 'card calc' }, el('h3', { text: 'Lead time for a part' }), el('p', { class: 'muted', text: 'Adds up the days of every routing step of the part, the same as the LT worksheet.' }),
       el('div', { class: 'ltform' }, inp, go), out);
+  }
+  // ---- Price Increase Tracking (admin only): price updates sent to Skye, with status, days remaining and alerts.
+  // The server only returns these rows to admins (puList); the rules live in priceupdates.js.
+  const PU = { rows: null, q: '', status: '', sort: 'priority', dir: 1, open: null, err: '' };
+  const PU_REPLY = { none: 'No reply yet', confirmed: 'Confirmed by Skye', disputed: 'Skye questioned the price', declined: 'Not accepted by Skye' };
+  const puDate = (s) => { const d = s ? parseDate(s) : null; return d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''; };
+  const puPct = (p) => (p === null ? '' : (p > 0 ? '+' : '') + p.toFixed(1) + '%');
+  function puView() {
+    const t = today();
+    return (PU.rows || []).map((r) => { const d = SOPrice.describe(r, t); return Object.assign({ r }, d, { pri: SOPrice.STATUSES.indexOf(d.status) }); });
+  }
+  function puSortVal(x, k) {
+    const n = (v) => (v === null || v === undefined ? null : Number(v));
+    return { part: x.r.part_no, prev: n(x.r.prev_price), next: n(x.r.new_price), pct: x.pct, sent: x.r.sent_date, eff: x.r.effective_date, status: x.pri, days: x.days, alert: x.alert ? 0 : 1,
+      priority: x.pri * 100000 + (x.days === null ? 99999 : Math.max(0, Math.min(99998, x.days + 5000))) }[k];
+  }
+  function priceSection() {
+    const box = el('section', { class: 'card pricesec', id: 'price-section' });
+    async function load() {
+      box.replaceChildren(el('h3', { text: 'Price Increase Tracking' }), el('p', { class: 'muted', text: 'Loading…' }));
+      const r = await api('puList', {});
+      if (!r.ok) { if (r.code === 'UNAUTHENTICATED') return showLogin(r.error); PU.err = r.error || 'Could not load price updates.'; PU.rows = null; } else { PU.rows = r.rows; PU.err = ''; }
+      draw();
+    }
+    function draw() {
+      const head = el('div', { class: 'puhead' }, el('div', {}, el('h3', { text: 'Price Increase Tracking' }),
+        el('p', { class: 'muted', text: 'Price updates sent to Skye Ingraham, built from your CAMCO mailbox. Admin only. A sent email is not treated as accepted until Skye confirms.' })),
+        el('button', { class: 'btn btn-sm', type: 'button', text: 'Refresh', onclick: load }));
+      if (PU.err) { box.replaceChildren(head, el('p', { class: 'error', text: PU.err })); return; }
+      const all = puView(), S = SOPrice.summarize(PU.rows, today());
+      const tile = (n, label, cls, status) => el('button', { class: 'bk ' + (cls || '') + (PU.status === status && status ? ' on' : ''), type: 'button', title: status ? 'Show only: ' + status : '', onclick: () => { PU.status = PU.status === status ? '' : status || ''; draw(); } },
+        el('span', { class: 'bkn', text: String(n) }), el('span', { class: 'bkl', text: label }));
+      const kpis = el('div', { class: 'bkpis pukpis' }, tile(S.total, 'Price updates sent', '', ''), tile(S.awaiting, 'Awaiting confirmation', S.awaiting ? 'warn' : '', 'Pending Confirmation'),
+        tile(S.soon7, 'Effective in next 7 days', S.soon7 ? 'warn' : '', 'Effective Soon'), tile(S.overdue, 'Overdue', S.overdue ? 'bad' : '', 'Overdue'), tile(S.attention, 'Need your attention', S.attention ? 'bad' : '', 'Needs Attention'));
+      const q = PU.q.toLowerCase();
+      const rows = all.filter((x) => (!PU.status || x.status === PU.status) && (!q || [x.r.part_no, x.status, x.r.source_subject, x.r.sent_date, x.r.effective_date, puDate(x.r.sent_date), puDate(x.r.effective_date), x.alert].join(' ').toLowerCase().includes(q)));
+      rows.sort((a, b) => {
+        const x = puSortVal(a, PU.sort), y = puSortVal(b, PU.sort), nx = x === null || x === undefined || x === '', ny = y === null || y === undefined || y === '';
+        if (nx || ny) return nx === ny ? 0 : nx ? 1 : -1;
+        return (typeof x === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { numeric: true })) * PU.dir;
+      });
+      const chips = el('div', { class: 'chips' }, ['', ...SOPrice.STATUSES].map((s) => {
+        const n = s ? all.filter((x) => x.status === s).length : all.length;
+        return el('button', { class: 'chip' + (PU.status === s ? ' on' : ''), type: 'button', onclick: () => { PU.status = s; draw(); } }, s || 'All', el('b', { text: String(n) }));
+      }));
+      const search = el('input', { type: 'search', placeholder: 'Search part number, date, status…', 'aria-label': 'Search price updates', value: PU.q });
+      search.addEventListener('input', () => {
+        PU.q = search.value.trim(); clearTimeout(draw.t);
+        draw.t = setTimeout(() => { draw(); const s2 = box.querySelector('input[type=search]'); if (s2) { s2.focus(); s2.setSelectionRange(s2.value.length, s2.value.length); } }, 200);
+      });
+      const COLS = [['Part Number', 'part'], ['Previous Price', 'prev'], ['New Price', 'next'], ['Increase %', 'pct'], ['Date Sent to Skye', 'sent'], ['Effective Date', 'eff'], ['Status', 'status'], ['Days Remaining', 'days'], ['Alert', 'alert']];
+      const thead = el('tr', {}, COLS.map(([h, k]) => el('th', { class: 'sortable', tabindex: 0, 'aria-sort': PU.sort === k ? (PU.dir > 0 ? 'ascending' : 'descending') : 'none', text: h + (PU.sort === k ? (PU.dir > 0 ? ' ▲' : ' ▼') : ''),
+        onclick: () => { if (PU.sort === k) PU.dir = -PU.dir; else { PU.sort = k; PU.dir = 1; } draw(); }, onkeydown: (e) => { if (e.key === 'Enter') e.target.click(); } })));
+      const missing = (txt) => el('span', { class: 'nr', text: txt || 'Missing' });
+      const body = [];
+      rows.forEach((x) => {
+        const r = x.r, isOpen = PU.open === r.id;
+        const daysTxt = x.days === null ? missing() : x.days < 0 ? el('span', { class: 'sc-bad-text', text: Math.abs(x.days) + ' days overdue' }) : el('span', { text: x.days === 0 ? 'Today' : x.days + (x.days === 1 ? ' day' : ' days') });
+        body.push(el('tr', { class: 'clickrow pu-' + x.tone, tabindex: 0, 'aria-expanded': isOpen ? 'true' : 'false', onclick: () => { PU.open = isOpen ? null : r.id; draw(); }, onkeydown: (e) => { if (e.key === 'Enter') e.currentTarget.click(); } },
+          el('td', {}, el('b', { text: r.part_no }), r.sent_by && r.sent_by !== 'Sakib Ahamed' ? el('small', { class: 'pusub', text: 'sent by ' + r.sent_by }) : ''),
+          el('td', {}, r.prev_price === null ? missing() : money(r.prev_price)),
+          el('td', {}, r.new_price === null ? missing() : money(r.new_price), r.orig_new_price ? el('small', { class: 'pusub', text: 'revised from ' + money(r.orig_new_price) }) : ''),
+          el('td', {}, x.pct === null ? missing('—') : puPct(x.pct)),
+          el('td', {}, r.sent_date ? puDate(r.sent_date) : missing(), r.revised_date ? el('small', { class: 'pusub', text: 'revised ' + puDate(r.revised_date) }) : ''),
+          el('td', {}, r.effective_date ? puDate(r.effective_date) : missing()),
+          el('td', {}, el('span', { class: 'badge sc-' + x.tone, text: x.status })),
+          el('td', {}, daysTxt),
+          el('td', { class: 'pualert' }, x.alert ? el('span', { text: x.alert }) : el('span', { class: 'muted', text: x.status === 'Confirmed' ? 'None' : 'Waiting' }))));
+        if (isOpen) body.push(puDetail(r, COLS.length));
+      });
+      const table = el('div', { class: 'tablewrap' }, el('table', { class: 'datatable publ' }, el('thead', {}, thead), el('tbody', {}, body.length ? body : el('tr', {}, el('td', { colspan: COLS.length, class: 'muted', text: 'No price updates match.' })))));
+      box.replaceChildren(head, kpis, el('div', { class: 'listtools pubar' }, chips, search), table,
+        el('p', { class: 'muted small', text: 'Effective Soon = within ' + SOPrice.SOON_DAYS + ' days. Days Remaining counts from today to the effective date. Click a row for the email trail.' }));
+    }
+    function puDetail(r, span) {
+      const sel = el('select', { 'aria-label': 'Skye reply status' }, Object.entries(PU_REPLY).map(([k, v]) => el('option', { value: k, text: v, selected: (r.reply || 'none') === k })));
+      const impl = el('select', { 'aria-label': 'Implemented' }, [['', 'Unknown'], ['true', 'Yes, new price in use'], ['false', 'No']].map(([k, v]) => el('option', { value: k, text: v, selected: String(r.implemented === null || r.implemented === undefined ? '' : r.implemented) === k })));
+      const eff = el('input', { type: 'date', value: r.effective_date || '', 'aria-label': 'Effective date' });
+      const save = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: 'Save status', onclick: async () => {
+        save.disabled = true;
+        const res = await api('puSet', { id: r.id, reply: sel.value, reply_date: sel.value !== 'none' && sel.value !== r.reply ? today() : (r.reply_date || null), effective_date: eff.value || null, implemented: impl.value === '' ? null : impl.value === 'true' });
+        save.disabled = false;
+        if (!res.ok) { toast(res.error || 'Could not save.', true); return; }
+        toast('Saved.'); load();
+      } });
+      return el('tr', { class: 'pudetail' }, el('td', { colspan: span },
+        el('div', { class: 'pugrid' },
+          el('div', {}, el('h4', { text: 'Source email' }), el('p', {}, el('b', { text: r.source_subject || 'Missing' })), el('p', { class: 'muted small', text: (r.source_date ? 'Dated ' + puDate(r.source_date) + ' · ' : '') + 'Outlook, ' + (r.sent_by || 'sender unknown') }),
+            el('h4', { text: 'Notes' }), el('p', { text: r.notes || '—' })),
+          el('div', {}, el('h4', { text: 'Email trail' }), el('ol', { class: 'putrail' }, (r.history || []).map((h) => el('li', {}, el('b', { text: puDate(h.date) + ' · ' + h.who }), el('span', { text: h.text }))))),
+          el('div', { class: 'pucontrols' }, el('h4', { text: 'Update status' }), el('label', {}, 'Skye reply', sel), el('label', {}, 'New price in use?', impl), el('label', {}, 'Effective date', eff), save))));
+    }
+    if (PU.rows) draw(); else load();
+    return box;
   }
   $('sc-new').onclick = () => { if (!scCanWrite()) { toast('Your access (' + (state.role || 'unknown') + ') is read-only here.', true); return; } scEditLine(null); };
   $('sc-q').addEventListener('input', () => { clearTimeout(renderScBoard.t); renderScBoard.t = setTimeout(() => { BF.q = $('sc-q').value.trim(); renderScBoard(); }, 150); });

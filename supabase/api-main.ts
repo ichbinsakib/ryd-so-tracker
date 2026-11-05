@@ -342,6 +342,32 @@ async function ltAction(req: any, role: string | null) {
   return { ok: true, found: true, part: rt[0].part, stock, steps, total };
 }
 
+// Price Increase Tracking: price updates sent to Skye. Admin only, enforced here (the rows never leave the server for other roles).
+const PU_REPLIES = ['none', 'confirmed', 'disputed', 'declined'];
+async function puAction(req: any, email: string, role: string | null) {
+  if (role !== 'admin') return fail('FORBIDDEN', 'Only an admin can use Price Increase Tracking.');
+  if (req.action === 'puList') {
+    const r = await sb.from('price_updates').select('id,part_no,prev_price,new_price,orig_new_price,sent_by,sent_date,revised_date,effective_date,reply,reply_date,implemented,source_subject,source_date,notes,history').order('effective_date', { ascending: true, nullsFirst: true });
+    if (r.error) return fail('SERVER_ERROR', r.error.message);
+    return { ok: true, rows: r.data || [] };
+  }
+  if (req.action === 'puSet') {
+    const id = String(req.id || '');
+    if (!UUID.test(id)) return fail('BAD_REQUEST', 'Missing record.');
+    const patch: any = { updated_at: new Date().toISOString() };
+    if (req.reply !== undefined) { if (!PU_REPLIES.includes(String(req.reply))) return fail('INVALID', 'Unknown reply status.'); patch.reply = String(req.reply); }
+    const dateOrNull = (v: any) => (v === null || v === '' ? null : /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : undefined);
+    for (const k of ['reply_date', 'effective_date']) if (req[k] !== undefined) { const d = dateOrNull(req[k]); if (d === undefined) return fail('INVALID', 'Use a valid date.'); patch[k] = d; }
+    if (req.implemented !== undefined) patch.implemented = req.implemented === null ? null : !!req.implemented;
+    if (req.notes !== undefined) { const n = String(req.notes); if (n.length > 4000) return fail('INVALID', 'Keep the note under 4000 characters.'); patch.notes = n; }
+    const u = await sb.from('price_updates').update(patch).eq('id', id);
+    if (u.error) return fail('SERVER_ERROR', u.error.message);
+    await sb.from('app_audit').insert({ user_email: email, field: 'PRICE UPDATE', new_value: id + ' ' + JSON.stringify(patch) });
+    return { ok: true };
+  }
+  return fail('BAD_REQUEST', 'Unknown action.');
+}
+
 async function subconAction(req: any, email: string, role: string | null) {
   if (!role) return fail('FORBIDDEN', 'You are not allowed to use this app.');
   const write = role === 'editor' || role === 'admin';
@@ -606,6 +632,7 @@ async function handleRequest(req: any) {
   if (typeof req.action === 'string' && req.action.startsWith('sc')) return await subconAction(req, email, role);
   if (typeof req.action === 'string' && req.action.startsWith('lg')) return await logAction(req, email, role);
   if (req.action === 'ltLookup') return await ltAction(req, role);
+  if (typeof req.action === 'string' && req.action.startsWith('pu')) return await puAction(req, email, role);
 
   const opts = await prefetch(req, email, role, users, cfg);
   const snap = SOPg.create(opts);

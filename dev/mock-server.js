@@ -37,6 +37,14 @@ const scLines = [
   { id: 's5', part_no: 'CHN-520', qty: 120, so_no: 'S5002', po_no: 'PO-78', priority: 'NORMAL', sub_required: 'YES', so_required: 'YES', ms: { rfq: iso(-90), quote_received: iso(-80), quote_approved: iso(-75), so_requested: iso(-74), so_received: iso(-70), po_created: iso(-66), po_approved: iso(-64), po_to_vendor: iso(-63), production_start: iso(-55), ready_to_ship: iso(-20), vendor_ship: iso(-15), received_camco: iso(-3) }, exp: {} }
 ].map((l) => Object.assign({ bpo_no: '', batch: '', so_no: '', po_no: '', ryd_part: '', description: '', owner: '', team_member: '', comm_ref: '', decision_note: '', review_status: '', blocker_type: '', blocker: '', next_action: '', delay_reason: '', note: '', escalated: false, closed: false, qty_shipped: 0, qty_received: 0, qty_hold: 0, qty_rejected: 0, qty_stocked: 0, sent_date: null, customer_due_date: null, next_action_date: null, revised_date: null, last_update: null, orig: {}, exp: {} }, l));
 ['BPO-001', 'BPO-001', 'BPO-002', 'BPO-003', 'BPO-003'].forEach((b, i) => { Object.assign(scLines[i], { bpo_no: b, batch: 'A', vendor: i < 3 ? 'Ningbo Precision' : 'Shenzhen Metal', ryd_part: 'RYD-' + (900 + i), description: i % 2 ? 'Bracket, machined' : '' }); });
+// Price Increase Tracking stub: the real rows from the work mailbox (dev/price-updates-seed.json); admin only like the real API.
+const puRows = require('./price-updates-seed.json').map((r, i) => Object.assign({ id: '00000000-0000-4000-8000-' + String(i + 1).padStart(12, '0') }, r));
+function puMock(rq) {
+  if (rq.idToken !== 'tok-admin') return { ok: false, code: 'FORBIDDEN', error: 'Only an admin can use Price Increase Tracking.' };
+  if (rq.action === 'puList') return { ok: true, rows: puRows };
+  if (rq.action === 'puSet') { const r = puRows.find((x) => x.id === rq.id); if (!r) return { ok: false, code: 'BAD_REQUEST', error: 'Missing record.' }; ['reply', 'reply_date', 'effective_date', 'implemented'].forEach((k) => { if (rq[k] !== undefined) r[k] = rq[k]; }); return { ok: true }; }
+  return { ok: false, code: 'BAD_REQUEST', error: 'Unknown action.' };
+}
 const scEvents = [];
 function scMock(rq) {
   const today = rq.today || iso(0);
@@ -79,7 +87,7 @@ http.createServer((req, res) => {
       let out;
       try {
         const rq = JSON.parse(body);
-        out = String(rq.action || '').startsWith('sc') ? scMock(rq) : Service.handle(sheet, rq);
+        out = String(rq.action || '').startsWith('pu') ? puMock(rq) : String(rq.action || '').startsWith('sc') ? scMock(rq) : Service.handle(sheet, rq);
       } catch (e) { out = { ok: false, code: 'BAD_REQUEST', error: 'Bad JSON' }; }
       res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(out));
     });

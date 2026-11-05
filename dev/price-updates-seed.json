@@ -1,0 +1,122 @@
+[
+  {
+    "part_no": "114-018-066", "prev_price": 12.69, "new_price": 14.93, "orig_new_price": null,
+    "sent_by": "Sakib Ahamed", "sent_date": "2026-09-23", "revised_date": null, "effective_date": "2026-11-23",
+    "reply": "none", "reply_date": null, "implemented": null,
+    "source_subject": "Pricing Update Notification - PART# 114-018-066 & 828-006-728", "source_date": "2026-09-23",
+    "notes": "Effective date was first given as 10/31/2026 and corrected to 11/23/2026 on 9/24. Skye's 10/22 table lists this part (+18%) but she only asked for review of 838-007-056 and 838-000-895; the 10/30 email says this price remains as previously proposed. No acceptance from Skye on file.",
+    "history": [
+      {"date": "2026-09-23", "who": "Sakib Ahamed", "text": "Sent pricing update 114-018-066 $12.69 to $14.93 and 828-006-728 $9.17 to $10.08, effective 10/31/2026. Rich Arnold added a note the same day that CAMCO is losing money on both parts."},
+      {"date": "2026-09-24", "who": "Sakib Ahamed", "text": "Corrected the effective date from 10/31/2026 to 11/23/2026."},
+      {"date": "2026-10-22", "who": "Skye Ingraham", "text": "After the Teams review, asked CAMCO to review only 838-007-056 and 838-000-895; listed 114-018-066 at +18% with no objection or approval."},
+      {"date": "2026-10-30", "who": "Sakib Ahamed", "text": "Revised proposal email states 136-000-433, 114-018-066 and 828-006-728 remain as previously proposed."}
+    ]
+  },
+  {
+    "part_no": "828-006-728", "prev_price": 9.17, "new_price": 10.08, "orig_new_price": null,
+    "sent_by": "Sakib Ahamed", "sent_date": "2026-09-23", "revised_date": null, "effective_date": "2026-11-23",
+    "reply": "none", "reply_date": null, "implemented": null,
+    "source_subject": "Pricing Update Notification - PART# 114-018-066 & 828-006-728", "source_date": "2026-09-23",
+    "notes": "Effective date was first given as 10/31/2026 and corrected to 11/23/2026 on 9/24. Listed by Skye on 10/22 at +10% with no objection or approval; 10/30 email says it remains as proposed. No acceptance on file.",
+    "history": [
+      {"date": "2026-09-23", "who": "Sakib Ahamed", "text": "Sent pricing update 828-006-728 $9.17 to $10.08, effective 10/31/2026."},
+      {"date": "2026-09-24", "who": "Sakib Ahamed", "text": "Corrected the effective date to 11/23/2026."},
+      {"date": "2026-10-22", "who": "Skye Ingraham", "text": "Listed at +10% in her review table; no approval or objection recorded for this part."},
+      {"date": "2026-10-30", "who": "Sakib Ahamed", "text": "Stated the price remains as previously proposed."}
+    ]
+  },
+  {
+    "part_no": "838-007-056", "prev_price": 3.24, "new_price": 3.63, "orig_new_price": 6.43,
+    "sent_by": "Sakib Ahamed", "sent_date": "2026-09-16", "revised_date": "2026-10-30", "effective_date": "2026-11-16",
+    "reply": "disputed", "reply_date": "2026-10-22", "implemented": null,
+    "source_subject": "Pricing Update Notification - PART# 838-007-056, 136-000-433 & 838-000-895", "source_date": "2026-09-16",
+    "notes": "Original proposal $6.43 was challenged by Skye (benchmark about 40% lower). CAMCO revised it to $3.63 on 10/30 (+12%). The revised email does not restate an effective date, so 11/16/2026 (from the 10/6 correction) is assumed to still apply. Skye has not replied to the revision.",
+    "history": [
+      {"date": "2026-09-16", "who": "Sakib Ahamed", "text": "Sent $3.24 to $6.43, effective 9/30/2026."},
+      {"date": "2026-10-06", "who": "Sakib Ahamed", "text": "Corrected the effective date from 9/30/2026 to 11/16/2026."},
+      {"date": "2026-10-22", "who": "Skye Ingraham", "text": "Said the price is not competitive against benchmark: about 40% lower from similar suppliers. Asked CAMCO to review."},
+      {"date": "2026-10-30", "who": "Sakib Ahamed", "text": "Revised the proposal to $3.63, only a 12% increase over the current price."}
+    ]
+  },
+  {
+    "part_no": "136-000-433", "prev_price": 41.16, "new_price": 82.97, "orig_new_price": null,
+    "sent_by": "Sakib Ahamed", "sent_date": "2026-09-16", "revised_date": null, "effective_date": "2026-11-16",
+    "reply": "none", "reply_date": null, "implemented": null,
+    "source_subject": "Pricing Update Notification - PART# 838-007-056, 136-000-433 & 838-000-895", "source_date": "2026-09-16",
+    "notes": "Effective date was first given as 9/30/2026 and corrected to 11/16/2026 on 10/6. Skye's 10/22 table lists it (+102%, EAU 12) without a decision. 10/30 email says it remains as proposed. No acceptance on file.",
+    "history": [
+      {"date": "2026-09-16", "who": "Sakib Ahamed", "text": "Sent $41.16 to $82.97, effective 9/30/2026 (low volume part, about 30 pcs shipped per year)."},
+      {"date": "2026-10-06", "who": "Sakib Ahamed", "text": "Corrected the effective date to 11/16/2026."},
+      {"date": "2026-10-22", "who": "Skye Ingraham", "text": "Listed at +102%, EAU 12, annual impact $502; no decision recorded."},
+      {"date": "2026-10-30", "who": "Sakib Ahamed", "text": "Stated the price remains as previously proposed."}
+    ]
+  },
+  {
+    "part_no": "838-000-895", "prev_price": 3.41, "new_price": 10.07, "orig_new_price": 12.37,
+    "sent_by": "Sakib Ahamed", "sent_date": "2026-09-16", "revised_date": "2026-10-30", "effective_date": "2026-11-16",
+    "reply": "disputed", "reply_date": "2026-10-22", "implemented": null,
+    "source_subject": "Pricing Update Notification - PART# 838-007-056, 136-000-433 & 838-000-895", "source_date": "2026-09-16",
+    "notes": "Original proposal $12.37 (+263%) was challenged by Skye (benchmark about 50% lower). CAMCO revised it to $10.07 on 10/30. The revised email does not restate an effective date, so 11/16/2026 is assumed to still apply. Skye has not replied to the revision.",
+    "history": [
+      {"date": "2026-09-16", "who": "Sakib Ahamed", "text": "Sent $3.41 to $12.37, effective 9/30/2026."},
+      {"date": "2026-10-06", "who": "Sakib Ahamed", "text": "Corrected the effective date to 11/16/2026."},
+      {"date": "2026-10-22", "who": "Skye Ingraham", "text": "Said the revised unit cost is about 50% higher than the benchmark. Asked CAMCO to review."},
+      {"date": "2026-10-30", "who": "Sakib Ahamed", "text": "Revised the proposal to $10.07 and stated the current $3.41 is well below cost."}
+    ]
+  },
+  {
+    "part_no": "114-019-767", "prev_price": 122.67, "new_price": 142.70, "orig_new_price": null,
+    "sent_by": "Sakib Ahamed", "sent_date": "2026-10-30", "revised_date": null, "effective_date": "2026-12-31",
+    "reply": "none", "reply_date": null, "implemented": null,
+    "source_subject": "Price Update Request – 114-019-767", "source_date": "2026-10-30",
+    "notes": "Material-only pass-through (steel, blast, freight): +$20.03. The email appears twice in Sent Items (9:49 PM and 9:52 PM; the second copies Rich Arnold and Leo McDonald). No reply from Skye yet.",
+    "history": [
+      {"date": "2026-10-30", "who": "Sakib Ahamed", "text": "Sent $122.67 to $142.70 (+16.3%), effective 12/31/2026, with an Oct-2024 vs today material cost table."}
+    ]
+  },
+  {
+    "part_no": "1305846", "prev_price": 8.73, "new_price": 19.17, "orig_new_price": null,
+    "sent_by": "Leo McDonald", "sent_date": "2026-05-13", "revised_date": null, "effective_date": "2026-07-14",
+    "reply": "none", "reply_date": null, "implemented": null,
+    "source_subject": "Pricing Update Notification", "source_date": "2026-05-13",
+    "notes": "Sent to Skye by Leo McDonald (not from your own sent mail). On 10/6 Leo wrote that this part's price was not yet updated and asked you to update it. No reply from Skye on file; whether the new price is in use is not confirmed.",
+    "history": [
+      {"date": "2026-05-13", "who": "Leo McDonald", "text": "Sent to Skye: 1305846 $8.73 to $19.17 (low volume, plating increase), effective 7/14/2026."},
+      {"date": "2026-10-06", "who": "Leo McDonald", "text": "Told you the price was incorrect on an SO request and that this part and two others were not updated. His follow-up flag was marked completed on 10/12; the outcome is not in the email."}
+    ]
+  },
+  {
+    "part_no": "1293255", "prev_price": 40.58, "new_price": 44.11, "orig_new_price": null,
+    "sent_by": "Leo McDonald", "sent_date": "2026-05-13", "revised_date": null, "effective_date": "2026-07-14",
+    "reply": "none", "reply_date": null, "implemented": null,
+    "source_subject": "Pricing Update Notification", "source_date": "2026-05-13",
+    "notes": "Sent to Skye by Leo McDonald. Material cost up 10%. Leo reported on 10/6 that the price had not been updated. No reply from Skye on file.",
+    "history": [
+      {"date": "2026-05-13", "who": "Leo McDonald", "text": "Sent to Skye: 1293255 $40.58 to $44.11, effective 7/14/2026."},
+      {"date": "2026-10-06", "who": "Leo McDonald", "text": "Reported the price had not been updated."}
+    ]
+  },
+  {
+    "part_no": "1185528", "prev_price": 4.44, "new_price": 4.88, "orig_new_price": null,
+    "sent_by": "Leo McDonald", "sent_date": "2026-05-13", "revised_date": null, "effective_date": "2026-07-14",
+    "reply": "none", "reply_date": null, "implemented": null,
+    "source_subject": "Pricing Update Notification", "source_date": "2026-05-13",
+    "notes": "Sent to Skye by Leo McDonald. Average cost over the last three runs exceeds $5.00. Leo reported on 10/6 that the price had not been updated. No reply from Skye on file.",
+    "history": [
+      {"date": "2026-05-13", "who": "Leo McDonald", "text": "Sent to Skye: 1185528 $4.44 to $4.88, effective 7/14/2026."},
+      {"date": "2026-10-06", "who": "Leo McDonald", "text": "Reported the price had not been updated."}
+    ]
+  },
+  {
+    "part_no": "838-004-332", "prev_price": 3.38, "new_price": 3.65, "orig_new_price": null,
+    "sent_by": "Sakib Ahamed", "sent_date": null, "revised_date": null, "effective_date": null,
+    "reply": "declined", "reply_date": "2026-07-09", "implemented": null,
+    "source_subject": "Request to Update PO:90450082 Price", "source_date": "2026-06-09",
+    "notes": "The $3.65 request went to Dulcey Benham (6/9, 6/10, 6/17, 6/22, 7/8) and reached Skye by forward, so there is no email to Skye with a send date. Skye replied 7/9 that her system and the March 2025 confirmation from Leo both say $3.38. On 7/13 you wrote to Skye that $3.38 is correct. No effective date was ever given. Confirm with Leo before asking again.",
+    "history": [
+      {"date": "2026-06-09", "who": "Sakib Ahamed", "text": "Asked Dulcey Benham to review 838-004-332 at $3.65 (was $3.38) on PO 90450082. Repeated 6/10, 6/17, 6/22 and 7/8."},
+      {"date": "2026-07-09", "who": "Skye Ingraham", "text": "The email you attached is from January 2025; her last email (March 2025, Leo) confirmed $3.38, the price in the system."},
+      {"date": "2026-07-13", "who": "Sakib Ahamed", "text": "Apologised to Skye, said $3.38 is correct and that you will check price changes with Leo first."}
+    ]
+  }
+]
