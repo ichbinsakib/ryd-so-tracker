@@ -220,10 +220,9 @@
   const withoutClosed = (r) => Object.assign({}, r, { rows: r.rows.filter((x) => !/CLOSE/.test(norm(x.status))) });
   function setDashMode() {
     const admin = isAdmin();
-    $('dash-title').textContent = admin ? 'Inhouse' : 'My SOs';
-    $('dash-sub').textContent = admin ? 'Progress of every sales order that is not closed.' : 'Progress of every sales order that is not closed.';
+    $('dash-title').textContent = 'Inhouse';
+    $('dash-sub').textContent = 'Progress of every sales order that is not closed.';
     $('fresh-cards').hidden = state.role === 'viewer'; $('admin-users').hidden = !admin; $('admin-new').hidden = state.role === 'viewer';
-    if (!admin && !state.sortSet) { state.sort = 'due'; $('sort').value = 'due'; state.sortSet = true; }
   }
   function goHome() {
     state.dirty = false; state.current = null; updateSaveBar();
@@ -422,7 +421,7 @@
     const open = rows.filter(rowOpen), mine = open.filter(isMine), waiting = open.filter(isWaiting), risk = open.filter(matRisk), soon = open.filter((r) => dueWithin(r, 14)), late = open.filter((r) => r.lc && r.lc.daysToDue !== null && r.lc.daysToDue < 0);
     const pcs = open.reduce((t, r) => t + (parseFloat(norm(r.qty).replace(/,/g, '')) || 0), 0), plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
     navBadge('nb-inhouse', mine.length);
-    $('dash-sub').textContent = isAdmin() ? open.length ? plural(open.length, 'open SO') + ' · ' + fmtN(pcs, 0) + ' pcs · ' + mine.length + ' need your action' : 'No open SOs.' : plural(open.length, 'open SO') + ' · ' + fmtN(pcs, 0) + ' pcs';
+    $('dash-sub').textContent = open.length ? plural(open.length, 'open SO') + ' · ' + fmtN(pcs, 0) + ' pcs · ' + mine.length + ' need your action' : 'No open SOs.';
     const fc = (tone, n, label, sub, go) => el('button', { class: 'fc ' + tone, type: 'button', onclick: go }, el('span', { class: 'fcn', text: String(n) }), el('span', { class: 'fcl', text: label }), el('small', { text: sub }));
     const go = (c) => () => { state.chip = c; state.stage = ''; state.mat = ''; renderPipeline(state.dash.rows); renderMatReq(state.dash.rows); buildChips(); applyView(); $('grid').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
     const by = {}; waiting.forEach((r) => { const w = r.lc.waitingOn || 'Others'; by[w] = (by[w] || 0) + 1; });
@@ -543,7 +542,7 @@
     const slice = state.view.slice(state.page * state.pageSize, (state.page + 1) * state.pageSize);
     const body = $('grid').tBodies[0];
     const mpill = (m) => el('span', { class: 'badge ' + (m === 'Late' ? 'sc-bad' : m === 'At Risk' ? 'sc-warn' : m === 'Unknown' ? 'sc-muted' : 'sc-ok'), text: m });
-    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : (isAdmin() ? 'No open SOs.' : 'You have no open SOs yet. Use Open an SO, or find one by its number.') })));
+    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : 'No open SOs.' })));
     else body.replaceChildren(...slice.map((r) => { const lc = r.lc, att = lc && lc.reasons.some((x) => x.level === 'crit') ? 'crit' : lc && lc.reasons.length ? 'warn' : 'ok';
       return el('tr', { tabindex: 0, onclick: () => openById(r.id), onkeydown: (e) => { if (e.key === 'Enter') openById(r.id); } },
         el('td', {}, el('span', { class: 'dot sc-dot-' + att, title: att === 'crit' ? 'Critical' : att === 'warn' ? 'Needs attention' : 'On track' })),
