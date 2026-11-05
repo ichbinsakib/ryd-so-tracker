@@ -1070,7 +1070,7 @@
       staleDash(); state.current = r.record; const t = state.tab; renderDetail(); selectTab(t); updateDirty(); banner('detail-banner', 'ok', 'Saved ' + r.changed.length + ' field(s) to the sheet.'); toast('Saved to the sheet.'); return;
     }
     updateDirty();
-    if (r.code === 'INVALID') { banner('detail-banner', 'err', 'Some values are invalid. Nothing was saved.'); showFieldErrors('fld-', r.fieldErrors); }
+    if (r.code === 'INVALID') { banner('detail-banner', 'err', (r.error && r.error !== 'Some values are invalid.' ? r.error : 'Some values are invalid.') + ' Nothing was saved.'); showFieldErrors('fld-', r.fieldErrors); }
     else if (r.code === 'CONFLICT') conflict(r);
     else if (r.code === 'UNAUTHENTICATED') reauth(r.error);
     else if (r.code === 'BUSY') banner('detail-banner', 'warn', r.error + ' Your edits are still here.');

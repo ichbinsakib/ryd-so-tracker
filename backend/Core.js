@@ -251,6 +251,7 @@ var SOCore = (function () {
    * @param {string} baseVersion version the user's edit was based on
    * @param {Object} changes   {key: newValue}
    */
+  var NEEDS_SO_NO = ['1.ANR', '3.OPEN'];
   function planUpdate(current, baseVersion, changes) {
     if (!current) return { ok: false, code: 'NOT_FOUND', error: 'Record not found. It may have been removed or its ID changed.' };
     if (!baseVersion || baseVersion !== current.version) {
@@ -269,7 +270,14 @@ var SOCore = (function () {
       if (sameValue(r.value, current.values[k])) return; // unchanged: leave the cell (and legacy text) alone
       writes.push({ key: k, field: f, value: r.value, old: current.values[k] });
     });
-    if (Object.keys(errors).length) return { ok: false, code: 'INVALID', error: 'Some values are invalid.', fieldErrors: errors };
+    // Hard rule: an SO cannot be ANR or OPEN until it has an SO number.
+    var after = {}; writes.forEach(function (w) { after[w.key] = w.value; });
+    var soAfter = after.so_no !== undefined ? after.so_no : current.values.so_no;
+    var stAfter = after.status !== undefined ? after.status : current.values.status;
+    if (!errors.status && !errors.so_no && NEEDS_SO_NO.indexOf(String(stAfter || '').trim()) >= 0 && !String(soAfter === undefined || soAfter === null ? '' : soAfter).trim() && (after.status !== undefined || after.so_no !== undefined)) {
+      errors[after.status !== undefined ? 'status' : 'so_no'] = 'Enter the SO number first: an SO cannot be ' + String(stAfter).replace(/^\d\./, '') + ' until it has an SO number.';
+    }
+    if (Object.keys(errors).length) return { ok: false, code: 'INVALID', error: errors.status && /SO number first/.test(errors.status) || errors.so_no && /SO number first/.test(errors.so_no) ? 'Enter the SO number first: an SO cannot be ANR or OPEN until it has an SO number.' : 'Some values are invalid.', fieldErrors: errors };
     if (!writes.length) return { ok: false, code: 'NO_CHANGES', error: 'Nothing to save.' };
     return { ok: true, writes: writes };
   }

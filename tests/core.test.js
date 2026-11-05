@@ -90,3 +90,15 @@ test('STATUS is required: cannot be cleared, but other fields can', () => {
   assert.equal(Core.validateValue(Core.BY_KEY.notes, '').ok, true);
   assert.equal(Core.publicFields().find(f => f.key === 'status').required, true);
 });
+
+test('hard rule: an SO cannot become ANR or OPEN without an SO number', () => {
+  const cur = (v) => ({ version: 'v', values: v, formulaLocked: [] });
+  const plan = (v, ch) => Core.planUpdate(cur(v), 'v', ch);
+  assert.equal(plan({ status: '1. ANALYSIS', so_no: '' }, { status: '1.ANR' }).ok, false);
+  assert.equal(plan({ status: '2.RFS', so_no: '' }, { status: '3.OPEN' }).ok, false);
+  assert.ok(plan({ status: '1. ANALYSIS', so_no: '' }, { status: '1.ANR' }).fieldErrors.status);
+  assert.equal(plan({ status: '1. ANALYSIS', so_no: '' }, { status: '1.ANR', so_no: '123' }).ok, true, 'giving the SO number in the same save is fine');
+  assert.equal(plan({ status: '1. ANALYSIS', so_no: '55' }, { status: '3.OPEN' }).ok, true);
+  assert.equal(plan({ status: '3.OPEN', so_no: '55' }, { so_no: '' }).ok, false, 'the SO number cannot be removed from an OPEN SO');
+  assert.equal(plan({ status: '1. ANALYSIS', so_no: '' }, { status: '2.RFS' }).ok, true, 'other statuses do not need an SO number');
+});
