@@ -57,6 +57,11 @@ var SOPrice = (function () {
       status = 'Pending Confirmation';
       alert = sentAgo >= FOLLOW_DAYS ? 'No reply for ' + plural(sentAgo, 'day') + '. Follow up with Skye.' : '';
     }
+    var lastSent = r.revised_date || r.sent_date;
+    if (reply === 'none' && r.last_reply_date && lastSent && r.last_reply_date > lastSent) {
+      alert = 'Skye replied ' + dshort(r.last_reply_date) + ' (not recorded as a confirmation): review the reply. ' + alert;
+      if (status === 'Pending Confirmation') status = 'Needs Attention';
+    }
     var tone = status === 'Confirmed' ? 'ok' : status === 'Needs Attention' || status === 'Overdue' ? 'bad' : status === 'Effective Soon' ? 'warn' : 'muted';
     return { pct: pct, days: days, sentAgo: sentAgo, status: status, tone: tone, alert: alert, missing: missing };
   }
