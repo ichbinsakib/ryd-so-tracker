@@ -2615,75 +2615,13 @@ async function ltAction(req: any, role: string | null) {
 
 // Price Increase Tracking: price updates sent to Skye. Admin only, enforced here (the rows never leave the server for other roles).
 const PU_REPLIES = ['none', 'confirmed', 'disputed', 'declined'];
-// Merge price updates read from the mailbox (in the admin's browser) into price_updates.
-// New parts are added. For parts already tracked, nothing the admin entered (Skye reply status, implemented, notes) is touched; only empty fields are filled,
-// a newer revised price replaces the price, newer history and Skye's latest reply are added, and a different effective date is reported as a conflict instead of overwriting.
-async function puSync(req: any) {
-  const items: any[] = Array.isArray(req.items) ? req.items : [];
-  if (items.length > 300) return fail('BAD_REQUEST', 'Too many items.');
-  const cur = (must(await sb.from('price_updates').select('*') as any) as any[]);
-  const byPart: any = {}; cur.forEach((r: any) => { byPart[String(r.part_no).toUpperCase()] = r; });
-  const isD = (v: any) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
-  const dOrNull = (v: any) => (isD(v) ? v : null);
-  const nOrNull = (v: any) => (typeof v === 'number' && isFinite(v) && v >= 0 && v < 1e7 ? v : null);
-  const out: any = { ok: true, added: [], updated: [], conflicts: [], unchanged: 0, scanned: Number(req.scanned) || 0 };
-  for (const it of items) {
-    const part = String(it.part_no || '').trim().slice(0, 40);
-    if (!part || !/^[0-9][0-9A-Za-z\-\/]+$/.test(part)) continue;
-    const hist = (Array.isArray(it.history) ? it.history : []).filter((h: any) => h && isD(h.date)).slice(0, 30).map((h: any) => ({ date: h.date, who: String(h.who || '').slice(0, 80), text: String(h.text || '').slice(0, 400) }));
-    const row: any = { part_no: part, prev_price: nOrNull(it.prev_price), new_price: nOrNull(it.new_price), orig_new_price: nOrNull(it.orig_new_price), sent_by: String(it.sent_by || '').slice(0, 80), sent_date: dOrNull(it.sent_date), revised_date: dOrNull(it.revised_date),
-      effective_date: dOrNull(it.effective_date), source_subject: String(it.source_subject || '').slice(0, 300), source_date: dOrNull(it.source_date), conversation_id: String(it.conversation_id || '').slice(0, 300),
-      last_reply_date: dOrNull(it.last_reply_date), last_reply_text: String(it.last_reply_text || '').slice(0, 300), history: hist };
-    const ex = byPart[part.toUpperCase()];
-    if (!ex) {
-      const ins = await sb.from('price_updates').insert(row);
-      if (ins.error) return fail('SERVER_ERROR', ins.error.message);
-      out.added.push(part); continue;
-    }
-    const patch: any = {}, why: string[] = [];
-    const empty = (v: any) => v === null || v === undefined || v === '';
-    for (const k of ['prev_price', 'sent_date', 'source_subject', 'source_date', 'sent_by', 'conversation_id']) if (empty(ex[k]) && !empty(row[k])) { patch[k] = row[k]; why.push(k); }
-    const exLast = String(ex.revised_date || ex.sent_date || ''), newLast = String(row.revised_date || row.sent_date || '');
-    if (row.new_price !== null && Number(ex.new_price) !== row.new_price) {
-      if (newLast > exLast) { patch.new_price = row.new_price; patch.orig_new_price = ex.orig_new_price === null ? ex.new_price : ex.orig_new_price; patch.revised_date = row.revised_date || row.sent_date; why.push('price revised'); }
-      else out.conflicts.push({ part_no: part, field: 'New price', mail: row.new_price, app: Number(ex.new_price) });
-    }
-    if (row.effective_date) {
-      if (empty(ex.effective_date)) { patch.effective_date = row.effective_date; why.push('effective_date'); }
-      else if (ex.effective_date !== row.effective_date) out.conflicts.push({ part_no: part, field: 'Effective date', mail: row.effective_date, app: ex.effective_date });
-    }
-    if (row.last_reply_date && (!ex.last_reply_date || row.last_reply_date > ex.last_reply_date)) { patch.last_reply_date = row.last_reply_date; patch.last_reply_text = row.last_reply_text; why.push('Skye reply'); }
-    const oldH: any[] = Array.isArray(ex.history) ? ex.history : [], maxD = oldH.reduce((m: string, h: any) => (h && h.date > m ? h.date : m), '');
-    const fresh = hist.filter((h: any) => h.date > maxD);
-    if (fresh.length) { patch.history = oldH.concat(fresh); why.push('history'); }
-    if (Object.keys(patch).length) {
-      patch.updated_at = new Date().toISOString();
-      const u = await sb.from('price_updates').update(patch).eq('id', ex.id);
-      if (u.error) return fail('SERVER_ERROR', u.error.message);
-      out.updated.push({ part_no: part, what: why });
-    } else out.unchanged++;
-  }
-  return out;
-}
-
 async function puAction(req: any, email: string, role: string | null) {
   if (role !== 'admin') return fail('FORBIDDEN', 'Only an admin can use Price Increase Tracking.');
   if (req.action === 'puList') {
-    const r = await sb.from('price_updates').select('id,part_no,prev_price,new_price,orig_new_price,sent_by,sent_date,revised_date,effective_date,reply,reply_date,implemented,source_subject,source_date,notes,history,conversation_id,last_reply_date,last_reply_text').order('effective_date', { ascending: true, nullsFirst: true });
+    const r = await sb.from('price_updates').select('id,part_no,prev_price,new_price,orig_new_price,sent_by,sent_date,revised_date,effective_date,reply,reply_date,implemented,source_subject,source_date,notes,history').order('effective_date', { ascending: true, nullsFirst: true });
     if (r.error) return fail('SERVER_ERROR', r.error.message);
-    const st = await sb.from('price_settings').select('key,value');
-    const settings: any = {}; ((st.data as any[]) || []).forEach((x: any) => { settings[x.key] = x.value; });
-    return { ok: true, rows: r.data || [], settings };
+    return { ok: true, rows: r.data || [] };
   }
-  if (req.action === 'puSetting') {
-    const key = String(req.key || ''), value = String(req.value === undefined || req.value === null ? '' : req.value).trim();
-    if (!['ms_client_id', 'ms_tenant'].includes(key)) return fail('BAD_REQUEST', 'Unknown setting.');
-    if (value && !/^[0-9a-fA-F-]{36}$|^[a-zA-Z0-9.-]{3,80}$/.test(value)) return fail('INVALID', 'That does not look like an ID.');
-    const u = await sb.from('price_settings').upsert({ key, value });
-    if (u.error) return fail('SERVER_ERROR', u.error.message);
-    return { ok: true };
-  }
-  if (req.action === 'puSync') return await puSync(req);
   if (req.action === 'puSet') {
     const id = String(req.id || '');
     if (!UUID.test(id)) return fail('BAD_REQUEST', 'Missing record.');

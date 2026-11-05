@@ -2155,7 +2155,7 @@
   }
   // ---- Price Increase Tracking (admin only): price updates sent to Skye, with status, days remaining and alerts.
   // The server only returns these rows to admins (puList); the rules live in priceupdates.js.
-  const PU = { rows: null, q: '', status: '', sort: 'priority', dir: 1, open: null, err: '', settings: {}, busy: false, note: null, setup: false };
+  const PU = { rows: null, q: '', status: '', sort: 'priority', dir: 1, open: null, err: '' };
   const PU_REPLY = { none: 'No reply yet', confirmed: 'Confirmed by Skye', disputed: 'Skye questioned the price', declined: 'Not accepted by Skye' };
   const puDate = (s) => { const d = s ? parseDate(s) : null; return d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''; };
   const puPct = (p) => (p === null ? '' : (p > 0 ? '+' : '') + p.toFixed(1) + '%');
@@ -2168,56 +2168,19 @@
     return { part: x.r.part_no, prev: n(x.r.prev_price), next: n(x.r.new_price), pct: x.pct, sent: x.r.sent_date, eff: x.r.effective_date, status: x.pri, days: x.days, alert: x.alert ? 0 : 1,
       priority: x.pri * 100000 + (x.days === null ? 99999 : Math.max(0, Math.min(99998, x.days + 5000))) }[k];
   }
-  // ---- Microsoft sign-in and mailbox read for Price Increase Tracking (runs in this browser; the token never goes to our server)
-  let msalLib = null;
-  function loadMsal() {
-    if (window.msal) return Promise.resolve();
-    if (msalLib) return msalLib;
-    msalLib = new Promise((ok, no) => { const s = document.createElement('script'); s.src = 'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js'; s.onload = ok; s.onerror = () => { msalLib = null; no(new Error('Could not load the Microsoft sign-in library. Check the internet connection.')); }; document.head.appendChild(s); });
-    return msalLib;
-  }
-  async function graphToken(clientId, tenant) {
-    await loadMsal();
-    const app = new window.msal.PublicClientApplication({ auth: { clientId, authority: 'https://login.microsoftonline.com/' + (tenant || 'organizations'), redirectUri: location.origin + '/' }, cache: { cacheLocation: 'sessionStorage' } });
-    const req = { scopes: ['Mail.Read'] }, acc = app.getAllAccounts()[0];
-    if (acc) { try { return (await app.acquireTokenSilent(Object.assign({ account: acc }, req))).accessToken; } catch (e) { /* sign in again */ } }
-    try { return (await app.loginPopup(Object.assign({ prompt: 'select_account' }, req))).accessToken || (await app.acquireTokenSilent(Object.assign({ account: app.getAllAccounts()[0] }, req))).accessToken; }
-    catch (e) { throw new Error(e && e.errorCode === 'popup_window_error' ? 'The sign-in window was blocked. Allow pop-ups for this site and try again.' : 'Microsoft sign-in did not complete: ' + ((e && (e.errorMessage || e.message)) || e)); }
-  }
-  async function graphMessages(token) {
-    const sel = '$select=id,subject,from,toRecipients,ccRecipients,sentDateTime,conversationId,bodyPreview,body&$top=50';
-    const queries = ['ingraham AND price', 'ingraham AND pricing', 'skye AND "price update"'], seen = new Map();
-    for (const q of queries) {
-      let url = 'https://graph.microsoft.com/v1.0/me/messages?$search=' + encodeURIComponent('"' + q + '"') + '&' + sel;
-      for (let page = 0; url && page < 6; page++) {
-        const res = await fetch(url, { headers: { Authorization: 'Bearer ' + token, Prefer: 'outlook.body-content-type="html"', ConsistencyLevel: 'eventual' } });
-        if (res.status === 401 || res.status === 403) throw new Error('Microsoft refused access to the mailbox (' + res.status + '). The app needs the Mail.Read permission; ask IT to grant consent.');
-        if (!res.ok) throw new Error('Outlook returned HTTP ' + res.status + '.');
-        const j = await res.json();
-        (j.value || []).forEach((m) => seen.set(m.id, m));
-        url = j['@odata.nextLink'] || null;
-      }
-    }
-    return [...seen.values()];
-  }
   function priceSection() {
     const box = el('section', { class: 'card pricesec', id: 'price-section' });
     async function load() {
       box.replaceChildren(el('p', { class: 'muted', text: 'Loading…' }));
       const r = await api('puList', {});
-      if (!r.ok) { if (r.code === 'UNAUTHENTICATED') return showLogin(r.error); PU.err = r.error || 'Could not load price updates.'; PU.rows = null; } else { PU.rows = r.rows; PU.settings = r.settings || {}; PU.err = ''; }
+      if (!r.ok) { if (r.code === 'UNAUTHENTICATED') return showLogin(r.error); PU.err = r.error || 'Could not load price updates.'; PU.rows = null; } else { PU.rows = r.rows; PU.err = ''; }
       draw();
     }
     function draw() {
       const head = el('div', { class: 'puhead' }, el('div', {},
         el('p', { class: 'muted', text: 'Price updates sent to Skye Ingraham, built from your CAMCO mailbox. Admin only. A sent email is not treated as accepted until Skye confirms.' })),
-        el('div', { class: 'puactions' },
-          el('button', { class: 'btn btn-sm btn-primary', type: 'button', disabled: PU.busy, text: PU.busy ? 'Reading Outlook…' : 'Refresh from Outlook', title: 'Sign in to Outlook on this PC and read your emails to Skye', onclick: outlookSync }),
-          el('button', { class: 'btn btn-sm', type: 'button', text: 'Outlook setup', onclick: () => { PU.setup = !PU.setup; draw(); } })));
+        el('button', { class: 'btn btn-sm', type: 'button', text: 'Refresh', onclick: load }));
       if (PU.err) { box.replaceChildren(head, el('p', { class: 'error', text: PU.err })); return; }
-      const extra = [];
-      if (PU.setup || !PU.settings.ms_client_id) extra.push(setupPanel());
-      if (PU.note) extra.push(noteBox());
       const all = puView(), S = SOPrice.summarize(PU.rows, today());
       const tile = (n, label, cls, status) => el('button', { class: 'bk ' + (cls || '') + (PU.status === status && status ? ' on' : ''), type: 'button', title: status ? 'Show only: ' + status : '', onclick: () => { PU.status = PU.status === status ? '' : status || ''; draw(); } },
         el('span', { class: 'bkn', text: String(n) }), el('span', { class: 'bkl', text: label }));
@@ -2260,52 +2223,8 @@
         if (isOpen) body.push(puDetail(r, COLS.length));
       });
       const table = el('div', { class: 'tablewrap' }, el('table', { class: 'datatable publ' }, el('thead', {}, thead), el('tbody', {}, body.length ? body : el('tr', {}, el('td', { colspan: COLS.length, class: 'muted', text: 'No price updates match.' })))));
-      box.replaceChildren(head, ...extra, kpis, el('div', { class: 'listtools pubar' }, chips, search), table,
+      box.replaceChildren(head, kpis, el('div', { class: 'listtools pubar' }, chips, search), table,
         el('p', { class: 'muted small', text: 'Effective Soon = within ' + SOPrice.SOON_DAYS + ' days. Days Remaining counts from today to the effective date. Click a row for the email trail.' }));
-    }
-    function noteBox() {
-      const n = PU.note;
-      return el('div', { class: 'punote ' + (n.bad ? 'bad' : 'ok'), role: 'status' }, el('b', { text: n.title }), n.lines.map((l) => el('div', { text: l })), el('button', { class: 'btn btn-sm', type: 'button', text: 'Dismiss', onclick: () => { PU.note = null; draw(); } }));
-    }
-    function setupPanel() {
-      const id = el('input', { type: 'text', placeholder: 'Application (client) ID', value: PU.settings.ms_client_id || '', 'aria-label': 'Application client ID', autocomplete: 'off' });
-      const tn = el('input', { type: 'text', placeholder: 'Directory (tenant) ID, or leave empty for any work account', value: PU.settings.ms_tenant || '', 'aria-label': 'Tenant ID', autocomplete: 'off' });
-      const msg = el('span', { class: 'muted small' });
-      const save = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: 'Save', onclick: async () => {
-        const a = await api('puSetting', { key: 'ms_client_id', value: id.value }), b = a.ok ? await api('puSetting', { key: 'ms_tenant', value: tn.value }) : a;
-        if (!b.ok) { msg.textContent = b.error || 'Could not save.'; return; }
-        PU.settings.ms_client_id = id.value.trim(); PU.settings.ms_tenant = tn.value.trim(); PU.setup = false; toast('Outlook connection saved.'); draw();
-      } });
-      return el('div', { class: 'pusetup' },
-        el('b', { text: 'Connect Outlook (one time)' }),
-        el('p', { class: 'muted small', text: 'Refresh opens a Microsoft sign-in window on whichever PC you are using, then reads your own mailbox (read-only) in that browser. Nothing is stored except the price updates it finds.' }),
-        el('ol', { class: 'small' },
-          el('li', { text: 'In Microsoft Entra admin center, App registrations, choose New registration (one account type: this organization).' }),
-          el('li', { text: 'Add a Single-page application redirect URI: ' + location.origin + '/' }),
-          el('li', { text: 'API permissions, Microsoft Graph, Delegated, Mail.Read (and User.Read). If Camco requires it, ask IT to grant consent.' }),
-          el('li', { text: 'Paste the Application (client) ID below (and the tenant ID if you have it).' })),
-        el('div', { class: 'pusetrow' }, id, tn, save, msg));
-    }
-    async function outlookSync() {
-      const cid = PU.settings.ms_client_id;
-      if (!cid) { PU.setup = true; draw(); return; }
-      PU.busy = true; PU.note = null; draw();
-      try {
-        const token = await graphToken(cid, PU.settings.ms_tenant);
-        const msgs = await graphMessages(token);
-        const got = SOMail.collect(msgs);
-        const r = await api('puSync', { items: got.items, scanned: got.scanned });
-        if (!r.ok) throw new Error(r.error || 'The server could not save the update.');
-        const lines = [];
-        lines.push('Checked ' + msgs.length + ' emails, ' + got.scanned + ' sent to Skye with price tables.');
-        lines.push(r.added.length ? 'New: ' + r.added.join(', ') : 'No new parts.');
-        if (r.updated.length) lines.push('Updated: ' + r.updated.map((u) => u.part_no + ' (' + u.what.join(', ') + ')').join('; '));
-        r.conflicts.forEach((c) => lines.push('Check ' + c.part_no + ': ' + c.field + ' in email is ' + c.mail + ' but the tracker has ' + c.app + '. Not changed.'));
-        PU.note = { title: 'Outlook refreshed ' + new Date().toLocaleTimeString(), lines, bad: false };
-      } catch (e) {
-        PU.note = { title: 'Could not read Outlook', lines: [String((e && e.message) || e)], bad: true };
-      }
-      PU.busy = false; await load();
     }
     function puDetail(r, span) {
       const sel = el('select', { 'aria-label': 'Skye reply status' }, Object.entries(PU_REPLY).map(([k, v]) => el('option', { value: k, text: v, selected: (r.reply || 'none') === k })));

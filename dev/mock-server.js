@@ -41,9 +41,7 @@ const scLines = [
 const puRows = require('./price-updates-seed.json').map((r, i) => Object.assign({ id: '00000000-0000-4000-8000-' + String(i + 1).padStart(12, '0') }, r));
 function puMock(rq) {
   if (rq.idToken !== 'tok-admin') return { ok: false, code: 'FORBIDDEN', error: 'Only an admin can use Price Increase Tracking.' };
-  const puSettings = (global.__puSettings = global.__puSettings || {});
-  if (rq.action === 'puSetting') { puSettings[rq.key] = rq.value; return { ok: true }; }
-  if (rq.action === 'puList') return { ok: true, rows: puRows, settings: puSettings };
+  if (rq.action === 'puList') return { ok: true, rows: puRows };
   if (rq.action === 'puSet') { const r = puRows.find((x) => x.id === rq.id); if (!r) return { ok: false, code: 'BAD_REQUEST', error: 'Missing record.' }; ['reply', 'reply_date', 'effective_date', 'implemented'].forEach((k) => { if (rq[k] !== undefined) r[k] = rq[k]; }); return { ok: true }; }
   return { ok: false, code: 'BAD_REQUEST', error: 'Unknown action.' };
 }
