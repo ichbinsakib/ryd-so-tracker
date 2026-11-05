@@ -1588,13 +1588,13 @@ var SOService = (function () {
         case 'start': {
           // One round trip at sign-in: who am I + (for admins) the dashboard.
           var base = { ok: true, email: auth.email, role: role, fields: Core.publicFields(), intake: Core.intakeInfo(users) };
-          if (role === 'admin') base.dashboard = dashboard(adapter, auth.email, { includeClosed: !!req.includeClosed, today: req.today });
+          if (role === 'admin' || role === 'editor') base.dashboard = dashboard(adapter, auth.email, { includeClosed: !!req.includeClosed, today: req.today });
           return base;
         }
 
         case 'list': {
           // The full table is admin-only; everyone else works one SO at a time.
-          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can see the full list.');
+          if (role !== 'admin' && role !== 'editor') return fail('FORBIDDEN', 'Viewers cannot see the full list.');
           var stock = readStockInfo(adapter);
           var l = loadRecords(adapter, stock);
           return {
@@ -1621,7 +1621,7 @@ var SOService = (function () {
           return deleteUser(adapter, auth.email, cfg, req);
 
         case 'dashboard':
-          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can see the dashboard.');
+          if (role !== 'admin' && role !== 'editor') return fail('FORBIDDEN', 'Viewers cannot see the full dashboard.');
           return dashboard(adapter, auth.email, req);
 
         case 'mySOs': {
@@ -2404,7 +2404,7 @@ async function prefetch(req: any, email: string, role: string | null, users: any
   };
   if (!role) return opts;
   const action = String(req.action || '');
-  const wantsAll = ADMIN_ONLY_ROWS.has(action) && role === 'admin';
+  const wantsAll = ADMIN_ONLY_ROWS.has(action) && (role === 'admin' || role === 'editor');
   let rows: any[] = [];
   if (wantsAll) rows = await allOrderRows();
   else if (action === 'mySOs') rows = await allOrderRows(); // every signed-in user sees every SO; viewers are read-only

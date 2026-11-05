@@ -214,6 +214,7 @@
     openDash();
   }
   const isAdmin = () => state.role === 'admin';
+  const canSeeAll = () => state.role === 'admin' || state.role === 'editor';
   // the dashboard data is fetched once and reused for a minute; any save, upload or delete makes it stale
   const FRESH_MS = 60000, isFresh = (at) => !!at && Date.now() - at < FRESH_MS;
   const staleDash = () => { state.dashAll = null; state.dashAt = 0; state.dashListAt = 0; };
@@ -267,7 +268,7 @@
     const st = $('dash2-status'); st.className = 'statusline'; st.textContent = 'Loading…';
     $('btn-refresh').disabled = true;
     const reuse = !fresh && state.dashAll && isFresh(state.dashAt);
-    const [inh, sc] = await Promise.all([reuse ? Promise.resolve(state.dashAll) : api(isAdmin() ? 'dashboard' : 'mySOs', { includeClosed: true, fresh: !!fresh, today: today() }), api('scList', { today: today() })]);
+    const [inh, sc] = await Promise.all([reuse ? Promise.resolve(state.dashAll) : api(canSeeAll() ? 'dashboard' : 'mySOs', { includeClosed: true, fresh: !!fresh, today: today() }), api('scList', { today: today() })]);
     $('btn-refresh').disabled = false;
     const bad = [inh, sc].find((x) => !x.ok);
     if (bad && bad.code === 'UNAUTHENTICATED') return showLogin(bad.error);
@@ -397,7 +398,7 @@
     $('grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: 'Loading…' })));
     const ls = $('list-status'); ls.className = 'statusline'; ls.textContent = '';
     $('btn-refresh').disabled = true;
-    const r = await api(isAdmin() ? 'dashboard' : 'mySOs', { includeClosed: $('incl-closed').checked, fresh: !!fresh, today: today() });
+    const r = await api(canSeeAll() ? 'dashboard' : 'mySOs', { includeClosed: $('incl-closed').checked, fresh: !!fresh, today: today() });
     $('btn-refresh').disabled = false;
     if (!r.ok) {
       if (r.code === 'UNAUTHENTICATED') return showLogin(r.error);
@@ -513,7 +514,6 @@
   // simple view: open SOs grouped by the stage they are in, each with what to do next
   function setSimple(on) {
     state.simple = on; if (on && state.chip !== 'mine') state.chip = 'all'; $('view-admin').classList.toggle('simple', on); $('btn-view').textContent = on ? 'Detailed view' : 'Simple view';
-    try { localStorage.setItem('inhouseView', on ? 'simple' : 'detail'); } catch (e) { /* private mode */ }
   }
   function renderBoard() {
     const rows = state.view.filter(rowOpen), mineN = (state.dash ? state.dash.rows : []).filter((r) => rowOpen(r) && isMine(r)).length, allN = (state.dash ? state.dash.rows : []).filter(rowOpen).length;
@@ -567,7 +567,7 @@
       toast(r.error || 'Could not delete the SO.', true); return;
     }
     staleDash(); toast('SO deleted.'); state.dirty = false; state.current = null; updateSaveBar();
-    if (state.role === 'admin') loadDashboard(true); else goHome();
+    if (canSeeAll()) loadDashboard(true); else goHome();
   }
   async function openById(id) {
     const r = await api('get', { id });
@@ -2167,7 +2167,7 @@
   $('new-submit').onclick = submitNew;
   $('q').addEventListener('input', () => { clearTimeout(applyView.t); applyView.t = setTimeout(applyView, 150); });
   $('sort').addEventListener('change', (e) => { state.sort = e.target.value; applyView(); });
-  let simplePref = true; try { simplePref = localStorage.getItem('inhouseView') !== 'detail'; } catch (e) { /* private mode */ }
+  const simplePref = true; // every user opens the same simple view; the toggle is per visit, never remembered
   setSimple(simplePref);
   $('btn-view').onclick = () => { setSimple(!state.simple); if (state.dash) applyView(); };
   $('incl-closed').addEventListener('change', () => loadDashboard());

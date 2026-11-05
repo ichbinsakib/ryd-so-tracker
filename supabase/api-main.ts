@@ -141,7 +141,7 @@ async function prefetch(req: any, email: string, role: string | null, users: any
   };
   if (!role) return opts;
   const action = String(req.action || '');
-  const wantsAll = ADMIN_ONLY_ROWS.has(action) && role === 'admin';
+  const wantsAll = ADMIN_ONLY_ROWS.has(action) && (role === 'admin' || role === 'editor');
   let rows: any[] = [];
   if (wantsAll) rows = await allOrderRows();
   else if (action === 'mySOs') rows = await allOrderRows(); // every signed-in user sees every SO; viewers are read-only

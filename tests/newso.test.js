@@ -11,12 +11,14 @@ const goodForm = () => ({
   due_date: '2026-12-01', so_type: 'standard', kanban_or_po: 'po', req_by: 'BRAVO', so_req_date: '2026-10-16', notes: 'rush'
 });
 
-test('non-admins cannot get the full list or the dashboard', () => {
+test('admins and editors get the full list and dashboard; viewers do not', () => {
   const s = new FakeSheet();
-  for (const t of ['tok-editor', 'tok-viewer']) {
-    assert.equal(call(s, t, { action: 'list' }).code, 'FORBIDDEN');
-    assert.equal(call(s, t, { action: 'dashboard' }).code, 'FORBIDDEN');
+  for (const t of ['tok-admin', 'tok-editor']) {
+    assert.equal(call(s, t, { action: 'list' }).ok, true);
+    assert.equal(call(s, t, { action: 'dashboard' }).ok, true);
   }
+  assert.equal(call(s, 'tok-viewer', { action: 'list' }).code, 'FORBIDDEN');
+  assert.equal(call(s, 'tok-viewer', { action: 'dashboard' }).code, 'FORBIDDEN');
   assert.equal(call(s, 'tok-stranger', { action: 'findSO', so_no: '25712' }).code, 'FORBIDDEN');
 });
 
@@ -141,7 +143,7 @@ test('scans: editors upload, everyone authorised can list/download, files must b
   assert.equal(call(s, 'tok-editor', { action: 'uploadScan', id: 'id-1', fileName: 'a.html', mime: 'text/html', data: PDF_B64 }).code, 'INVALID');
 });
 
-test('start: one call returns who-am-I and, for admins only, the dashboard', () => {
+test('start: one call returns who-am-I and, for admins and editors, the dashboard', () => {
   const s = new FakeSheet();
   const a = call(s, 'tok-admin', { action: 'start' });
   assert.equal(a.role, 'admin');
@@ -149,7 +151,8 @@ test('start: one call returns who-am-I and, for admins only, the dashboard', () 
   assert.ok(Array.isArray(a.dashboard.rows));
   const e = call(s, 'tok-editor', { action: 'start' });
   assert.equal(e.role, 'editor');
-  assert.equal(e.dashboard, undefined, 'editors never receive dashboard data');
+  assert.ok(Array.isArray(e.dashboard.rows), 'editors get the same dashboard as admins');
+  assert.equal(call(s, 'tok-viewer', { action: 'start' }).dashboard, undefined, 'viewers never receive dashboard data');
   assert.equal(call(s, 'tok-stranger', { action: 'start' }).code, 'FORBIDDEN');
 });
 
@@ -168,8 +171,8 @@ test('dashboard is cached, fresh=true bypasses the cache, and any write clears i
   call(s, 'tok-admin', { action: 'dashboard' });
   call(s, 'tok-editor', { action: 'createSO', changes: goodForm() });
   assert.equal(call(s, 'tok-admin', { action: 'dashboard' }).cached, undefined);
-  // the cache never lets a non-admin in
-  assert.equal(call(s, 'tok-editor', { action: 'dashboard' }).code, 'FORBIDDEN');
+  // the cache never lets a viewer in
+  assert.equal(call(s, 'tok-viewer', { action: 'dashboard' }).code, 'FORBIDDEN');
 });
 
 test('SO# is optional when opening an SO; people list comes from active users', () => {

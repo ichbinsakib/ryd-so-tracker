@@ -68,13 +68,13 @@ var SOService = (function () {
         case 'start': {
           // One round trip at sign-in: who am I + (for admins) the dashboard.
           var base = { ok: true, email: auth.email, role: role, fields: Core.publicFields(), intake: Core.intakeInfo(users) };
-          if (role === 'admin') base.dashboard = dashboard(adapter, auth.email, { includeClosed: !!req.includeClosed, today: req.today });
+          if (role === 'admin' || role === 'editor') base.dashboard = dashboard(adapter, auth.email, { includeClosed: !!req.includeClosed, today: req.today });
           return base;
         }
 
         case 'list': {
           // The full table is admin-only; everyone else works one SO at a time.
-          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can see the full list.');
+          if (role !== 'admin' && role !== 'editor') return fail('FORBIDDEN', 'Viewers cannot see the full list.');
           var stock = readStockInfo(adapter);
           var l = loadRecords(adapter, stock);
           return {
@@ -101,7 +101,7 @@ var SOService = (function () {
           return deleteUser(adapter, auth.email, cfg, req);
 
         case 'dashboard':
-          if (role !== 'admin') return fail('FORBIDDEN', 'Only admins can see the dashboard.');
+          if (role !== 'admin' && role !== 'editor') return fail('FORBIDDEN', 'Viewers cannot see the full dashboard.');
           return dashboard(adapter, auth.email, req);
 
         case 'mySOs': {

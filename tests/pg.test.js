@@ -139,7 +139,7 @@ test('service on the database adapter: roles and users', () => {
   const p = make({ email: 'stranger@example.com' });
   assert.equal(call(p, { action: 'dashboard' }).code, 'FORBIDDEN');
   const bob = make({ email: 'bob@example.com' });
-  assert.equal(call(bob, { action: 'dashboard' }).code, 'FORBIDDEN', 'editor cannot see the dashboard');
+  assert.equal(call(bob, { action: 'dashboard' }).ok, true, 'editor sees the dashboard like an admin');
   assert.equal(call(bob, { action: 'findSO', so_no: '100' }).ok, true);
   const admin = make();
   const r = call(admin, { action: 'saveUsers', users: [{ email: 'new@example.com', name: 'New', role: 'editor' }] });
