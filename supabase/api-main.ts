@@ -144,13 +144,8 @@ async function prefetch(req: any, email: string, role: string | null, users: any
   const wantsAll = ADMIN_ONLY_ROWS.has(action) && role === 'admin';
   let rows: any[] = [];
   if (wantsAll) rows = await allOrderRows();
-  else if (action === 'mySOs' && role === 'editor') rows = await allOrderRows(); // editors work the whole shop floor; viewers stay limited to their own
-  else if (action === 'mySOs') {
-    const me = users.find((u: any) => u.email === email);
-    const name = (me && me.name) || email.split('@')[0];
-    const q = (v: string) => '"' + String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
-    rows = must(await sb.from('shop_orders').select('row_no,id,data').or('created_by.eq.' + q(email) + ',data->>champion.eq.' + q(name) + ',data->>req_by.eq.' + q(name)).order('row_no').limit(2000)) as any[];
-  } else if (action === 'findSO') {
+  else if (action === 'mySOs') rows = await allOrderRows(); // every signed-in user sees every SO; viewers are read-only
+  else if (action === 'findSO') {
     const want = SOCore.normSo(req.so_no);
     if (want) rows = must(await sb.from('shop_orders').select('row_no,id,data').eq('so_key', want).order('row_no').limit(5)) as any[];
   } else if (BY_ID.has(action) && typeof req.id === 'string' && UUID.test(req.id)) {
