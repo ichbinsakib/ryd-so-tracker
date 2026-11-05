@@ -83,5 +83,25 @@ Header row = 2, data starts at row 3. Row 1 holds helper numbers and is ignored.
 | BW | Invoice checked by | `invoice_checked_by` | text | Editable (unless the cell holds a formula) | Free text |
 | BX | NOTE | `note` | longtext | Editable (unless the cell holds a formula) | Free text |
 | BY | SO CLOSE DATE | `so_close_date` | date | Editable (unless the cell holds a formula) | Date YYYY-MM-DD |
+| CA | SO REQUIRED? | `so_required` | enum | Editable (unless the cell holds a formula) | Dropdown: YES, NO, PENDING |
+| CB | REASON IF NOT REQUIRED / PENDING | `so_required_note` | text | Editable (unless the cell holds a formula) | Free text |
+| CC | PART REVISION | `part_rev` | text | Editable (unless the cell holds a formula) | Free text |
+| CD | MATERIAL SUPPLIER | `supplier` | text | Editable (unless the cell holds a formula) | Free text |
+| CE | QUOTE EXPECTED BY | `quote_expected_date` | date | Editable (unless the cell holds a formula) | Date YYYY-MM-DD |
+| CF | QUOTE ANALYSIS / RECOMMENDED OPTION | `quote_analysis` | longtext | Editable (unless the cell holds a formula) | Free text |
+| CG | QUOTE VALID UNTIL | `quote_valid_until` | date | Editable (unless the cell holds a formula) | Date YYYY-MM-DD |
+| CH | SO# RECEIVED DATE | `so_no_received_date` | date | Editable (unless the cell holds a formula) | Date YYYY-MM-DD |
+| CI | SUPPLIER ACKNOWLEDGMENT | `ack_status` | enum | Editable (unless the cell holds a formula) | Dropdown: PENDING, RECEIVED, DISCREPANCY |
+| CJ | ACKNOWLEDGMENT DATE | `ack_date` | date | Editable (unless the cell holds a formula) | Date YYYY-MM-DD |
+| CK | ACKNOWLEDGMENT NOTE | `ack_note` | text | Editable (unless the cell holds a formula) | Free text |
+| CL | MATERIAL REQUIRED BY | `mat_required_date` | date | Editable (unless the cell holds a formula) | Date YYYY-MM-DD |
+| CM | EXPECTED CLOSURE DATE | `expected_closure_date` | date | Editable (unless the cell holds a formula) | Date YYYY-MM-DD |
+| CN | CLOSURE VERIFIED DATE | `closure_verified_date` | date | Editable (unless the cell holds a formula) | Date YYYY-MM-DD |
+| CO | CLOSURE NOTE / EVIDENCE | `closure_note` | text | Editable (unless the cell holds a formula) | Free text |
+| CP | RESPONSIBLE PERSON | `owner` | text | Editable (unless the cell holds a formula) | Free text |
+| CQ | LAST FOLLOW-UP | `last_followup_date` | date | Editable (unless the cell holds a formula) | Date YYYY-MM-DD |
+| CR | NEXT FOLLOW-UP | `next_followup_date` | date | Editable (unless the cell holds a formula) | Date YYYY-MM-DD |
+| CS | ESCALATED? | `escalated` | enum | Editable (unless the cell holds a formula) | Dropdown: YES, NO |
+| CT | OUTSTANDING ISSUE | `blocker` | text | Editable (unless the cell holds a formula) | Free text |
 
 | (added) | RECORD ID | `id` | text | hidden stable key | Added once by `setupApp()` after the last column |
