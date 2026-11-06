@@ -1029,13 +1029,16 @@
     const rec = state.current; if (!rec) return 'mailto:';
     const v = (k) => { const i = $('fld-' + k); return (i ? i.value : norm(rec.values[k])).trim(); };
     const d = (k) => norm(rec.display[k]).trim();
-    const code = v('material_code') || d('steel_type'), qty = v('qty_requested');
-    const lines = ['Hello,', '', 'Please send a quote for the following material:', '',
+    const code = v('material_code') || d('steel_type'), qty = v('qty_requested'), part = v('part_no');
+    const ok = (x) => x && x !== '-' && !/^#/.test(x) && parseFloat(x) > 0;
+    const lbs = d('req_lbs'), bars = ok(d('req_bar')) ? Math.ceil(parseFloat(d('req_bar'))) + ' bars' + (ok(d('req_ft')) ? ', ' + d('req_ft') + ' ft' : '') : '';
+    const quantity = ok(lbs) ? lbs + ' lbs' + (bars ? ' (' + bars + ')' : '') : (qty || bars || '—');
+    const lines = ['Hello,', '', 'Please send a quote for the following material:', '', 'Part number: ' + (part || '—'),
       'Material: ' + code + (d('steel_type') && d('steel_type') !== code ? ' (' + d('steel_type') + ')' : ''),
       'Bar type: ' + (v('bar_type') || '—') + (d('router_bar_size') && d('router_bar_size') !== '-' ? ', ' + d('router_bar_size') : ''),
-      'Quantity: ' + (qty || (d('req_bar') && d('req_bar') !== '-' ? Math.ceil(parseFloat(d('req_bar'))) + ' bars (' + d('req_ft') + ' ft)' : '—')),
-      '', 'For SO ' + v('so_no') + ', part ' + v('part_no') + (v('due_date') ? ', needed by ' + v('due_date') : '') + '.', '', 'Please reply with the price and lead time.', '', 'Thank you.'];
-    return 'mailto:?subject=' + encodeURIComponent('Material quote request - SO ' + v('so_no') + ' - ' + code) + '&body=' + encodeURIComponent(lines.join('\n'));
+      'Quantity: ' + quantity,
+      '', 'Please reply with the price and lead time.', '', 'Thank you.'];
+    return 'mailto:?subject=' + encodeURIComponent('Material quote request - Part ' + (part || '—') + ' - ' + code) + '&body=' + encodeURIComponent(lines.join('\n'));
   }
   function onEdit(e) {
     if (e.target.dataset.key === 'bar_type' || e.target.dataset.key === 'material_code') liveLbs();
