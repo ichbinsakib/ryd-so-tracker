@@ -351,18 +351,44 @@ async function puAction(req: any, email: string, role: string | null) {
     if (r.error) return fail('SERVER_ERROR', r.error.message);
     return { ok: true, rows: r.data || [] };
   }
-  if (req.action === 'puSet') {
+  if (req.action === 'puSet' || req.action === 'puAdd') {
+    const adding = req.action === 'puAdd';
     const id = String(req.id || '');
-    if (!UUID.test(id)) return fail('BAD_REQUEST', 'Missing record.');
-    const patch: any = { updated_at: new Date().toISOString() };
-    if (req.reply !== undefined) { if (!PU_REPLIES.includes(String(req.reply))) return fail('INVALID', 'Unknown reply status.'); patch.reply = String(req.reply); }
+    if (!adding && !UUID.test(id)) return fail('BAD_REQUEST', 'Missing record.');
+    const patch: any = {}, errors: any = {};
     const dateOrNull = (v: any) => (v === null || v === '' ? null : /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : undefined);
-    for (const k of ['reply_date', 'effective_date']) if (req[k] !== undefined) { const d = dateOrNull(req[k]); if (d === undefined) return fail('INVALID', 'Use a valid date.'); patch[k] = d; }
+    const num = (v: any) => (v === null || v === '' ? null : isFinite(Number(v)) && Number(v) >= 0 && Number(v) < 1e7 ? Math.round(Number(v) * 10000) / 10000 : undefined);
+    const text = (v: any, max: number) => String(v === undefined || v === null ? '' : v).trim().slice(0, max);
+    if (req.part_no !== undefined || adding) { const pn = text(req.part_no, 40); if (!/^[0-9][0-9A-Za-z\-\/]*$/.test(pn)) errors.part_no = 'Enter the part number.'; else patch.part_no = pn; }
+    for (const k of ['prev_price', 'new_price', 'orig_new_price']) if (req[k] !== undefined || (adding && k !== 'orig_new_price')) { const n = num(req[k]); if (n === undefined) errors[k] = 'Enter a price like 12.50.'; else patch[k] = n; }
+    for (const k of ['sent_date', 'revised_date', 'effective_date', 'reply_date', 'source_date']) if (req[k] !== undefined) { const d = dateOrNull(req[k]); if (d === undefined) errors[k] = 'Use a valid date.'; else patch[k] = d; }
+    if (req.reply !== undefined) { if (!PU_REPLIES.includes(String(req.reply))) errors.reply = 'Unknown reply status.'; else patch.reply = String(req.reply); }
     if (req.implemented !== undefined) patch.implemented = req.implemented === null ? null : !!req.implemented;
-    if (req.notes !== undefined) { const n = String(req.notes); if (n.length > 4000) return fail('INVALID', 'Keep the note under 4000 characters.'); patch.notes = n; }
+    if (req.sent_by !== undefined) patch.sent_by = text(req.sent_by, 80);
+    if (req.source_subject !== undefined) patch.source_subject = text(req.source_subject, 300);
+    if (req.notes !== undefined) { const n = String(req.notes); if (n.length > 4000) errors.notes = 'Keep the note under 4000 characters.'; else patch.notes = n; }
+    if (adding && patch.prev_price === null && patch.new_price === null) errors.new_price = 'Enter at least the new price.';
+    if (Object.keys(errors).length) return fail('INVALID', 'Please fix the highlighted fields.', { fieldErrors: errors });
+    if (adding) {
+      if (patch.sent_by === undefined) patch.sent_by = '';
+      patch.history = [{ date: patch.sent_date || new Date().toISOString().slice(0, 10), who: email, text: 'Added manually.' }];
+      const ins = await sb.from('price_updates').insert(patch).select('id').single();
+      if (ins.error) return fail('SERVER_ERROR', ins.error.message);
+      await sb.from('app_audit').insert({ user_email: email, field: 'PRICE UPDATE ADDED', new_value: patch.part_no });
+      return { ok: true, id: (ins.data as any).id };
+    }
+    patch.updated_at = new Date().toISOString();
     const u = await sb.from('price_updates').update(patch).eq('id', id);
     if (u.error) return fail('SERVER_ERROR', u.error.message);
     await sb.from('app_audit').insert({ user_email: email, field: 'PRICE UPDATE', new_value: id + ' ' + JSON.stringify(patch) });
+    return { ok: true };
+  }
+  if (req.action === 'puDelete') {
+    const id = String(req.id || '');
+    if (!UUID.test(id)) return fail('BAD_REQUEST', 'Missing record.');
+    const d = await sb.from('price_updates').delete().eq('id', id);
+    if (d.error) return fail('SERVER_ERROR', d.error.message);
+    await sb.from('app_audit').insert({ user_email: email, field: 'PRICE UPDATE DELETED', new_value: id });
     return { ok: true };
   }
   return fail('BAD_REQUEST', 'Unknown action.');

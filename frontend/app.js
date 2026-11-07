@@ -2158,7 +2158,7 @@
   }
   // ---- Price Increase Tracking (admin only): price updates sent to Skye, with status, days remaining and alerts.
   // The server only returns these rows to admins (puList); the rules live in priceupdates.js.
-  const PU = { rows: null, q: '', status: '', sort: 'priority', dir: 1, open: null, err: '' };
+  const PU = { rows: null, q: '', status: '', sort: 'priority', dir: 1, open: null, err: '', adding: false };
   const PU_REPLY = { none: 'No reply yet', confirmed: 'Confirmed by Skye', disputed: 'Skye questioned the price', declined: 'Not accepted by Skye' };
   const puDate = (s) => { const d = s ? parseDate(s) : null; return d ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''; };
   const puPct = (p) => (p === null ? '' : (p > 0 ? '+' : '') + p.toFixed(1) + '%');
@@ -2182,7 +2182,7 @@
     function draw() {
       const head = el('div', { class: 'puhead' }, el('div', {},
         el('p', { class: 'muted', text: 'Price updates sent to Skye Ingraham, built from your CAMCO mailbox. Admin only. A sent email is not treated as accepted until Skye confirms.' })),
-        el('button', { class: 'btn btn-sm', type: 'button', text: 'Refresh', onclick: load }));
+        el('div', { class: 'puactions' }, el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: '＋ Add price update', onclick: () => { PU.adding = !PU.adding; draw(); } }), el('button', { class: 'btn btn-sm', type: 'button', text: 'Refresh', onclick: load })));
       if (PU.err) { box.replaceChildren(head, el('p', { class: 'error', text: PU.err })); return; }
       const all = puView(), S = SOPrice.summarize(PU.rows, today());
       const tile = (n, label, cls, status) => el('button', { class: 'bk ' + (cls || '') + (PU.status === status && status ? ' on' : ''), type: 'button', title: status ? 'Show only: ' + status : '', onclick: () => { PU.status = PU.status === status ? '' : status || ''; draw(); } },
@@ -2226,8 +2226,32 @@
         if (isOpen) body.push(puDetail(r, COLS.length));
       });
       const table = el('div', { class: 'tablewrap' }, el('table', { class: 'datatable publ' }, el('thead', {}, thead), el('tbody', {}, body.length ? body : el('tr', {}, el('td', { colspan: COLS.length, class: 'muted', text: 'No price updates match.' })))));
-      box.replaceChildren(head, kpis, el('div', { class: 'listtools pubar' }, chips, search), table,
+      box.replaceChildren(head, ...(PU.adding ? [puForm(null)] : []), kpis, el('div', { class: 'listtools pubar' }, chips, search), table,
         el('p', { class: 'muted small', text: 'Effective Soon = within ' + SOPrice.SOON_DAYS + ' days. Days Remaining counts from today to the effective date. Click a row for the email trail.' }));
+    }
+    // one form for adding a price update and for editing one (r = existing row)
+    function puForm(r) {
+      const f = {}, msg = el('span', { class: 'error small', role: 'alert' });
+      const field = (key, label, type, val, ph) => { f[key] = el('input', { type, value: val === null || val === undefined ? '' : val, placeholder: ph || '', step: type === 'number' ? '0.01' : null, min: type === 'number' ? '0' : null, 'aria-label': label, autocomplete: 'off' }); return el('label', {}, label, f[key]); };
+      const sel = el('select', { 'aria-label': 'Skye reply' }, Object.entries(PU_REPLY).map(([k, v]) => el('option', { value: k, text: v, selected: ((r && r.reply) || 'none') === k })));
+      const notes = el('textarea', { rows: 2, 'aria-label': 'Notes', placeholder: 'Anything to remember (what Skye said, which email, who to ask)' }); notes.value = (r && r.notes) || '';
+      const v = (k) => (r ? r[k] : '');
+      const grid = el('div', { class: 'puformgrid' },
+        field('part_no', 'Part number', 'text', v('part_no'), 'e.g. 114-019-767'), field('prev_price', 'Previous price ($)', 'number', v('prev_price')), field('new_price', 'New price ($)', 'number', v('new_price')),
+        field('sent_date', 'Date sent to Skye', 'date', v('sent_date')), field('effective_date', 'Effective date', 'date', v('effective_date')), field('sent_by', 'Sent by', 'text', r ? v('sent_by') : 'Sakib Ahamed'),
+        field('source_subject', 'Email subject (to trace it)', 'text', v('source_subject'), 'e.g. Price Update Request – 114-019-767'), el('label', {}, 'Skye reply', sel));
+      const save = el('button', { class: 'btn btn-sm btn-primary', type: 'button', text: r ? 'Save changes' : 'Add price update', onclick: async () => {
+        msg.textContent = ''; save.disabled = true;
+        const body = { reply: sel.value, notes: notes.value };
+        ['part_no', 'prev_price', 'new_price', 'sent_date', 'effective_date', 'sent_by', 'source_subject'].forEach((k) => { body[k] = f[k].value.trim(); });
+        if (r) { body.id = r.id; if (sel.value !== r.reply && sel.value !== 'none') body.reply_date = today(); } else if (sel.value !== 'none') body.reply_date = today();
+        const res = await api(r ? 'puSet' : 'puAdd', body);
+        save.disabled = false;
+        if (!res.ok) { msg.textContent = (res.fieldErrors && Object.values(res.fieldErrors)[0]) || res.error || 'Could not save.'; return; }
+        toast(r ? 'Saved.' : 'Price update added.'); if (!r) PU.adding = false; load();
+      } });
+      const cancel = r ? null : el('button', { class: 'btn btn-sm', type: 'button', text: 'Cancel', onclick: () => { PU.adding = false; draw(); } });
+      return el('div', { class: r ? 'puform edit' : 'puform' }, el('b', { text: r ? 'Edit details' : 'Add a price update' }), grid, el('label', {}, 'Notes', notes), el('div', { class: 'pusetrow' }, save, cancel || '', msg));
     }
     function puDetail(r, span) {
       const sel = el('select', { 'aria-label': 'Skye reply status' }, Object.entries(PU_REPLY).map(([k, v]) => el('option', { value: k, text: v, selected: (r.reply || 'none') === k })));
@@ -2245,7 +2269,14 @@
           el('div', {}, el('h4', { text: 'Source email' }), el('p', {}, el('b', { text: r.source_subject || 'Missing' })), el('p', { class: 'muted small', text: (r.source_date ? 'Dated ' + puDate(r.source_date) + ' · ' : '') + 'Outlook, ' + (r.sent_by || 'sender unknown') }),
             el('h4', { text: 'Notes' }), el('p', { text: r.notes || '—' })),
           el('div', {}, el('h4', { text: 'Email trail' }), el('ol', { class: 'putrail' }, (r.history || []).map((h) => el('li', {}, el('b', { text: puDate(h.date) + ' · ' + h.who }), el('span', { text: h.text }))))),
-          el('div', { class: 'pucontrols' }, el('h4', { text: 'Update status' }), el('label', {}, 'Skye reply', sel), el('label', {}, 'New price in use?', impl), el('label', {}, 'Effective date', eff), save))));
+          el('div', { class: 'pucontrols' }, el('h4', { text: 'Update status' }), el('label', {}, 'Skye reply', sel), el('label', {}, 'New price in use?', impl), el('label', {}, 'Effective date', eff), save)),
+        puForm(r),
+        el('div', { class: 'pusetrow' }, el('button', { class: 'btn btn-sm', type: 'button', text: 'Delete this row', onclick: async () => {
+          if (!confirm('Delete the price update for ' + r.part_no + '? This cannot be undone.')) return;
+          const res = await api('puDelete', { id: r.id });
+          if (!res.ok) { toast(res.error || 'Could not delete.', true); return; }
+          toast('Deleted.'); PU.open = null; load();
+        } }))));
     }
     if (PU.rows) draw(); else load();
     return box;

@@ -42,7 +42,9 @@ const puRows = require('./price-updates-seed.json').map((r, i) => Object.assign(
 function puMock(rq) {
   if (rq.idToken !== 'tok-admin') return { ok: false, code: 'FORBIDDEN', error: 'Only an admin can use Price Increase Tracking.' };
   if (rq.action === 'puList') return { ok: true, rows: puRows };
-  if (rq.action === 'puSet') { const r = puRows.find((x) => x.id === rq.id); if (!r) return { ok: false, code: 'BAD_REQUEST', error: 'Missing record.' }; ['reply', 'reply_date', 'effective_date', 'implemented'].forEach((k) => { if (rq[k] !== undefined) r[k] = rq[k]; }); return { ok: true }; }
+  if (rq.action === 'puAdd') { if (!rq.part_no) return { ok: false, code: 'INVALID', error: 'Please fix the highlighted fields.', fieldErrors: { part_no: 'Enter the part number.' } }; const row = { id: '00000000-0000-4000-8000-' + String(puRows.length + 100).padStart(12, '0'), orig_new_price: null, revised_date: null, reply_date: null, implemented: null, source_date: null, history: [] }; ['part_no', 'sent_by', 'sent_date', 'effective_date', 'reply', 'reply_date', 'source_subject', 'notes'].forEach((k) => { row[k] = rq[k] === '' || rq[k] === undefined ? (k === 'reply' ? 'none' : null) : rq[k]; }); ['prev_price', 'new_price'].forEach((k) => { row[k] = rq[k] === '' || rq[k] === undefined ? null : Number(rq[k]); }); puRows.push(row); return { ok: true, id: row.id }; }
+  if (rq.action === 'puDelete') { const i = puRows.findIndex((x) => x.id === rq.id); if (i >= 0) puRows.splice(i, 1); return { ok: true }; }
+  if (rq.action === 'puSet') { const r = puRows.find((x) => x.id === rq.id); if (!r) return { ok: false, code: 'BAD_REQUEST', error: 'Missing record.' }; ['part_no', 'sent_by', 'sent_date', 'effective_date', 'reply', 'reply_date', 'source_subject', 'notes', 'implemented'].forEach((k) => { if (rq[k] !== undefined) r[k] = rq[k] === '' ? null : rq[k]; }); ['prev_price', 'new_price'].forEach((k) => { if (rq[k] !== undefined) r[k] = rq[k] === '' ? null : Number(rq[k]); }); return { ok: true }; }
   return { ok: false, code: 'BAD_REQUEST', error: 'Unknown action.' };
 }
 const scEvents = [];
