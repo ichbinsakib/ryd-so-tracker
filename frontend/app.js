@@ -2268,7 +2268,7 @@
         el('div', { class: 'pugrid' },
           el('div', {}, el('h4', { text: 'Source email' }), el('p', {}, el('b', { text: r.source_subject || 'Missing' })), el('p', { class: 'muted small', text: (r.source_date ? 'Dated ' + puDate(r.source_date) + ' · ' : '') + 'Outlook, ' + (r.sent_by || 'sender unknown') }),
             el('h4', { text: 'Notes' }), el('p', { text: r.notes || '—' })),
-          el('div', {}, el('h4', { text: 'Email trail' }), el('ol', { class: 'putrail' }, (r.history || []).map((h) => el('li', {}, el('b', { text: puDate(h.date) + ' · ' + h.who }), el('span', { text: h.text }))))),
+          el('div', {}, el('h4', { text: 'Email trail' }), el('ol', { class: 'putrail' }, (r.history || []).map((h) => el('li', {}, el('b', { text: puDate(h.date) + (h.time ? ' · ' + h.time : '') + ' · ' + h.who }), h.subject ? el('small', { class: 'pusub', text: h.subject }) : '', el('span', { text: h.text }))))),
           el('div', { class: 'pucontrols' }, el('h4', { text: 'Update status' }), el('label', {}, 'Skye reply', sel), el('label', {}, 'New price in use?', impl), el('label', {}, 'Effective date', eff), save)),
         puForm(r),
         el('div', { class: 'pusetrow' }, el('button', { class: 'btn btn-sm', type: 'button', text: 'Delete this row', onclick: async () => {
