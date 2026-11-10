@@ -1,71 +1,55 @@
-# Setup and deployment on Windows (PowerShell)
+# Development setup and deployment (Windows)
 
-Nothing in this guide has been executed against your live Google account yet; sections marked **[manual]** need your Google login.
+## 1. Software
+- Node.js 20+ (developed on Node 24). `node -v`
+- Git for Windows. The working copy is on the `Z:` network share, so run git as `git -c safe.directory='*' ...` (or add the share to `safe.directory` once).
+- Access to the Supabase project `clumhidxgzfkwzwrtngi` ("Shop Order Tracking") and the GitHub repo `ichbinsakib/ryd-so-tracker`.
 
-## 0. Software
-- Node.js 20 or newer (this project was developed on Node 24): https://nodejs.org (LTS). Check: `node -v`
-- Git for Windows: https://git-scm.com. Check: `git --version`
-- A GitHub account.
+No `npm install` is needed for the tests (they use Node's built-in runner). `npm install` only adds `clasp`, which belongs to the retired Apps Script backend.
 
-## 1. Get the project and run the tests
+## 2. Run the tests and the local preview
 ```powershell
-cd "D:\CAMCO\SO Tracker"
-npm install
 npm test
-```
-
-## 2. Try the UI locally (synthetic data, not Google)
-```powershell
 npm run dev:mock
 ```
-Open http://127.0.0.1:5173 and use "Dev sign-in". This uses fake data and is only for UI work.
+The mock serves `frontend/` at http://127.0.0.1:5173 with synthetic data; use "Dev sign-in". It uses `frontend/config.js` (`API_URL: '/api'`, `DEV_MODE: true`) — keep that file as is in the repo; the deploy workflow overwrites it.
 
-## 3. Create the Google OAuth client **[manual]**
-1. https://console.cloud.google.com → create a project "RYD-SO".
-2. APIs & Services → OAuth consent screen: choose *Internal* if you use Google Workspace, otherwise *External* and add your team's emails as test users (or publish).
-3. Credentials → Create credentials → OAuth client ID → *Web application*.
-4. Authorised JavaScript origins: `http://localhost`, `https://<your-github-username>.github.io`, and later `https://your-domain.example`.
-5. Copy the **Client ID** (not a secret).
+The mock runs the shared `backend/` rules against an in-memory fake sheet, so it covers SO screens, subcontractor screens and the price tracking stub, but not the Supabase-only code in `supabase/api-main.ts` (sign-in, `lg*`, `ltLookup`, real queries).
 
-## 4. Create the Apps Script backend **[manual]**
-```powershell
-npx clasp login
-npx clasp create --type standalone --title "RYD-SO API" --rootDir backend
-```
-(`clasp create` writes `.clasp.json`; it is git-ignored. `.clasp.json.example` shows the shape.) Then:
-```powershell
-npm run backend:push
-```
-Open the script (`npx clasp open`) → Project Settings → Script properties, add:
-| Property | Value |
+## 3. Making a change
+| You changed | Then |
 |---|---|
-| `GOOGLE_CLIENT_ID` | the client ID from step 3 |
-| `SHEET_ID` | `1ZEtC2-bTDshaKqWN3MNC0CQE7u3OkJxCTchxUy37aPg` (the app's own copy; the original `1BzamRKd…` is left untouched as the backup) |
-| `EDITORS` | comma-separated Google emails allowed to edit |
-| `VIEWERS` | comma-separated Google emails with read-only access (optional) |
+| `backend/*.js` or `supabase/api-main.ts` | `node scripts/build-edge.js`, `npm test`, redeploy the Edge Function (step 5). If `Lifecycle.js` / `Subcon.js` changed, the frontend copies changed too: also step 4. |
+| field table in `backend/Core.js` | also `npm run gen:docs` (CI fails if `docs/field-mapping.md` is out of date) |
+| `frontend/*` | `node scripts/stamp.js` (adds `?v=<hash>` so browsers pick up the new files), commit, push (step 4) |
+| database structure | add a new `supabase/<name>.sql` that is safe to re-run (`if not exists`), run it (step 6) |
 
-## 5. One-time sheet preparation **[manual, modifies your sheet]**
-1. In Google Sheets: File → Make a copy (your own manual backup).
-2. In the Apps Script editor run `setupApp` once and approve the permission prompt. It: creates a Drive backup copy, adds a `RECORD ID` header after column BY with UUIDs on the 888 record rows, and creates an `APP_AUDIT` tab. It changes no existing cell.
-3. Run `installDailyBackupTrigger` once.
+Never edit `supabase/functions/api/index.ts`, `frontend/lifecycle.js` or `frontend/subcon.js` by hand.
 
-## 6. Deploy the backend **[manual first time]**
-Apps Script editor → Deploy → New deployment → Web app → Execute as: *Me*; Who has access: *Anyone*. Copy the `/exec` URL. (Later updates: `npm run backend:push` then Deploy → Manage deployments → edit → new version, so the URL stays the same.)
+## 4. Deploy the frontend
+Push to `main`. The "Deploy frontend to GitHub Pages" workflow runs the tests, writes `frontend/config.js` with the Edge Function URL, and publishes `frontend/`. It only triggers on changes under `frontend/` (or run it by hand from the Actions tab).
 
-## 7. Publish the frontend
-```powershell
-git init -b main
-git add .
-git commit -m "Initial RYD-SO app"
-git remote add origin https://github.com/<you>/<repo>.git
-git push -u origin main
-```
-On GitHub: Settings → Pages → Source: *GitHub Actions*. Settings → Secrets and variables → Actions → **Variables**: add `API_URL` (the `/exec` URL) and `GOOGLE_CLIENT_ID`. Re-run "Deploy frontend to GitHub Pages". Note: Pages is free for public repositories; no operational data is in the repo (it is only code). For a private repo use a paid GitHub plan or Cloudflare Pages.
+## 5. Deploy the Edge Function
+The repo has no Supabase CLI config, so deployment is manual. Either:
+- Supabase dashboard → Edge Functions → `api` → replace the code with `supabase/functions/api/index.ts` → Deploy; or
+- Supabase CLI: `npx supabase functions deploy api --project-ref clumhidxgzfkwzwrtngi` from a folder laid out as `supabase/functions/api/index.ts`.
 
-## 8. Verify
-Work through [acceptance-checklist.md](acceptance-checklist.md).
+Edge Function secrets (Edge Functions → Secrets): `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are provided by Supabase. Optional: `ADMINS`, `EDITORS`, `VIEWERS` (comma-separated emails). Reminders: `CRON_KEY`, `MAIL_WEBHOOK_URL`, optional `MAIL_KEY`, `REMIND_TO` (see [reminders.md](reminders.md)).
 
-## Updating and rolling back
-- Frontend: push to `main` → Action deploys. Roll back: `git revert <commit>` and push.
-- Backend: `npm run backend:push`, then create a new deployment version. Roll back: Deploy → Manage deployments → pick the previous version. Not automated on purpose: `clasp` login is a personal OAuth token and should not be stored in GitHub.
-- Data: see [05-operations.md](05-operations.md).
+## 6. Run SQL
+Supabase dashboard → SQL editor → paste the file → Run. Order for a fresh database:
+1. `schema.sql`, `auth.sql`, `fix-bulk-delete.sql`
+2. `lifecycle.sql`, `reminders.sql`
+3. `subcon.sql`, `subcon2.sql` … `subcon5.sql`
+4. `leadtime.sql`, then the files from `node scripts/gen-leadtime-sql.js` (written to `lt-sql/`, git-ignored)
+5. `price-updates.sql` (regenerate with `node scripts/gen-price-updates-sql.js`), `price-updates-history.sql`
+6. `reminders-schedule.sql` once, with the real cron key pasted in (do not commit the key)
+
+The dated files (`import-sheet-2026-11-03.sql`, `sync-*-2026-11-05.sql`, `add-bpo-parts-…`, `move-3-parts-…`) are one-off data fixes that have already been applied; they are kept as a record.
+
+The first admin's password is set in the SQL editor: `select set_user_password('<email>', '<password>');`. After that, admins set passwords on the Users screen.
+
+## Rolling back
+- Frontend: `git revert <commit>` and push.
+- Edge Function: redeploy the previous `index.ts` (`git show <commit>:supabase/functions/api/index.ts`).
+- Data: there is no automatic restore in this repo. Use `app_audit` (old/new value per field) for single changes, and Supabase's own backups for larger restores (check what the project's plan includes).

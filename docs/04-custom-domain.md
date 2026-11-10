@@ -1,8 +1,8 @@
 # Custom domain
 
-**Apps Script web apps cannot be served from your own domain.** The backend URL stays `script.google.com/macros/s/<id>/exec`; that is fine because users never open it, the browser app only calls it as an API.
+The backend URL is the Supabase function (`https://clumhidxgzfkwzwrtngi.supabase.co/functions/v1/api`); users never open it, the browser app only calls it. The **frontend** gets the domain, via the static host.
 
-The **frontend** is what gets your domain, via the static host:
+When adding or changing a frontend origin, also add it to `ALLOWED_ORIGINS` in `supabase/api-main.ts`, rebuild (`node scripts/build-edge.js`) and redeploy the Edge Function, or the browser will block the API calls. (The Google OAuth steps below date from the old Google sign-in and are no longer needed.)
 
 ## GitHub Pages
 1. Repo Settings → Pages → Custom domain: `so.example.com` (use a subdomain; apex domains need four A records).

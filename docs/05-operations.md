@@ -1,58 +1,45 @@
 # Operating the app
 
-## Manage team access
-Apps Script → Project Settings → Script properties → edit `EDITORS` / `VIEWERS` (comma-separated emails, case-insensitive). Takes effect on the next request. Remove an email to revoke access immediately (a still-valid sign-in token is useless once the email is off the list).
+## Users, roles and sign-in
+- Users are rows in `app_users` (email, name, employee ID, role, active), managed by admins on the **Users** screen: add one, import a CSV (email, name, employee id, role), change role, disable, delete, **Set password**. A bad row blocks the whole import.
+- Sign-in is **email + password**. An admin sets the first password; the user can change it (minimum 8 characters) under Change password. Passwords are stored only as bcrypt hashes.
+- Sessions last 12 hours. 8 wrong passwords for one email within 15 minutes locks it for 15 minutes.
+- Role = the highest of the optional `ADMINS` / `EDITORS` / `VIEWERS` Edge Function secrets (or `app_meta.config`) and an active `app_users` row. Accounts listed in `ADMINS` are the emergency/bootstrap admins and cannot be demoted or locked out from the screen. An admin who exists only in the table cannot demote, disable or delete themselves.
+- Disabling or deleting a user takes effect on their next request: the role is re-checked every time, so an open session stops working (unless the email is also in one of the env lists).
+- Bootstrap: the first admin's password is set in the SQL editor with `select set_user_password('<email>', '<password>');`.
 
-## Backups and recovery
-- `backupNow` (daily trigger) copies the entire spreadsheet to your Drive as `BACKUP RYD-SO yyyy-MM-dd_HHmm`, keeping 14. Restore by copying the needed data back from a backup copy.
-- `APP_AUDIT` tab records time, user, record ID, row, field, old and new value for every change made through the app. To undo a single edit, copy the old value back.
-- Google Sheets File → Version history also covers edits.
-- Never test destructive operations on production: make a copy of the sheet, point `SHEET_ID` of a separate test script at it.
+| Role | Can |
+|---|---|
+| viewer | see the dashboard / all SOs (`mySOs`), open, print, download scans, view subcontractor data and lead times; no changes |
+| editor | everything a viewer can, plus open/edit/delete SOs, follow-up log, scans, stock/steel uploads, all subcontractor changes |
+| admin | everything, plus users and passwords, deleting a whole BPO, Price Increase Tracking |
 
-## Change which fields are editable or add a column
-Edit `backend/Core.js` (`RAW` table: letter, key, label, type, `calc`). Run `npm run gen:docs && npm test`, push, redeploy. Inserting columns in the sheet shifts letters, so update the table in the same change.
+## Inhouse SOs
+- **Open an SO**: part #, customer and SO qty are required. If every SO detail is given (part, customer, champion, qty, due date, SO type, Kanban/PO, req. by) it starts as `3.OPEN`, otherwise as `1. ANALYSIS`. Champion and Req. by must be active users. SO# must be unique (database index on `so_key`).
+- Editing uses a version check: if someone else saved the SO since you opened it you get a conflict with the latest values and nothing is overwritten. Statuses `1.ANR` and `3.OPEN` need an SO#.
+- Calculated fields (status bars, part price, steel lookups, bars/lbs/ft, stock) are computed by `backend/Calc.js` on every read; they are never stored.
+- Every change is written to `app_audit` with old and new value.
+- **Scans**: PDF/JPG/PNG up to 7 MB, stored in the private Storage bucket `scans`, listed in `so_scans`; downloaded through the app.
+- **Status reminders**: see [reminders.md](reminders.md).
+
+## Uploads (editors and admins)
+- **Inventory / STOCK list** (Excel/CSV): replaces `stock_items` (part, customer, quantity, unit price) and, from the same file, `stockroom_prices` (the price check next to PART PRICE). Two requests: if the second fails, upload the file again.
+- **STEEL USAGE**: replaces `steel_usage` (part, steel type, qty per bar, router bar size). The old data is copied to `steel_usage_previous` first (one level of undo; restore it with SQL).
+- Values Sheets/Excel would treat as formulas (starting `=` `+` `@`) are rejected.
+
+## Subcontractor tracking
+BPO/batch parts in `sc_lines` with milestone dates (`ms`), expected dates (`exp`) and the first value of any changed date (`orig`). Updates go to `sc_updates`; BPO-level moves and notes to `sc_bpo_events`. Excel: download the template (`frontend/subcontractor-template.xlsx`), fill it, **Import Excel** shows a preview (new / updated / problems) before saving; the order ref (`SUB-0001` …) is the update key and is assigned automatically when blank.
+
+## Lead time calculator
+Reads `lt_routings` and `lt_workcenters`. To refresh from the LT worksheet: `node scripts/gen-leadtime-sql.js` (needs the source sheet to stay shared for viewing), then run the generated `lt-sql/lt-*.sql` files in order in the SQL editor.
+
+## Price Increase Tracking (admin only)
+`price_updates` rows with reply status, effective date, implemented flag, notes and an email trail (`history`). Added, edited and deleted on the page; seeded from `dev/price-updates-seed.json` via `scripts/gen-price-updates-sql.js`.
+
+## Data fixes from the worksheet or mailbox
+Write a dated, re-runnable SQL file in `supabase/` (pattern: `sync-<what>-YYYY-MM-DD.sql`, guarded with `where not exists` / exact `where` clauses, ending in a `select` that shows the result), run it in the SQL editor, commit it. For subcontractor changes also insert an `sc_updates` note so the change is visible in the part's history.
 
 ## Known limits
-- Whole table is loaded in one request (~890 rows × 78 columns, a few hundred KB). Fine up to a few thousand rows.
-- Apps Script consumer quotas apply (see 02-architecture).
-- Concurrent edits: second saver gets a conflict message and nothing is overwritten. Direct edits typed into the Google Sheet while a user has the record open are also detected (the version covers all editable cells) but only at save time.
-
-## Backend updates (current manual procedure)
-The Apps Script project was created by pasting the files from `backend/` into the editor (not via clasp). After changing anything in `backend/`:
-1. Paste the changed file's content into the matching file in the Apps Script editor and save.
-2. Deploy → Manage deployments → pencil on the active deployment → Version: *New version* → Deploy. The `/exec` URL stays the same.
-3. Frontend-only changes just need `git push` (GitHub Actions redeploys Pages).
-Note: the editor copy has comments stripped, so the repo is the source of truth. Switch to `clasp` (docs/03) to automate this.
-
-## Admin uploads (stockroom prices, STEEL USAGE)
-Admins are listed in the `ADMINS` Script property (comma-separated emails). Admins can also edit records. Only admins see the two upload buttons, and the backend refuses these actions for everyone else.
-- **Upload stockroom sheet** (CSV/Excel): stores part number + price in a new tab `STOCKROOM_PRICES` (replaced on every upload). Each record's PART PRICE is compared with it: green tick = matches, red ! = mismatch, part missing, or no price in the worksheet.
-- **Replace STEEL USAGE data** (CSV/Excel): maps 4 columns (PART NUMBER, PS_COMP, PS_QTY PER, MAT'L TYPE) into columns A:D of the `STEEL USAGE` tab. **This deletes all old data in that tab** (A2:K), including the Margin and ID columns. Before deleting, the whole tab is copied to `STEEL USAGE (previous)` (one level of undo: the next upload overwrites that copy). RYD-SO, IR-SO, ITT-SO and the hidden HIGH USAGE PARTS tab look values up from STEEL USAGE, so they change immediately. Green tick / red ! on STEEL TYPE, ROUTER BAR SIZE and QTY / BAR mean the lookup found / did not find a value for that part.
-- Every upload is written to `APP_AUDIT`. Cells that Sheets would read as formulas (starting with = + @) are rejected.
-- To undo a STEEL USAGE replace: copy the contents of `STEEL USAGE (previous)` back into `STEEL USAGE` (or use Version history).
-
-## Who sees what (since the redesign)
-- **Admins** (`ADMINS`): dashboard only — cards for when the stockroom sheet and STEEL USAGE were last updated, plus a slim list of non-closed SOs showing only the SO release and material status bars (lowest progress first). They can also open SOs, find an SO, edit, and run the two uploads. The full worksheet table is gone for everyone.
-- **Editors** (`EDITORS`): home screen with **Open an SO** and **Find an SO by number**. No list of SOs is ever sent to them (the backend refuses `list` and `dashboard` for non-admins).
-- **Viewers** (`VIEWERS`): can find an SO and read it, print it and download scans; cannot create, edit or upload.
-
-## Opening an SO
-The form writes the SO into the first free, pre-formatted row after the last record in RYD-SO (so the sheet's formulas keep working), sets STATUS to `3.OPEN`, adds a RECORD ID and logs `SO OPENED` in `APP_AUDIT`. Required: SO#, PART #, CUSTOMER, CHAMPION, SO QTY#, DUE DATE, SO TYPE, KANBAN/PO, REQ. BY, SO REQ. DATE; NOTES is optional. SO# must be unique. To change which fields are required or offered, edit `INTAKE_KEYS` / `INTAKE_REQUIRED` in `backend/Core.js`. If the sheet runs out of free rows the app says so (extend the formula rows down).
-
-## Print and scans
-**Print details** prints a clean one-page summary (all non-empty fields, bars, price/steel checks, signature lines). **Upload scan** (PDF/JPG/PNG, max 7 MB) stores the file in a private Drive folder `RYD-SO Scans` (owner's Drive; its ID is in the `SCAN_FOLDER_ID` script property), logs it in the `SO_SCANS` tab and in `APP_AUDIT`. Team members download scans through the app; they do not need Drive access.
-
-## Managing users (admin screen)
-Admins have a **Manage users** button on the dashboard. Each user is a row in the `APP_USERS` tab: email, name, employee ID, role (viewer / editor / admin), active (yes/no). Admins can add one user, import many from a CSV (columns: email, name, employee id, role), change a role, disable or delete a user. A bad row in an import blocks the whole import with a message; nothing is half-written.
-- Sign-in is still **Google**: the person must use the Google account whose email the admin entered. A person not in the table (and not in the Script Properties lists) is refused with "ask an admin".
-- Role = the highest of: the Script Properties lists (`ADMINS`, `EDITORS`, `VIEWERS`) and an active `APP_USERS` row. The `ADMINS` property is the emergency/bootstrap access: those accounts cannot be demoted or locked out from the screen.
-- An admin who exists only in the table cannot demote, disable or delete themselves (another admin must).
-- Edits typed straight into the `APP_USERS` tab take up to 5 minutes to apply (the list is cached). Changes made through the screen apply immediately. All changes are logged in `APP_AUDIT`.
-- **No passwords are stored anywhere in this app.** Connecting the HR app (sign in with the HR password, employee list from HR) needs a small addition to the HR app itself and is not built yet; see docs/STATUS.md.
-
-## Speed notes (what makes the app fast or slow)
-- **Order sheet is found by its tab id** (`SHEET_GID`, default 519433600, overridable with a Script Property of the same name), not by its name, so renaming the tab (it is now called "SHOP ORDERs") cannot break the app. If the tab is ever deleted and recreated, set the `SHEET_GID` property to the new tab's id (the `gid=` number in the sheet URL).
-- Bulk reads (dashboard, find, open, record lookup) go through the Sheets API ("Sheets" advanced service, enabled in `appsscript.json`): measured about 0.25 s versus 2.7 s with `SpreadsheetApp` for the dashboard columns. If the API call fails the code falls back to `SpreadsheetApp`.
-- Writes are batched: neighbouring cells are written in one call and all audit lines in one write.
-- The admin dashboard is cached for 60 s (compressed in CacheService). Any save, new SO or upload clears it; the Refresh button bypasses it. Signing in as admin returns the dashboard in the same request (`start` action).
-- Remaining floor: roughly 2.5-3 s per request is Apps Script's own overhead, which cannot be removed without moving the API off Apps Script.
+- The dashboard and `mySOs` load all SOs in one request (paged 1000 rows at a time from Postgres); fine for thousands of rows.
+- No row lock on saves (see 02-architecture, "Concurrency").
+- Free-text dates and legacy values imported from the sheet are kept as they are and shown "(existing)".

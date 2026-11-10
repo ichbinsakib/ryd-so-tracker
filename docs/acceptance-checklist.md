@@ -1,48 +1,35 @@
 # Acceptance checklist
 
-Legend: ✅ executed and passed in this project, ⬜ not yet executed (requires your Google deployment).
+Legend: ✅ executed and passed (date), ⬜ not recorded as tested. The live app has been in daily use since late October 2026, but individual live checks below were not logged; tick them when you run them.
 
-## Automated / local (executed 2026-10-16)
-- ✅ `npm test`: 21 tests pass (field map, validation, roles, token checks, access control, save, conflict, formula protection, leading zeros, lock/BUSY, read-only without RECORD ID).
-- ✅ UI against the local mock (synthetic data, same Service/Core code): load 180 rows, search, status filter, sort asc/desc, open record, edit + confirmation dialog + save, conflict detection with "load latest and re-apply", invalid-value messages, unsaved-changes flag, calculated fields disabled (18).
-- ⬜ Not tested: Safari/Firefox, mobile widths, keyboard-only use.
+## Automated (2026-11-10)
+- ✅ `npm test`: 110 tests (field map, validation, roles, users, passwords via adapter, save / conflict, new SO intake, scans, stock and steel uploads, Postgres snapshot adapter, lifecycle, subcontractor rules, reminders, price updates).
+- ✅ Generated files in sync with `backend/*.js` + `supabase/api-main.ts`.
+- ⬜ No automated tests cover `supabase/api-main.ts` itself (sign-in, `sc*` / `lg*` / `pu*` / `ltLookup` queries, `flush`).
 
-## Live deployment (all ⬜)
-**Data**
-- ⬜ In the copy, tab `RYD-SO` exists with headers in row 2 matching docs/field-mapping.md (A=NOTES … BY=SO CLOSE DATE).
-- ⬜ Record count in the app equals 888 (rows with a PART #) and a spot-check of 10 rows matches the sheet.
-- ⬜ Edit a text, a date, a dropdown and a number on a **copy** of the sheet; refresh the browser; values persist and appear in the sheet with the same formats.
-- ⬜ Date typed in the app appears in the sheet as a true date (not text) in the sheet's time zone.
-- ⬜ Cells with formulas (AF with `=275*7.53`, J with `=AM542+55`) are shown "formula" and cannot be changed; calculated columns unchanged after saves.
-- ⬜ Entering an ID with a leading zero (e.g. `00456` in PO #) stays `00456` in the sheet.
-- ⬜ `setupApp` changes no existing cell (compare to the manual copy).
-**Security**
-- ⬜ Opening the `/exec` URL in a browser returns no data.
-- ⬜ A Google account not in EDITORS/VIEWERS gets "not authorised" and sees no records.
-- ⬜ A VIEWER can read but cannot save (UI and direct API call).
-- ⬜ Removing an editor's email blocks them on their next request.
-- ⬜ Expired token (wait ~1 h) shows re-sign-in without losing form edits.
-**Concurrency**
-- ⬜ Two browsers edit the same record: second save shows the conflict message.
-- ⬜ Edit directly in the Sheet while the record is open in the app, then save: conflict reported.
-**Operations**
-- ⬜ App works with your PC switched off.
-- ⬜ GitHub Action deploys the frontend; live URL loads over HTTPS.
-- ⬜ `backupNow` creates a Drive copy; the daily trigger fires.
-- ⬜ Rollback of a frontend commit and of a backend deployment version.
-- ⬜ CORS: browser fetch from the Pages origin to the `/exec` URL succeeds (not exercised yet).
-- ⬜ Custom domain with HTTPS.
+## Security (live)
+- ⬜ Opening the function URL with GET returns only a service note, no data.
+- ⬜ Wrong password 8 times → locked for 15 minutes; correct password afterwards works.
+- ⬜ A disabled user's open session is refused on the next action.
+- ⬜ A viewer cannot save, upload or change subcontractor data (UI and direct API call).
+- ⬜ An editor cannot open Users or Price Increase Tracking (direct API call refused).
+- ⬜ Direct REST call to `https://clumhidxgzfkwzwrtngi.supabase.co/rest/v1/shop_orders` with the anon key returns no rows.
+- ⬜ A request from an origin not in `ALLOWED_ORIGINS` is blocked by the browser.
 
-## Admin uploads (all ⬜, run on a copy first)
-- ⬜ Sign in as admin: both upload buttons visible; as editor/viewer: hidden, and a direct API call is refused.
-- ⬜ Upload a small stockroom CSV: STOCKROOM_PRICES tab created, ticks/red marks appear, filter works.
-- ⬜ Replace STEEL USAGE with the full real file: STEEL USAGE (previous) contains the old data, RYD-SO STEEL TYPE / ROUTER BAR SIZE / QTY / BAR update, badges update after refresh.
-- ⬜ Part numbers that are digits only match between the new STEEL USAGE rows and RYD-SO (VLOOKUP is type-sensitive: number vs text).
+## Inhouse SOs (live)
+- ⬜ Open an SO with only part / customer / qty → `1. ANALYSIS`; with all details → `3.OPEN`; duplicate SO# refused.
+- ⬜ Calculated fields (bars, part price, steel type, router bar size, qty/bar, lbs/ft/bars, stock) match the sheet for 5 sample parts.
+- ⬜ Two browsers edit the same SO: the second save gets the conflict message.
+- ⬜ Scan upload (PDF) and download by another user.
+- ⬜ `app_audit` has old/new values for an edit.
 
-## Redesign: open an SO, print, scan (all ⬜, run on a copy first)
-- ⬜ Editor signs in: sees only "Open an SO" and "Find an SO"; no table anywhere; `list` refused.
-- ⬜ Open a new SO with the required fields: it lands in the next free row after the last record, formulas in that row still work (steel type, router bar size, qty/bar, bars fill in), STATUS = 3.OPEN, RECORD ID set.
-- ⬜ Duplicate SO# is refused; missing required fields are flagged.
-- ⬜ Print details produces a correct one-page printout in the browser.
-- ⬜ Upload a PDF scan: file appears in the Drive folder "RYD-SO Scans", row appears in SO_SCANS, a second team member can download it through the app.
-- ⬜ Admin dashboard: shows only the bars, both "last updated" cards update after the uploads.
+## Uploads (live)
+- ⬜ Inventory upload updates `stock_items` and `stockroom_prices`; price ticks change.
+- ⬜ STEEL USAGE upload: `steel_usage_previous` holds the old data; lookups update.
+
+## Subcontractor, reminders, other (live)
+- ⬜ Excel template import: preview, then import; order refs assigned; date changes logged with originals kept.
+- ⬜ Reminder test mail (`{"action":"statusReminders","cronKey":"…","test":true}`) arrives; cron job fires every 15 minutes.
+- ⬜ Lead time lookup for a known part shows its routing and total days.
+- ⬜ Frontend deploy workflow publishes; `stamp.js` versions make browsers load new files.
+- ⬜ Rollback of a frontend commit and of an Edge Function version.

@@ -1,61 +1,75 @@
-# Phase 2/3: Architecture recommendation and design
+# Architecture
 
-## Recommendation: Option B — static frontend + Apps Script backend, with Google sign-in verified in the backend
+Current design since 2026-10-27. (The first release used the Google Sheet as the database with an Apps Script API and Google sign-in; see "History" at the end.)
 
 ```
-Browser (team PC)
-  └─ frontend (static HTML/JS)  ── hosted on GitHub Pages (or Cloudflare Pages), custom domain + HTTPS
-        │  1. "Sign in with Google" → Google ID token (proves the user's email)
-        │  2. POST {action, idToken, ...}  (text/plain JSON, no CORS preflight)
+Browser
+  └─ frontend/ (static HTML/JS, no build)  ── GitHub Pages, https://so.amanasystem.com
+        │  1. action "login" {email, password} → random session token (12 h)
+        │  2. POST {action, idToken: <session token>, ...}  JSON
         ▼
-Apps Script Web App  (runs as the OWNER, URL reachable by anyone but useless without a valid token)
-        │  verifies token (aud = our client ID, not expired, email verified)
-        │  checks email against EDITORS / VIEWERS in Script Properties
-        │  LockService + version check + validation, then writes
+Supabase Edge Function "api"  (Deno; supabase/functions/api/index.ts, generated)
+        │  checks the session, works out the role (viewer / editor / admin)
+        │  loads only the rows the action needs → runs the shared rules → writes the changes
         ▼
-Google Sheet (source of truth, never shared with the team)
+Supabase Postgres (RLS on, no policies: only the service role can read or write)
+Supabase Storage bucket "scans" (private)
 ```
 
-## Why not Option A (everything inside Apps Script)
-Apps Script web apps have one decisive limitation for this brief: **who the caller is.**
-- "Execute as me" (needed so the team does not need Sheet access) only returns the caller's email reliably for users in the *same Google Workspace domain*; for other accounts `Session.getActiveUser().getEmail()` can be blank. I could not test this here, so it is a risk, and the team's accounts are unknown.
-- "Execute as user accessing" would force every teammate to have access to the whole spreadsheet, which you said you do not want.
-- Apps Script URLs live on `script.google.com/macros/s/…/exec` (and a `googleusercontent.com` iframe). **Apps Script does not support mapping your own domain to a web app.** Only Google Workspace Sites embedding is possible, which changes the user experience.
+The browser never talks to the database directly; it holds no Supabase key. The only thing in `frontend/config.js` in production is the public function URL (written by `.github/workflows/deploy-frontend.yml`).
 
-Option B avoids both: identity comes from a Google ID token verified by the backend regardless of Workspace/gmail, and the domain is attached to the static frontend.
+## Code structure: shared rules + a thin network layer
+`backend/*.js` are plain JavaScript modules with no I/O. They run in Node (tests, mock server) and inside the Edge Function:
 
-## Comparison
-| Criterion | A: Apps Script only | B: Pages + Apps Script (chosen) |
+| Module | Global | Role |
 |---|---|---|
-| Ease | Easiest, one deploy | One extra step: Google OAuth client ID, Pages setup |
-| Identity | Unreliable outside Workspace | Verified Google ID token, any Google account |
-| Access control | Allow-list in script (if email available) | Allow-list in script, enforced per request |
-| Team needs sheet access | No (execute as me) | No |
-| Concurrency | LockService + version check | Same |
-| Quotas | Same Apps Script limits (consumer: ~20k URL fetches/day, 6 min per run, ~30 simultaneous executions) | Same; each cold request also calls Google tokeninfo (cached 5 min) |
-| Cost | Free | Free (GitHub Pages free for public repos; private repos need a paid plan, or use Cloudflare Pages free) |
-| Performance | Iframe sandbox, slower first load | Static files from a CDN; API calls ~0.5–2 s |
-| Custom domain | Not supported directly | Supported on the static host |
-| GitHub integration | clasp only | Pages deploy by Actions + clasp for backend |
-| Scalability | ~1000 rows fine; Sheets as DB is the limit | Same |
+| `Core.js` | `SOCore` | SO field table (key, label, type, options, `calc`), validation, record versions, roles, intake (new SO) rules |
+| `Calc.js` | `SOCalc` | the worksheet formulas ported to JS: status bars, part price, steel type / router bar size / qty per bar lookups, required ft / lbs / bars, stock |
+| `Lifecycle.js` | `SOLife` | the 13-stage SO workflow, status, next action, attention flags (also copied to the browser) |
+| `Subcon.js` | `SOSub` | subcontractor milestones, stages, BPO board, line validation, Excel template mapping (also copied to the browser) |
+| `Service.js` | `SOService` | request handling and access control for the SO actions, against an `adapter` |
+| `Reminders.js` | `SOReminders` | which SOs are due a status reminder, email text |
+| `PgAdapter.js` | `SOPg` | snapshot adapter: gives `Service` a sheet-like view over preloaded DB rows and collects writes as `ops` |
 
-No separate proxy/backend is needed. CORS works because requests are "simple" (`Content-Type: text/plain`, no preflight) and Apps Script serves JSON with permissive CORS headers. **This still needs to be verified against the live deployment** (see acceptance checklist).
+`scripts/build-edge.js` concatenates these plus `supabase/api-main.ts` into `supabase/functions/api/index.ts`, and writes `frontend/lifecycle.js` and `frontend/subcon.js`.
+
+### Request flow (`supabase/api-main.ts`)
+1. `statusReminders` (cron key) and `login` need no session; everything else needs a valid session token.
+2. Role = highest of the `ADMINS` / `EDITORS` / `VIEWERS` lists (Edge Function env vars, or `app_meta.config`) and the person's active `app_users` row.
+3. Actions starting `sc` (subcontractor), `lg` (SO follow-up log), `pu` (price tracking) and `ltLookup` are handled directly in `api-main.ts` with Supabase queries.
+4. All other actions (`start`, `get`, `findSO`, `createSO`, `update`, `deleteSO`, `dashboard`, `mySOs`, uploads, users, scans) go through `prefetch` → `SOPg.create` → `SOService.handle` → `flush(ops)`.
+
+Request bodies are capped at 100 KB except the upload/import actions (14 MB).
+
+## Data model (Postgres)
+| Table | Contents | Created by |
+|---|---|---|
+| `shop_orders` | one row per inhouse SO; editable fields in `data` jsonb keyed as in `Core.js`; calculated fields are never stored; `so_key` unique (when not blank); `created_by`; reminder columns `status_since`, `remind_count`, `last_remind_at` | `schema.sql`, `reminders.sql` |
+| `app_users` | email, name, employee id, role, active, `pw_hash` (bcrypt) | `schema.sql`, `auth.sql` |
+| `sessions`, `login_attempts` | SHA-256 of session tokens; sign-in attempts for lockout | `auth.sql` |
+| `app_audit` | every change: time, user, record, field, old/new value | `schema.sql` |
+| `so_scans` + bucket `scans` | uploaded PDF/JPG/PNG per SO | `schema.sql` |
+| `so_log` | SO follow-up log (NOTE, FOLLOW-UP, ESCALATION, DECISION, EVIDENCE) | `lifecycle.sql` |
+| `stock_items` | the STOCK list (part, qty, unit price): part price and stock lookups | `schema.sql` |
+| `stockroom_prices` | stockroom price upload (price check tick / mark) | `schema.sql` |
+| `steel_usage`, `steel_usage_previous` | STEEL USAGE upload and one level of undo | `schema.sql` |
+| `app_meta` | small key/values: `stock_meta`, `steel_meta`, optional `config` | `schema.sql` |
+| `sc_lines`, `sc_updates`, `sc_bpo_events` | subcontractor parts per BPO/batch, their update log, BPO moves/notes | `subcon.sql` … `subcon5.sql` |
+| `lt_workcenters`, `lt_routings` | lead time calculator (from the LT / TRAVELLER / CT worksheets) | `leadtime.sql` + `scripts/gen-leadtime-sql.js` |
+| `price_updates` | price increase tracking (admin only) | `price-updates.sql`, `price-updates-history.sql` |
+
+Bulk replaces (`replace_stock_items`, `replace_stockroom_prices`, `replace_steel_usage`) and `patch_order` are SQL functions executable only by the service role.
 
 ## Security model
-- Sheet is private. Only the owner's script touches it.
-- The `/exec` URL is public but every action requires a valid Google ID token for an allow-listed email; `doGet` returns no data.
-- Allow-list is in Script Properties (not in GitHub). The OAuth client ID and API URL are public by design and live in GitHub Actions *variables*, not secrets. No tokens, keys or service-account files exist anywhere.
-- Backend validates every field, rejects calculated columns and formula cells, rejects text beginning `=`, and logs every change to `APP_AUDIT`.
-- Residual risks: ID tokens last ~1 hour (user re-signs in; unsaved edits are kept in the form); revoking a user means removing the email from the property (takes effect immediately). The deployment runs with the owner's broad Drive/Sheets scopes, so protect the owner account with 2-step verification.
+- Every table has RLS enabled and no policies; `anon` / `authenticated` have no grants. Only the Edge Function (service role key, held by Supabase) touches data.
+- Passwords: set by an admin (or changed by the user), hashed with bcrypt (cost 10) inside Postgres via pgcrypto. `check_login` costs the same whether or not the email exists. No plain password is stored or logged.
+- Sessions: 32 random bytes, stored only as SHA-256, 12 hours. 8 wrong passwords per email in 15 minutes locks that email for 15 minutes. Logout deletes the session.
+- CORS: responses only name an allowed origin (`so.amanasystem.com`, `ichbinsakib.github.io`, localhost); list in `api-main.ts`.
+- Role checks happen in the backend for every action; the UI hiding buttons is only convenience.
+- The status reminder endpoint requires `CRON_KEY` (16+ characters, Edge Function secret).
 
-## Data model
-Each record = one RYD-SO row. Stable key = `RECORD ID` (UUID) in a column added after BY by `setupApp()`. Version = hash of all editable cells and formula flags; a save sends the version it was based on; mismatch → `CONFLICT` with the latest record. Writes happen inside `LockService.getScriptLock()` (10 s wait → `BUSY`).
+## Concurrency
+Each SO has a version (hash of its editable values). A save sends the version it was based on; a mismatch returns `CONFLICT` with the latest record. `withLock` is a no-op in the database adapter, so two saves landing at the same instant can both pass the version check; each still only patches the fields it changed (`patch_order` merges jsonb), so the risk is limited to the same field being changed by both.
 
-## Backend operations
-`whoami`, `list`, `get`, `update` (all require token + allow-list; `update` requires editor). No create/delete by design.
-
-## Screens
-Records table (search, 5 filters, sort, column picker, pagination, last-refreshed) → record detail grouped into the sheet's workflow sections (Order, Material requirement, Material quote, SO request/approvals/PO, Release & prints, Receiving & invoice, Close) with calculated/formula fields greyed and labelled.
-
-## Backup and recovery
-`backupNow()` (daily trigger, keeps 14 dated copies in the owner's Drive) + `APP_AUDIT` with old/new value per field for manual rollback + Google Sheets version history.
+## History
+Oct 2026: Google Sheet (RYD-SO tab) as the database, Apps Script web app as the API (`backend/Code.js`), Google ID tokens, Script Properties for the allow-list, `APP_AUDIT` / `APP_USERS` tabs. The documented limit of that design was Apps Script's own overhead of roughly 2.5–3 s per request. The sheet data was imported into `shop_orders`; later catch-ups are the dated `supabase/sync-*.sql` / `import-*.sql` files.

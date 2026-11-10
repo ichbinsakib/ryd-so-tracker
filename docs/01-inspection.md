@@ -1,5 +1,7 @@
 # Phase 1: RYD-SO worksheet inspection
 
+> Historical (2026-10-16). The app no longer reads the sheet; its data now lives in Supabase. Still useful for what the columns, formulas and legacy values mean.
+
 Inspected on 2026-10-16, **read-only**, by opening the workbook in the browser while signed in to the owner's Google account and exporting CSV/XLSX copies in memory (nothing written to disk, nothing in the sheet changed). No operational data is stored in this repository.
 
 ## Workbook

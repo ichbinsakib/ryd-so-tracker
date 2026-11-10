@@ -1,40 +1,24 @@
-# Project status (2026-10-16)
+# Project status (2026-11-10)
 
-## Done
-- Phase 1 inspection ([01-inspection.md](01-inspection.md)), field mapping (generated), architecture decision ([02-architecture.md](02-architecture.md)).
-- Backend (`backend/`): Core, Service, Apps Script glue, setup/backup functions.
-- Frontend (`frontend/`): list, search, filters, sort, pagination, column picker, detail edit, confirmations, conflict/auth-expiry handling.
-- 21 automated tests passing; UI exercised against a local mock with synthetic data.
-- CI and Pages deploy workflows written (not yet run: no GitHub repo exists yet).
+## Live
+- https://so.amanasystem.com (GitHub Pages) → Supabase Edge Function `api` → Postgres, project `clumhidxgzfkwzwrtngi`. Backend moved from Apps Script + Google Sheet on 2026-10-27; password sign-in replaced Google sign-in the same day.
+- 110 automated tests pass (`npm test`); generated files (`supabase/functions/api/index.ts`, `frontend/lifecycle.js`, `frontend/subcon.js`) match their sources as of this date.
 
-## Data source
-The app uses the user-made copy `1ZEtC2-bTDshaKqWN3MNC0CQE7u3OkJxCTchxUy37aPg` (private: it asks for sign-in). Its layout has **not been inspected** by me (no access), so I assume the RYD-SO tab is identical to the original. Verify the header row first (`setupApp` + the first `list` call will surface a mismatch only indirectly), see checklist.
+## Modules
+| Module | Since | Notes |
+|---|---|---|
+| Inhouse SOs: dashboard, open/find/edit SO, 13-stage lifecycle stepper, next action, follow-up log, scans, print | 10-27 / 10-29 | data imported from the RYD-SO sheet; catch-ups 11-03 and 11-05 |
+| Uploads: STOCK list + stockroom prices, STEEL USAGE | 10-27 | |
+| Users screen, passwords, change password | 10-27 | |
+| Subcontractor tracking: BPO/batch parts, milestones, BPO tracker and page, Excel template import/export, update log | 10-27 → 11-03 | Kanban board view removed 11-04; BPO move history kept in `sc_bpo_events` |
+| Status reminders (ANR / RFS / Analysis) | 11-04 | email via the Apps Script mailer; see [reminders.md](reminders.md) |
+| Lead Time Calculation | 11-05 | data from the LT / TRAVELLER / CT worksheets |
+| Price Increase Tracking (admin only) | 11-05 → 11-06 | add/edit/delete on the page, email trail per part |
 
-## Live setup done 2026-10-16 (verified)
-- Apps Script project created in the owner's account (script id `1wSKWn4R-zHDZ7Rv23kVgaR4SfHmmc_yNQqZ1yrsV-XGOfjPwtqpu5qaH`), code pasted via the editor (not clasp). Script properties `SHEET_ID`, `EDITORS`, `GOOGLE_CLIENT_ID`, `ADMINS` set.
-- `setupApp` ran: 888 RECORD IDs in column BZ, `APP_AUDIT` tab added; sheet CSV size grew only by the ID column. Backup copy created in Drive. Daily `backupNow` trigger installed.
-- Web app deployed (Execute as owner, access Anyone): GET returns no data; POST with a fake token returns `UNAUTHENTICATED`.
-- OAuth Web client created (project "SO Review"); GitHub repo `ichbinsakib/ryd-so-tracker` + Pages deployed at https://ichbinsakib.github.io/ryd-so-tracker/; CORS from Pages to the backend verified; the owner confirmed sign-in, list and editing work.
-- Note: the repo's `backend/` files were pasted with comments stripped; keep the repo as the source of truth and re-paste after changes.
-
-## Added after first release
-- STATUS required; status bars as progress bars; NOTES hidden in the table.
-- Admin role (`ADMINS` property = ichbinsakib@gmail.com), stockroom price upload + ✓/! check, STEEL USAGE replace upload + ✓/! checks. Backend is Apps Script version 3. Tested with unit tests and the local mock only; **never exercised against the live sheet** (see acceptance checklist).
-
-## Not done / not verified
-- The admin uploads (stockroom prices, STEEL USAGE replace) and the price/steel badges have only been tested with unit tests and the local mock, not against the live sheet.
-- Unverified: leading-apostrophe handling for leading-zero IDs; date write in the sheet's time zone; VLOOKUP type matching (number vs text part numbers) after a STEEL USAGE replace.
-- Team members other than the owner are not added yet (EDITORS/VIEWERS properties and Cloud test users).
-
-## Decisions awaiting you
-1. Approve adding a `RECORD ID` column (after BY) and an `APP_AUDIT` tab to the workbook (done by `setupApp`, after you make a copy).
-2. Team emails and which are editors vs viewers.
-3. Public GitHub repo (free Pages) vs private repo (Cloudflare Pages or paid GitHub).
-4. Other tabs (IR-SO, ITT-SO, MAT. SO) in scope?
-
-## Known issues
-- Hidden sheet rows (15) are shown in the app.
-- Large text fields are not diffed word by word in conflicts.
-
-## HR integration (not built)
-Requested: employees sign in with their HR password and the employee list comes from the HR app (https://hr-amana.vercel.app, a Next.js/Vercel app with its own email+password login; no SSO endpoint or public API was found from the outside). Planned design once the HR app's code is available: the HR app issues a short-lived signed token after its own login and exposes a key-protected read-only employee list (id, name, work email, department, active); this app verifies the token and syncs users into `APP_USERS` (viewer by default, admins promote). Until then users are managed by an admin on the Users screen and sign in with Google.
+## Not verified / open
+- Which SQL files have been run in the live database is not recorded in the repo; the dated data-fix files are assumed applied (each is re-runnable).
+- Whether the reminder cron job (`reminders-schedule.sql`) is scheduled live is not recorded here.
+- Saves have no row lock (version check only); simultaneous edits of the same field could both be accepted.
+- `backend/Code.js`, `backend/appsscript.json`, `dev/fresh-start.gs`, `.clasp.json.example` and the `clasp` scripts in `package.json` belong to the retired Apps Script backend and could be removed.
+- HR integration (sign in with the HR app's password, employee list from HR) is not built; users are managed on the Users screen.
+- Only RYD-SO is in scope from the original workbook (IR-SO, ITT-SO, MAT. SO are not).
