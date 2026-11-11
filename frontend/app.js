@@ -526,7 +526,7 @@
         return el('div', { class: 'brow', tabindex: 0, onclick: () => openById(r.id), onkeydown: (e) => { if (e.key === 'Enter') openById(r.id); } },
           el('span', { class: 'bso' }, el('b', { text: norm(r.so_no) || 'Part check' }), el('span', { class: 'muted', text: ' ' + norm(r.part_no) }), el('small', { text: [norm(r.customer), norm(r.qty) ? norm(r.qty) + ' pcs' : ''].filter(Boolean).join(' · ') })),
           el('span', { class: 'bnext' }, el('span', { text: lc && lc.next ? lc.next : '—' }), el('small', { text: lc ? (lc.owner === 'me' ? 'You' + (lc.actionDate ? ' · by ' + dshort(lc.actionDate) : '') : lc.waitingOn ? 'Waiting on ' + lc.waitingOn : '') : '' })),
-          dueNode(d, false)); })));
+          dueNode(d, false), dupBtn(r)); })));
     const cnt = state.dash && state.dash.counts ? state.dash.counts : null, all = state.dash ? state.dash.rows : [];
     const METRICS = [['1. ANALYSIS', 'Analysis', 'analysis for SO release'], ['1.ANR', 'ANR', 'approved, not released'], ['2.RFS', 'RFS', 'request for SO'], ['3.OPEN', 'Open', 'SO open'], ['5.HOLD', 'On hold', ''], ['4.CLOSE', 'Closed', '']];
     const tile = ([st, label, sub]) => { const n = cnt ? cnt[st] || 0 : st === '4.CLOSE' ? null : all.filter((r) => norm(r.status).trim() === st).length, closed = st === '4.CLOSE';
@@ -551,7 +551,7 @@
         el('td', {}, el('div', { class: 'cell2' }, el('span', { text: lc && lc.next ? lc.next : '—' }), el('small', { text: lc ? (lc.owner === 'me' ? 'Me' + (lc.actionDate ? ' · by ' + dshort(lc.actionDate) : '') : lc.waitingOn ? 'Waiting on ' + lc.waitingOn + (lc.followup ? ' · follow up ' + dshort(lc.followup) : '') : '') : '' }))),
         el('td', {}, dueNode(rowDue(r), rowClosed(r))),
         el('td', {}, el('div', { class: 'cell2' }, lc && lc.matStatus ? mpill(lc.matStatus) : el('span', { class: 'muted', text: r.steelType ? 'not ordered' : 'no steel data' }), el('small', { text: r.steelType ? [r.steelType, r.reqBar !== null ? fmtN(Math.ceil(r.reqBar), 0) + ' bars' : ''].filter(Boolean).join(' · ') : '' }))),
-        el('td', { class: 'chev', text: '›' })); }));
+        el('td', { class: 'chev' }, dupBtn(r), '›')); }));
     $('pg-info').textContent = 'Page ' + (state.page + 1) + ' of ' + pages;
     $('pg-prev').disabled = state.page === 0; $('pg-next').disabled = state.page >= pages - 1;
     const ls = $('list-status'); ls.className = 'statusline';
@@ -603,14 +603,36 @@
     return el('div', { class: 'field' + (req ? ' mandatory' : '') + (f.type === 'longtext' ? ' wide' : '') },
       el('label', { for: id }, f.label, req ? el('span', { class: 'req', title: 'Required', text: ' *' }) : el('span', { class: 'tag', text: 'optional' })), input);
   }
-  function openNewForm() {
+  // prefill (optional): values copied from an existing SO by Duplicate
+  function openNewForm(prefill, fromLabel) {
+    if (!prefill || prefill instanceof Event) prefill = null;
     state.dirty = false; updateSaveBar();
     const grid = (keys) => el('div', { class: 'grid' }, keys.filter((k) => state.intake.keys.includes(k)).map(newField));
-    $('new-form').replaceChildren(el('fieldset', {}, el('legend', { text: 'Part check' }), grid(NEW_CHECK)),
-      el('details', { class: 'newdetails card' }, el('summary', { text: 'Already have the SO? Add the SO details now (otherwise request the SO after the quote)' }), grid(NEW_SO)));
-    banner('new-banner', '', ''); show('view-new');
-    $('nf-part_no').focus();
+    const det = el('details', { class: 'newdetails card' }, el('summary', { text: 'Already have the SO? Add the SO details now (otherwise request the SO after the quote)' }), grid(NEW_SO));
+    $('new-form').replaceChildren(el('fieldset', {}, el('legend', { text: 'Part check' }), grid(NEW_CHECK)), det);
+    let soDetails = false;
+    if (prefill) DUP_KEYS.forEach((k) => {
+      const i = $('nf-' + k), v = norm(prefill[k]).trim(); if (!i || !v || v === '-') return;
+      if (i.tagName === 'SELECT' && ![...i.options].some((o) => o.value.toLowerCase() === v.toLowerCase())) return; // person/option no longer valid
+      i.value = i.tagName === 'SELECT' ? [...i.options].find((o) => o.value.toLowerCase() === v.toLowerCase()).value : v;
+      if (NEW_SO.includes(k)) soDetails = true;
+    });
+    if (soDetails) det.setAttribute('open', '');
+    banner('new-banner', prefill ? 'ok' : '', prefill ? 'Copied from ' + (fromLabel || 'an existing SO') + '. Check the details, enter the new SO# and dates, then click Open SO. Nothing is saved until you do.' : '');
+    show('view-new');
+    $(prefill ? 'nf-so_qty' : 'nf-part_no').focus();
   }
+  // Duplicate: copy the part, customer, qty, notes and SO type/people of an SO into a new SO form (SO#, dates are left blank)
+  const DUP_KEYS = ['part_no', 'customer', 'so_qty', 'notes', 'so_type', 'kanban_or_po', 'champion', 'req_by'];
+  const soName = (v) => norm(v.so_no) ? 'SO ' + norm(v.so_no) : 'part check ' + (norm(v.part_no) || '');
+  async function duplicateSO(id, values) {
+    if (state.role === 'viewer') return;
+    if (!(await leaveGuard())) return;
+    if (!values) { const r = await api('get', { id }); if (!r.ok) { toast(r.error || 'Could not open the SO to copy.', true); return; } values = r.record.values; }
+    openNewForm(values, soName(values));
+  }
+  const dupBtn = (r) => state.role === 'viewer' ? '' : el('button', { class: 'dupbtn', type: 'button', title: 'Duplicate: open a new SO with these details', 'aria-label': 'Duplicate ' + (norm(r.so_no) || norm(r.part_no)), text: '⧉',
+    onclick: (e) => { e.stopPropagation(); duplicateSO(r.id); }, onkeydown: (e) => e.stopPropagation() });
   function collectNew() { const ch = {}; $('new-form').querySelectorAll('[data-key]').forEach((i) => { ch[i.dataset.key] = i.value.trim(); }); return ch; }
   function showFieldErrors(prefix, errs) {
     Object.entries(errs || {}).forEach(([k, m]) => {
@@ -914,6 +936,7 @@
     $('detail-meta').replaceChildren(statusPill(dv(rec, 'status')), dueNode(dateOf(rec, 'due_date'), closed), barNode(norm(rec.display.so_release_status_bar)), barNode(norm(rec.display.mat_status_bar)), el('span', { class: 'badge sc-muted', title: 'Initial workflow: opening, material, release and arrival', text: 'Initial: ' + lcOf(rec).initial }), el('span', { class: 'badge ' + (lcOf(rec).final === 'Overdue' ? 'sc-bad' : lcOf(rec).final === 'Closed — Verified' ? 'sc-ok' : 'sc-muted'), title: 'Final lifecycle: until closure is verified', text: 'Final: ' + lcOf(rec).final }));
     $('detail-meta').children[2].title = 'SO release'; $('detail-meta').children[3].title = 'Material';
     $('btn-delete').hidden = !canEdit() || closed;
+    $('btn-dup').hidden = !canEdit();
     renderStepper(rec); renderNextCard(rec); renderCallouts(rec); renderFacts(rec); afterFacts(rec);
     const form = $('detail-form'); form.replaceChildren();
     tabList().forEach(([title, , keys], i) => {
@@ -2353,6 +2376,7 @@
   $('btn-save').onclick = save;
   $('btn-discard').onclick = discard;
   $('btn-print').onclick = printSheet;
+  $('btn-dup').onclick = () => { const r = state.current; if (r) duplicateSO(r.id, r.values); };
   $('btn-delete').onclick = () => { const r = state.current; if (r) deleteSO(r.id, norm(r.values.so_no) || norm(r.values.part_no)); };
   $('btn-signout').onclick = signOut;
   $('btn-pw').onclick = async () => {

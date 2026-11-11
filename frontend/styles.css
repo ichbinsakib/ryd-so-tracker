@@ -628,7 +628,9 @@ body { background: var(--bg); color: var(--ink); }
 .bstage { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 12px; overflow: hidden; }
 .bstage h3 { display: flex; align-items: center; gap: 8px; margin: 0; padding: 10px 14px; font-size: 14px; background: var(--panel-2); border-bottom: 1px solid var(--line); }
 .bstage h3 b { color: var(--muted); font-weight: 600; }
-.brow { display: grid; grid-template-columns: minmax(180px, 1.1fr) minmax(220px, 2fr) 110px; gap: 14px; align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.dupbtn { background: none; border: 1px solid transparent; border-radius: 6px; color: var(--muted); font-size: 15px; line-height: 1; padding: 3px 6px; margin-right: 4px; cursor: pointer; vertical-align: middle; }
+.dupbtn:hover, .dupbtn:focus-visible { color: var(--accent); border-color: var(--line); background: var(--card, #fff); }
+.brow { display: grid; grid-template-columns: minmax(180px, 1.1fr) minmax(220px, 2fr) minmax(110px, max-content) auto; gap: 14px; align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .brow:last-child { border-bottom: 0; } .brow:hover, .brow:focus-visible { background: var(--accent-soft); outline: 0; }
 .brow small { display: block; color: var(--muted); font-size: 12px; }
 .bso b { font-size: 14px; }
