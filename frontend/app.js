@@ -14,8 +14,8 @@
   // Tabs mirror the lifecycle stepper: [title, stages covered, fields (a..b = a field range in column order)]
   const TAB_DEFS = [
     ['Decide & quantity', [1, 2], ['notes', 'so_required', 'so_required_note', 'champion', 'customer', 'part_no', 'part_rev', 'part_price', 'so_qty', 'due_date']],
-    ['Quote', [3, 4], ['steel_type..update_mat_cost_date', 'supplier', 'quote_expected_date', 'quote_valid_until', 'quote_analysis', 'quote_approve_date']],
-    ['SO request & number', [5, 6], ['kanban_or_po', 'so_type', 'so_req_date', 'req_by', 'appr_date', 'gap', 'so_no', 'so_no_received_date']],
+    ['Quote', [3, 4], ['steel_type..update_mat_cost_date', 'supplier', 'quote_expected_date', 'quote_valid_until', 'quote_analysis']],
+    ['SO request & number', [5, 6], ['quote_approve_date', 'kanban_or_po', 'so_type', 'so_req_date', 'req_by', 'appr_date', 'gap', 'so_no', 'so_no_received_date']],
     ['PO & acknowledgment', [7, 8], ['po_receive_date', 'po_no_1', 'po_mention_bar_size', 'router_vs_po', 'price_on_po', 'quote_vs_po_price', 'po_approve_date', 'ack_status', 'ack_date', 'ack_note']],
     ['Documents & release', [9, 10], ['print_traveller..update_date']],
     ['Material arrival', [11, 11], ['po_no_2', 'po_due_date', 'mat_required_date', 'mat_receive_date_stockroom', 'verify_date', 'qty_in_stockroom']],
