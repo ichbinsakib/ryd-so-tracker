@@ -13,7 +13,7 @@
   // Editable sections of an SO, grouped the way a buyer works through it.
   // Tabs mirror the lifecycle stepper: [title, stages covered, fields (a..b = a field range in column order)]
   const TAB_DEFS = [
-    ['Decide & quantity', [1, 2], ['notes', 'status', 'so_required', 'so_required_note', 'champion', 'customer', 'part_no', 'part_rev', 'part_price', 'so_qty', 'due_date']],
+    ['Decide & quantity', [1, 2], ['notes', 'so_required', 'so_required_note', 'champion', 'customer', 'part_no', 'part_rev', 'part_price', 'so_qty', 'due_date']],
     ['Quote', [3, 4], ['steel_type..update_mat_cost_date', 'supplier', 'quote_expected_date', 'quote_valid_until', 'quote_analysis', 'quote_approve_date']],
     ['SO request & number', [5, 6], ['kanban_or_po', 'so_type', 'so_req_date', 'req_by', 'appr_date', 'gap', 'so_no', 'so_no_received_date']],
     ['PO & acknowledgment', [7, 8], ['po_receive_date', 'po_no_1', 'po_mention_bar_size', 'router_vs_po', 'price_on_po', 'quote_vs_po_price', 'po_approve_date', 'ack_status', 'ack_date', 'ack_note']],
@@ -22,6 +22,7 @@
     ['Invoice & closure', [12, 13], ['invoice_received_finance..diff_updated_po_invoice', 'invoice_checked_by', 'note', 'expected_closure_date', 'so_close_date', 'closure_verified_date', 'closure_note']],
     ['Follow-up', [], ['owner', 'last_followup_date', 'next_followup_date', 'escalated', 'blocker']]
   ];
+  const ALWAYS_KEYS = ['status'];   // shown above the tabs on every stage
   let tabCache = null;
   function tabList() {
     if (tabCache && tabCache.n === state.fields.length) return tabCache.list;
@@ -31,7 +32,7 @@
       items.forEach((it) => { const [a, b] = it.split('..'); const i = order.indexOf(a), j = b ? order.indexOf(b) : i; if (i >= 0) order.slice(i, j + 1).forEach((k) => { if (!used.has(k)) { used.add(k); keys.push(k); } }); });
       return [title, stages, keys];
     });
-    const rest = order.filter((k) => !used.has(k) && k !== 'record_id'); list[list.length - 1][2].push(...rest);   // anything unlisted lands on the last tab
+    const rest = order.filter((k) => !used.has(k) && k !== 'record_id' && !ALWAYS_KEYS.includes(k)); list[list.length - 1][2].push(...rest);   // anything unlisted lands on the last tab
     tabCache = { n: state.fields.length, list }; return list;
   }
   const tabForStage = (n) => { const i = tabList().findIndex((t) => t[1].includes(n)); return i < 0 ? 0 : i; };
@@ -603,35 +604,61 @@
     return el('div', { class: 'field' + (req ? ' mandatory' : '') + (f.type === 'longtext' ? ' wide' : '') },
       el('label', { for: id }, f.label, req ? el('span', { class: 'req', title: 'Required', text: ' *' }) : el('span', { class: 'tag', text: 'optional' })), input);
   }
-  // prefill (optional): values copied from an existing SO by Duplicate
-  function openNewForm(prefill, fromLabel) {
-    if (!prefill || prefill instanceof Event) prefill = null;
+  function openNewForm() {
     state.dirty = false; updateSaveBar();
     const grid = (keys) => el('div', { class: 'grid' }, keys.filter((k) => state.intake.keys.includes(k)).map(newField));
-    const det = el('details', { class: 'newdetails card' }, el('summary', { text: 'Already have the SO? Add the SO details now (otherwise request the SO after the quote)' }), grid(NEW_SO));
-    $('new-form').replaceChildren(el('fieldset', {}, el('legend', { text: 'Part check' }), grid(NEW_CHECK)), det);
-    let soDetails = false;
-    if (prefill) DUP_KEYS.forEach((k) => {
-      const i = $('nf-' + k), v = norm(prefill[k]).trim(); if (!i || !v || v === '-') return;
-      if (i.tagName === 'SELECT' && ![...i.options].some((o) => o.value.toLowerCase() === v.toLowerCase())) return; // person/option no longer valid
-      i.value = i.tagName === 'SELECT' ? [...i.options].find((o) => o.value.toLowerCase() === v.toLowerCase()).value : v;
-      if (NEW_SO.includes(k)) soDetails = true;
-    });
-    if (soDetails) det.setAttribute('open', '');
-    banner('new-banner', prefill ? 'ok' : '', prefill ? 'Copied from ' + (fromLabel || 'an existing SO') + '. Check the details, enter the new SO# and dates, then click Open SO. Nothing is saved until you do.' : '');
-    show('view-new');
-    $(prefill ? 'nf-so_qty' : 'nf-part_no').focus();
+    $('new-form').replaceChildren(el('fieldset', {}, el('legend', { text: 'Part check' }), grid(NEW_CHECK)),
+      el('details', { class: 'newdetails card' }, el('summary', { text: 'Already have the SO? Add the SO details now (otherwise request the SO after the quote)' }), grid(NEW_SO)));
+    banner('new-banner', '', ''); show('view-new');
+    $('nf-part_no').focus();
   }
-  // Duplicate: copy the part, customer, qty, notes and SO type/people of an SO into a new SO form (SO#, dates are left blank)
-  const DUP_KEYS = ['part_no', 'customer', 'so_qty', 'notes', 'so_type', 'kanban_or_po', 'champion', 'req_by'];
+  // Duplicate: a new SO with every editable value of the source copied. SO# stays blank (it must be unique) and the
+  // status starts as a part check (1. ANALYSIS needs no SO#); calculated fields recalculate. Scans and the log are not copied.
+  const DUP_SKIP = ['so_no', 'status'];
   const soName = (v) => norm(v.so_no) ? 'SO ' + norm(v.so_no) : 'part check ' + (norm(v.part_no) || '');
-  async function duplicateSO(id, values) {
-    if (state.role === 'viewer') return;
+  let duplicating = false;
+  async function duplicateSO(id) {
+    if (state.role === 'viewer' || duplicating) return;
     if (!(await leaveGuard())) return;
-    if (!values) { const r = await api('get', { id }); if (!r.ok) { toast(r.error || 'Could not open the SO to copy.', true); return; } values = r.record.values; }
-    openNewForm(values, soName(values));
+    const g = await api('get', { id });
+    if (!g.ok) { toast(g.error || 'Could not open the SO to copy.', true); return; }
+    const src = g.record.values, name = soName(src);
+    const all = {};
+    state.fields.forEach((f) => { if (f.editable && !DUP_SKIP.includes(f.key)) { const v = norm(src[f.key]).trim(); if (v) all[f.key] = v; } });
+    const st = norm(src.status).trim(); if (['1. ANALYSIS', '2.RFS', '5.HOLD'].includes(st)) all.status = st;   // ANR / OPEN / CLOSE need an SO#
+    const n = Object.keys(all).length;
+    if (!(await confirmDialog('Duplicate ' + name + '?', el('div', {},
+      el('p', { text: 'A new SO is created now with all ' + n + ' filled-in details of ' + name + ' copied (part, customer, qty, dates, material, quote, PO and the rest).' }),
+      el('p', { class: 'muted', text: 'SO# is left blank because it must be unique; enter the new SO# on the new SO. The stage and status follow the copied details (an OPEN or ANR SO starts as a part check until it has its SO#). Scans and the follow-up log are not copied.' })), 'Duplicate'))) return;
+    duplicating = true; toast('Duplicating ' + name + '…');
+    try {
+      // 1) create with the intake fields, 2) save every other field on the new SO
+      const intake = {}; state.intake.keys.forEach((k) => { if (k in all) intake[k] = all[k]; });
+      const skipped = [];
+      let c = await api('createSO', { changes: intake });
+      if (!c.ok && c.code === 'INVALID' && c.fieldErrors) {   // e.g. a champion who is no longer active
+        Object.keys(c.fieldErrors).forEach((k) => { if (k in intake && !state.byKey[k].required && !state.intake.checkRequired.includes(k)) { skipped.push(k); delete intake[k]; } });
+        c = await api('createSO', { changes: intake });
+      }
+      if (!c.ok) { if (c.code === 'UNAUTHENTICATED') return showLogin(c.error); toast(c.error || 'Could not create the copy.', true); return; }
+      staleDash();
+      const rest = {}; Object.keys(all).forEach((k) => { if (!(k in intake) && !skipped.includes(k)) rest[k] = all[k]; });
+      let rec = c.record;
+      if (Object.keys(rest).length) {
+        let u = await api('update', { id: rec.id, baseVersion: rec.version, changes: rest });
+        if (!u.ok && u.code === 'INVALID' && u.fieldErrors) {   // legacy free-text values that the form would not accept
+          Object.keys(u.fieldErrors).forEach((k) => { skipped.push(k); delete rest[k]; });
+          u = Object.keys(rest).length ? await api('update', { id: rec.id, baseVersion: rec.version, changes: rest }) : { ok: true, record: rec };
+        }
+        if (u.ok) rec = u.record;
+        else { openRecord(rec, 'err', 'The copy was created with the part, customer and qty, but the other details could not be saved: ' + (u.error || 'unknown error') + '. Fill them in here.'); return; }
+      }
+      const skipTxt = skipped.length ? ' Not copied (value not accepted, please re-enter): ' + skipped.map((k) => state.byKey[k].label).join(', ') + '.' : '';
+      toast('Duplicated ' + name + '.');
+      openRecord(rec, skipped.length ? 'warn' : 'ok', 'Duplicated from ' + name + ': all details copied. Enter the new SO# and change anything that differs.' + skipTxt);
+    } finally { duplicating = false; }
   }
-  const dupBtn = (r) => state.role === 'viewer' ? '' : el('button', { class: 'dupbtn', type: 'button', title: 'Duplicate: open a new SO with these details', 'aria-label': 'Duplicate ' + (norm(r.so_no) || norm(r.part_no)), text: '⧉',
+  const dupBtn = (r) => state.role === 'viewer' ? '' : el('button', { class: 'dupbtn', type: 'button', title: 'Duplicate: a new SO with all these details copied', 'aria-label': 'Duplicate ' + (norm(r.so_no) || norm(r.part_no)), text: '⧉',
     onclick: (e) => { e.stopPropagation(); duplicateSO(r.id); }, onkeydown: (e) => e.stopPropagation() });
   function collectNew() { const ch = {}; $('new-form').querySelectorAll('[data-key]').forEach((i) => { ch[i.dataset.key] = i.value.trim(); }); return ch; }
   function showFieldErrors(prefix, errs) {
@@ -939,6 +966,7 @@
     $('btn-dup').hidden = !canEdit();
     renderStepper(rec); renderNextCard(rec); renderCallouts(rec); renderFacts(rec); afterFacts(rec);
     const form = $('detail-form'); form.replaceChildren();
+    form.append(el('fieldset', { class: 'alwaysbar' }, el('legend', { text: 'Status (every stage)' }), el('div', { class: 'grid' }, ALWAYS_KEYS.filter((k) => state.byKey[k]).map((k) => fieldNode(state.byKey[k], rec)))));
     tabList().forEach(([title, , keys], i) => {
       form.append(el('div', { class: 'tabpanel', id: 'panel-' + i, role: 'tabpanel', hidden: i !== state.tab },
         el('fieldset', {}, el('legend', { text: title }), el('div', { class: 'grid' }, keys.map((k) => fieldNode(state.byKey[k], rec))))));
@@ -2376,7 +2404,7 @@
   $('btn-save').onclick = save;
   $('btn-discard').onclick = discard;
   $('btn-print').onclick = printSheet;
-  $('btn-dup').onclick = () => { const r = state.current; if (r) duplicateSO(r.id, r.values); };
+  $('btn-dup').onclick = () => { const r = state.current; if (r) duplicateSO(r.id); };
   $('btn-delete').onclick = () => { const r = state.current; if (r) deleteSO(r.id, norm(r.values.so_no) || norm(r.values.part_no)); };
   $('btn-signout').onclick = signOut;
   $('btn-pw').onclick = async () => {

@@ -691,3 +691,6 @@ button.mtile { cursor: pointer; } button.mtile:hover { border-color: var(--accen
 .pusetrow { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
 /* SO Tracker: the planner's report in a sandboxed frame (white page, its own styles) */
 .stframe { display: block; width: 100%; height: calc(100vh - 170px); min-height: 480px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
+
+/* status box shown above the stage tabs on the SO page */
+#detail-form .alwaysbar { margin-bottom: 10px; } #detail-form .alwaysbar .grid { grid-template-columns: minmax(200px, 260px); }
