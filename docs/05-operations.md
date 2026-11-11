@@ -36,6 +36,13 @@ Reads `lt_routings` and `lt_workcenters`. To refresh from the LT worksheet: `nod
 ## Price Increase Tracking (admin only)
 `price_updates` rows with reply status, effective date, implemented flag, notes and an email trail (`history`). Added, edited and deleted on the page; seeded from `dev/price-updates-seed.json` via `scripts/gen-price-updates-sql.js`.
 
+## SO Tracker (Planning › SO Tracker)
+The planner's PC runs the SO Tracker daily at 7:00 AM (and on Refresh) and uploads one self-contained HTML page with action `stUpload`. Every signed-in user sees it under **Planning › SO Tracker** (action `stGet`), inside a sandboxed frame without `allow-same-origin`, so the page cannot read the app, its session or cookies.
+- Only accounts with `app_users.can_upload_tracker = true` can upload; set it in the SQL editor for the account saved on the planner's PC (see `supabase/so-tracker.sql`).
+- Files go to the private bucket `so-tracker`: `latest/so_tracker.html`, `latest/so_tracker_results.json` and `history/YYYY-MM-DD/so_tracker.html`; each upload adds a row to `so_tracker_runs` and a line to `app_audit`.
+- Limits: 4 MB of gzip+base64 per file, 6 MB unpacked.
+- Planner side: set `"amana_publish": {"enabled": true, "action": "stUpload"}` in `so_tracker/config.json`, then Refresh once; `output/tracker.log` should say `Published to so.amanasystem.com: ok`.
+
 ## Data fixes from the worksheet or mailbox
 Write a dated, re-runnable SQL file in `supabase/` (pattern: `sync-<what>-YYYY-MM-DD.sql`, guarded with `where not exists` / exact `where` clauses, ending in a `select` that shows the result), run it in the SQL editor, commit it. For subcontractor changes also insert an `sc_updates` note so the change is visible in the part's history.
 

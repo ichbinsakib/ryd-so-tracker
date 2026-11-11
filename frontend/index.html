@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Shop Order Tracking Details</title>
-<link rel="stylesheet" href="styles.css?v=d5ed5ecb">
+<link rel="stylesheet" href="styles.css?v=aee2e5ed">
 </head>
 <body>
 <aside id="sidenav" class="sidenav" aria-label="Sections" hidden>
@@ -20,6 +20,7 @@
     <button id="nav-subcon" class="navitem" type="button" title="Subcontractor orders"><svg class="navsvg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 6h11v10H2z"/><path d="M13 9h4l3 3v4h-7z"/><circle cx="6" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg><span class="navlabel">Subcontractor</span><span id="nb-subcon" class="navbadge" hidden></span></button>
     <small class="navhead">Planning</small>
     <button id="nav-lead" class="navitem" type="button" title="Lead time calculation"><svg class="navsvg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="navlabel">Lead Time Calculation</span></button>
+    <button id="nav-sotracker" class="navitem" type="button" title="SO Tracker: the planner's daily SO recommendations"><svg class="navsvg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h6v3H9z"/><path d="M15 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/><path d="M9 13l2 2 4-4"/></svg><span class="navlabel">SO Tracker</span></button>
     <button id="nav-price" class="navitem" type="button" title="Price increase tracking (admin only)" hidden><svg class="navsvg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg><span class="navlabel">Price Increase Tracking</span></button>
   </div>
   <div class="navfoot"><button id="nav-toggle" class="navitem" type="button" title="Collapse the menu"><svg class="navsvg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span class="navlabel">Collapse</span></button></div>
@@ -247,6 +248,15 @@
   <div id="bpo-body"></div>
 </main>
 
+<!-- SO Tracker: the planner's daily SO recommendations, published from the planner's PC (shown in a sandboxed frame) -->
+<main id="view-sotracker" hidden>
+  <div class="pagehead">
+    <div><h1>SO Tracker</h1><p class="muted" id="st-sub">Daily SO recommendations from the planner's SO Tracker.</p></div>
+    <div class="head-actions"><button id="st-reload" class="btn" type="button" title="Load the latest upload">↻ Reload</button></div>
+  </div>
+  <div id="st-body"></div>
+</main>
+
 <!-- One subcontractor order: same layout as the SO page -->
 <main id="view-scdetail" hidden>
   <div id="scd-banner" role="alert"></div>
@@ -397,6 +407,6 @@
 <script src="subcon.js?v=4a33170a"></script>
 <script src="priceupdates.js?v=f2503fb6"></script>
 <script src="lifecycle.js?v=3d007b51"></script>
-<script src="app.js?v=096ccdab"></script>
+<script src="app.js?v=85e2f8cf"></script>
 </body>
 </html>

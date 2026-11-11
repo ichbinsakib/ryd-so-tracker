@@ -36,7 +36,7 @@ The browser never talks to the database directly; it holds no Supabase key. The 
 ### Request flow (`supabase/api-main.ts`)
 1. `statusReminders` (cron key) and `login` need no session; everything else needs a valid session token.
 2. Role = highest of the `ADMINS` / `EDITORS` / `VIEWERS` lists (Edge Function env vars, or `app_meta.config`) and the person's active `app_users` row.
-3. Actions starting `sc` (subcontractor), `lg` (SO follow-up log), `pu` (price tracking) and `ltLookup` are handled directly in `api-main.ts` with Supabase queries.
+3. Actions starting `sc` (subcontractor), `lg` (SO follow-up log), `pu` (price tracking), `ltLookup`, and `stGet` / `stUpload` (SO Tracker) are handled directly in `api-main.ts` with Supabase queries.
 4. All other actions (`start`, `get`, `findSO`, `createSO`, `update`, `deleteSO`, `dashboard`, `mySOs`, uploads, users, scans) go through `prefetch` → `SOPg.create` → `SOService.handle` → `flush(ops)`.
 
 Request bodies are capped at 100 KB except the upload/import actions (14 MB).
@@ -57,6 +57,7 @@ Request bodies are capped at 100 KB except the upload/import actions (14 MB).
 | `sc_lines`, `sc_updates`, `sc_bpo_events` | subcontractor parts per BPO/batch, their update log, BPO moves/notes | `subcon.sql` … `subcon5.sql` |
 | `lt_workcenters`, `lt_routings` | lead time calculator (from the LT / TRAVELLER / CT worksheets) | `leadtime.sql` + `scripts/gen-leadtime-sql.js` |
 | `price_updates` | price increase tracking (admin only) | `price-updates.sql`, `price-updates-history.sql` |
+| `so_tracker_runs` + bucket `so-tracker` | SO Tracker uploads from the planner's PC (`latest/`, `history/YYYY-MM-DD/`); `app_users.can_upload_tracker` marks the uploader | `so-tracker.sql` |
 
 Bulk replaces (`replace_stock_items`, `replace_stockroom_prices`, `replace_steel_usage`) and `patch_order` are SQL functions executable only by the service role.
 

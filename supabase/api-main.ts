@@ -605,6 +605,58 @@ async function subconAction(req: any, email: string, role: string | null) {
   return fail('BAD_REQUEST', 'Unknown action.');
 }
 
+// ---- SO Tracker: the planner PC uploads a self-contained HTML report (stUpload); every signed-in user reads it (stGet)
+const ST_BUCKET = 'so-tracker';
+const ST_MAX_GZ_B64 = 4_000_000;     // compressed upload, per file
+const ST_MAX_TEXT = 6_000_000;       // decompressed, per file
+async function gunzipB64(b64: unknown, max: number): Promise<string> {
+  if (typeof b64 !== 'string' || !b64 || b64.length > ST_MAX_GZ_B64 || !/^[A-Za-z0-9+/=\s]+$/.test(b64)) throw new Error('Bad file data.');
+  const bin = atob(b64.replace(/\s+/g, '')); const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const reader = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')).getReader();
+  const parts: Uint8Array[] = []; let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read(); if (done) break;
+    size += value.length; if (size > max) { await reader.cancel(); throw new Error('File too large.'); }
+    parts.push(value);
+  }
+  const all = new Uint8Array(size); let o = 0; for (const p of parts) { all.set(p, o); o += p.length; }
+  return new TextDecoder().decode(all);
+}
+async function stAction(req: any, email: string, role: string | null) {
+  if (!role) return fail('FORBIDDEN', 'You are not allowed to use this app.');
+  if (req.action === 'stGet') {
+    const dl = await sb.storage.from(ST_BUCKET).download('latest/so_tracker.html');
+    if (dl.error || !dl.data) return fail('NOT_FOUND', 'The SO Tracker has not been uploaded yet. It is published by the planner\'s PC every day at 7:00 AM.');
+    const run = await sb.from('so_tracker_runs').select('run_at,counts,parts,created_at').order('created_at', { ascending: false }).limit(1);
+    const r: any = !run.error && run.data && run.data[0] ? run.data[0] : {};
+    return { ok: true, run_at: r.run_at || '', uploaded_at: r.created_at || '', counts: r.counts || {}, parts: r.parts ?? null, html: await dl.data.text() };
+  }
+  // stUpload: only accounts flagged can_upload_tracker (column added by supabase/so-tracker.sql)
+  const flag = await sb.from('app_users').select('can_upload_tracker').eq('email', email).eq('active', true).limit(1);
+  if (flag.error || !flag.data || !flag.data[0] || flag.data[0].can_upload_tracker !== true) return fail('FORBIDDEN', 'This account may not upload the SO Tracker.');
+  let html: string, results: string;
+  try { html = await gunzipB64(req.html_gz_b64, ST_MAX_TEXT); results = await gunzipB64(req.results_gz_b64, ST_MAX_TEXT); }
+  catch (e: any) { return fail('INVALID', (e && e.message) || 'Bad file data.'); }
+  if (!/<html[\s>]/i.test(html)) return fail('INVALID', 'The page is not an HTML document.');
+  try { JSON.parse(results); } catch (_e) { return fail('INVALID', 'The results file is not valid JSON.'); }
+  const m = req.manifest && typeof req.manifest === 'object' ? req.manifest : {};
+  const day = /^\d{4}-\d{2}-\d{2}$/.test(String(m.today || '')) ? String(m.today) : new Date().toISOString().slice(0, 10);
+  const up = async (path: string, text: string, type: string) => {
+    const r = await sb.storage.from(ST_BUCKET).upload(path, new Blob([text], { type }), { upsert: true, contentType: type });
+    if (r.error) throw new Error(r.error.message);
+  };
+  await up('latest/so_tracker.html', html, 'text/html; charset=utf-8');
+  await up('latest/so_tracker_results.json', results, 'application/json');
+  await up('history/' + day + '/so_tracker.html', html, 'text/html; charset=utf-8');
+  const runAt = String(req.run_at || m.run_at || '').slice(0, 60);
+  const parts = Number.isFinite(Number(m.parts)) ? Math.round(Number(m.parts)) : null;
+  const ins = await sb.from('so_tracker_runs').insert({ run_at: runAt, uploaded_by: email, counts: m.counts && typeof m.counts === 'object' ? m.counts : null, sources: Array.isArray(m.sources) || (m.sources && typeof m.sources === 'object') ? m.sources : null, parts });
+  if (ins.error) throw new Error(ins.error.message);
+  await sb.from('app_audit').insert({ user_email: email, field: 'SO TRACKER UPLOAD', new_value: runAt + ' (' + Math.round(html.length / 1024) + ' KB)' });
+  return { ok: true };
+}
+
 // ---- status reminders: called by pg_cron every 15 minutes with a shared secret (no user session)
 const REMIND_TO = Deno.env.get('REMIND_TO') || 'sahamed@camcomfginc.com';
 const APP_URL = 'https://so.amanasystem.com';
@@ -658,6 +710,7 @@ async function handleRequest(req: any) {
   if (typeof req.action === 'string' && req.action.startsWith('sc')) return await subconAction(req, email, role);
   if (typeof req.action === 'string' && req.action.startsWith('lg')) return await logAction(req, email, role);
   if (req.action === 'ltLookup') return await ltAction(req, role);
+  if (req.action === 'stGet' || req.action === 'stUpload') return await stAction(req, email, role);
   if (typeof req.action === 'string' && req.action.startsWith('pu')) return await puAction(req, email, role);
 
   const opts = await prefetch(req, email, role, users, cfg);
@@ -683,7 +736,7 @@ Deno.serve(async (request: Request) => {
     if (!body || body.length > 14_000_000) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
     req = JSON.parse(body);
     const big = body.length > 100_000;
-    if (big && !['uploadStock', 'uploadStockItems', 'uploadSteelUsage', 'uploadScan', 'scImport', 'scImportTemplate'].includes(req && req.action)) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
+    if (big && !['uploadStock', 'uploadStockItems', 'uploadSteelUsage', 'uploadScan', 'scImport', 'scImportTemplate', 'stUpload'].includes(req && req.action)) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
   } catch (_e) {
     return reply(fail('BAD_REQUEST', 'Request is not valid JSON.'), origin);
   }

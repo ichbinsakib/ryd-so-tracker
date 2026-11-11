@@ -14,6 +14,7 @@
 | Status reminders (ANR / RFS / Analysis) | 11-04 | email via the Apps Script mailer; see [reminders.md](reminders.md) |
 | Lead Time Calculation | 11-05 | data from the LT / TRAVELLER / CT worksheets |
 | Price Increase Tracking (admin only) | 11-05 → 11-06 | add/edit/delete on the page, email trail per part |
+| SO Tracker page | 11-11 | planner PC uploads (`stUpload`), everyone reads (`stGet`); needs `so-tracker.sql` + Edge Function redeploy + uploader flag |
 
 ## Not verified / open
 - Which SQL files have been run in the live database is not recorded in the repo; the dated data-fix files are assumed applied (each is re-runnable).

@@ -47,6 +47,14 @@ function puMock(rq) {
   if (rq.action === 'puSet') { const r = puRows.find((x) => x.id === rq.id); if (!r) return { ok: false, code: 'BAD_REQUEST', error: 'Missing record.' }; ['part_no', 'sent_by', 'sent_date', 'effective_date', 'reply', 'reply_date', 'source_subject', 'notes', 'implemented'].forEach((k) => { if (rq[k] !== undefined) r[k] = rq[k] === '' ? null : rq[k]; }); ['prev_price', 'new_price'].forEach((k) => { if (rq[k] !== undefined) r[k] = rq[k] === '' ? null : Number(rq[k]); }); return { ok: true }; }
   return { ok: false, code: 'BAD_REQUEST', error: 'Unknown action.' };
 }
+// SO Tracker stub: a tiny self-contained page (scripts allowed in the sandbox; same-origin access is not).
+function stMock(rq) {
+  if (rq.action === 'stUpload') return { ok: false, code: 'FORBIDDEN', error: 'This account may not upload the SO Tracker.' };
+  const html = '<!doctype html><html><head><meta charset="utf-8"><title>SO Tracker</title><style>body{font:14px system-ui;margin:16px}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 8px}</style></head><body>'
+    + '<h2>SO Tracker (mock)</h2><p id="t"></p><table><tr><th>Part</th><th>Decision</th><th>Qty</th></tr><tr><td>1017785</td><td>OPEN SO</td><td>1190</td></tr><tr><td>1313323</td><td>URGENT REVIEW REQUIRED</td><td>216</td></tr></table>'
+    + '<script>var c;try{c=document.cookie;}catch(e){c="blocked";}var p;try{p=String(parent.document.title);}catch(e){p="blocked";}document.getElementById("t").textContent="Script ran. Parent access: "+p+". Cookies: "+c+".";</' + 'script></body></html>';
+  return { ok: true, run_at: '11/11/2026 7:00 AM', uploaded_at: new Date().toISOString(), counts: { 'OPEN SO': 1, 'URGENT REVIEW REQUIRED': 1 }, parts: 2, html };
+}
 const scEvents = [];
 function scMock(rq) {
   const today = rq.today || iso(0);
@@ -89,7 +97,7 @@ http.createServer((req, res) => {
       let out;
       try {
         const rq = JSON.parse(body);
-        out = String(rq.action || '').startsWith('pu') ? puMock(rq) : String(rq.action || '').startsWith('sc') ? scMock(rq) : Service.handle(sheet, rq);
+        out = rq.action === 'stGet' || rq.action === 'stUpload' ? stMock(rq) : String(rq.action || '').startsWith('pu') ? puMock(rq) : String(rq.action || '').startsWith('sc') ? scMock(rq) : Service.handle(sheet, rq);
       } catch (e) { out = { ok: false, code: 'BAD_REQUEST', error: 'Bad JSON' }; }
       res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(out));
     });

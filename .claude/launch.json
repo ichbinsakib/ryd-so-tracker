@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev-mock",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["dev/mock-server.js"],
+      "port": 5173
+    }
+  ]
+}

@@ -43,7 +43,8 @@ Supabase dashboard → SQL editor → paste the file → Run. Order for a fresh 
 3. `subcon.sql`, `subcon2.sql` … `subcon5.sql`
 4. `leadtime.sql`, then the files from `node scripts/gen-leadtime-sql.js` (written to `lt-sql/`, git-ignored)
 5. `price-updates.sql` (regenerate with `node scripts/gen-price-updates-sql.js`), `price-updates-history.sql`
-6. `reminders-schedule.sql` once, with the real cron key pasted in (do not commit the key)
+6. `so-tracker.sql`, then flag the planner PC's account (last line of that file)
+7. `reminders-schedule.sql` once, with the real cron key pasted in (do not commit the key)
 
 The dated files (`import-sheet-2026-11-03.sql`, `sync-*-2026-11-05.sql`, `add-bpo-parts-…`, `move-3-parts-…`) are one-off data fixes that have already been applied; they are kept as a record.
 

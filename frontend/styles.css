@@ -687,3 +687,5 @@ button.mtile { cursor: pointer; } button.mtile:hover { border-color: var(--accen
 .puform label { display: grid; gap: 2px; font-size: 12px; color: var(--muted); } .puform textarea { font: inherit; width: 100%; resize: vertical; }
 .puformgrid { display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 8px; } @media (max-width: 900px) { .puformgrid { grid-template-columns: repeat(2, 1fr); } }
 .pusetrow { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 4px; }
+/* SO Tracker: the planner's report in a sandboxed frame (white page, its own styles) */
+.stframe { display: block; width: 100%; height: calc(100vh - 170px); min-height: 480px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }

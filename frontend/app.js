@@ -36,7 +36,7 @@
   }
   const tabForStage = (n) => { const i = tabList().findIndex((t) => t[1].includes(n)); return i < 0 ? 0 : i; };
   const PEOPLE_KEYS = ['champion', 'req_by', 'owner'];
-  const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail', 'view-subcon', 'view-dash', 'view-scdetail', 'view-bpo'];
+  const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail', 'view-subcon', 'view-dash', 'view-scdetail', 'view-bpo', 'view-sotracker'];
 
   // ---------- helpers
   function el(tag, attrs, ...kids) {
@@ -69,7 +69,7 @@
   const niceName = (email) => email.split('@')[0].split(/[._-]+/).filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join(' ');
   function store(k, v) { try { if (v === undefined) return sessionStorage.getItem(k); v === null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch (e) { return null; } }
   function show(id) { VIEWS.forEach((v) => { $(v).hidden = v !== id; }); navSync(id); window.scrollTo(0, 0); }
-  const CRUMBS = { 'view-dash': 'Dashboard', 'view-admin': 'Inhouse', 'view-detail': 'Inhouse › Shop order', 'view-new': 'Inhouse › Open an SO', 'view-users': 'Administration › Users', 'view-home': 'Home', 'view-scdetail': 'Subcontractor › Order', 'view-bpo': 'Subcontractor › BPO' };
+  const CRUMBS = { 'view-dash': 'Dashboard', 'view-admin': 'Inhouse', 'view-detail': 'Inhouse › Shop order', 'view-new': 'Inhouse › Open an SO', 'view-users': 'Administration › Users', 'view-home': 'Home', 'view-scdetail': 'Subcontractor › Order', 'view-bpo': 'Subcontractor › BPO', 'view-sotracker': 'Planning › SO Tracker' };
   // sidebar badges: how many things need you in each area
   function navBadge(id, n, tone) { const b = $(id); if (!b) return; b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n || ''); b.className = 'navbadge ' + (tone || 'warn'); }
   function setNavCollapsed(on) { document.body.classList.toggle('nav-collapsed', on); try { localStorage.setItem('navCollapsed', on ? '1' : '0'); } catch (e) { /* private mode */ } const t = $('nav-toggle'); t.title = on ? 'Expand the menu' : 'Collapse the menu'; }
@@ -77,8 +77,8 @@
     const hide = id === 'view-login' || id === 'view-loading';
     $('sidenav').hidden = hide; document.body.classList.toggle('has-nav', !hide); $('nav-burger').hidden = hide; document.body.classList.remove('nav-open');
     $('crumb').textContent = hide ? '' : id === 'view-subcon' ? (SC.section === 'leads' ? 'Planning › Lead Time Calculation' : SC.section === 'price' ? 'Planning › Price Increase Tracking' : 'Subcontractor') : (CRUMBS[id] || '');
-    const on = id === 'view-scdetail' || id === 'view-bpo' ? 'nav-subcon' : id === 'view-subcon' ? (SC.section === 'leads' ? 'nav-lead' : SC.section === 'price' ? 'nav-price' : 'nav-subcon') : id === 'view-dash' ? 'nav-dash' : 'nav-inhouse';
-    ['nav-dash', 'nav-inhouse', 'nav-subcon', 'nav-lead', 'nav-price'].forEach((n) => { $(n).classList.toggle('on', n === on); if (n === on) $(n).setAttribute('aria-current', 'page'); else $(n).removeAttribute('aria-current'); });
+    const on = id === 'view-scdetail' || id === 'view-bpo' ? 'nav-subcon' : id === 'view-subcon' ? (SC.section === 'leads' ? 'nav-lead' : SC.section === 'price' ? 'nav-price' : 'nav-subcon') : id === 'view-dash' ? 'nav-dash' : id === 'view-sotracker' ? 'nav-sotracker' : 'nav-inhouse';
+    ['nav-dash', 'nav-inhouse', 'nav-subcon', 'nav-lead', 'nav-sotracker', 'nav-price'].forEach((n) => { $(n).classList.toggle('on', n === on); if (n === on) $(n).setAttribute('aria-current', 'page'); else $(n).removeAttribute('aria-current'); });
   }
   function toast(msg, isErr) {
     const t = $('toast'); t.textContent = msg; t.className = 'toast' + (isErr ? ' err' : ''); t.hidden = false;
@@ -2301,6 +2301,25 @@
   $('nav-subcon').onclick = () => openSubcon('subcon');
   $('nav-lead').onclick = () => openSubcon('leads');
   $('nav-price').onclick = () => openSubcon('price');
+  // SO Tracker: a self-contained HTML report uploaded by the planner's PC. It runs in a sandboxed frame without
+  // allow-same-origin, so it cannot read this page, the session token or storage.
+  async function openSoTracker() {
+    if (!state.token || !state.role) return;
+    if (!(await leaveGuard())) return;
+    show('view-sotracker');
+    const box = $('st-body'), sub = $('st-sub');
+    box.replaceChildren(el('div', { class: 'card muted', text: 'Loading the SO Tracker…' }));
+    const r = await api('stGet');
+    if ($('view-sotracker').hidden) return;
+    if (!r.ok) { sub.textContent = 'Daily SO recommendations from the planner’s SO Tracker.'; box.replaceChildren(el('div', { class: 'card', text: r.error || 'Could not load the SO Tracker.' })); return; }
+    const when = r.run_at || (r.uploaded_at ? new Date(r.uploaded_at).toLocaleString() : '');
+    sub.textContent = (when ? 'Updated ' + when + ' by the planner’s SO Tracker' : 'From the planner’s SO Tracker') + ' · refreshes daily at 7:00 AM';
+    const frame = el('iframe', { title: 'SO Tracker', class: 'stframe', sandbox: 'allow-scripts allow-downloads allow-modals allow-popups', referrerpolicy: 'no-referrer' });
+    frame.srcdoc = r.html || '';
+    box.replaceChildren(frame);
+  }
+  $('nav-sotracker').onclick = openSoTracker;
+  $('st-reload').onclick = openSoTracker;
 
   window.addEventListener('beforeunload', (e) => { if (state.dirty) { e.preventDefault(); e.returnValue = ''; } });
   $('btn-home').onclick = (e) => { e.preventDefault(); openDash(); };
