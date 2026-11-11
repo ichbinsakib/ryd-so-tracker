@@ -37,7 +37,7 @@ Reads `lt_routings` and `lt_workcenters`. To refresh from the LT worksheet: `nod
 `price_updates` rows with reply status, effective date, implemented flag, notes and an email trail (`history`). Added, edited and deleted on the page; seeded from `dev/price-updates-seed.json` via `scripts/gen-price-updates-sql.js`.
 
 ## SO Tracker (Planning › SO Tracker)
-The planner's PC runs the SO Tracker daily at 7:00 AM (and on Refresh) and uploads one self-contained HTML page with action `stUpload`. Every signed-in user sees it under **Planning › SO Tracker** (action `stGet`), inside a sandboxed frame without `allow-same-origin`, so the page cannot read the app, its session or cookies.
+The planner's PC runs the SO Tracker daily at 7:00 AM (and on Refresh) and uploads one self-contained HTML page with action `stUpload`. Every signed-in user sees it under **Planning › SO Tracker** (action `stGet`), inside a sandboxed frame without `allow-same-origin`, so the page cannot read the app, its session or cookies. The frame may launch `mailto:` links (`allow-top-navigation-to-custom-protocols`) for the report's per-row **Send Email** button, which opens a draft in the PC's default mail app.
 - Only accounts with `app_users.can_upload_tracker = true` can upload; set it in the SQL editor for the account saved on the planner's PC (see `supabase/so-tracker.sql`).
 - Files go to the private bucket `so-tracker`: `latest/so_tracker.html`, `latest/so_tracker_results.json` and `history/YYYY-MM-DD/so_tracker.html`; each upload adds a row to `so_tracker_runs` and a line to `app_audit`.
 - Limits: 4 MB of gzip+base64 per file, 6 MB unpacked.

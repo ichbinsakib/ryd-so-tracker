@@ -2314,7 +2314,7 @@
     if (!r.ok) { sub.textContent = 'Daily SO recommendations from the planner’s SO Tracker.'; box.replaceChildren(el('div', { class: 'card', text: r.error || 'Could not load the SO Tracker.' })); return; }
     const when = r.run_at || (r.uploaded_at ? new Date(r.uploaded_at).toLocaleString() : '');
     sub.textContent = (when ? 'Updated ' + when + ' by the planner’s SO Tracker' : 'From the planner’s SO Tracker') + ' · refreshes daily at 7:00 AM';
-    const frame = el('iframe', { title: 'SO Tracker', class: 'stframe', sandbox: 'allow-scripts allow-downloads allow-modals allow-popups', referrerpolicy: 'no-referrer' });
+    const frame = el('iframe', { title: 'SO Tracker', class: 'stframe', sandbox: 'allow-scripts allow-downloads allow-modals allow-popups allow-top-navigation-to-custom-protocols', referrerpolicy: 'no-referrer' });
     frame.srcdoc = r.html || '';
     box.replaceChildren(frame);
   }
