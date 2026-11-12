@@ -111,7 +111,9 @@ var SOCore = (function () {
     ['CQ', 'last_followup_date', 'LAST FOLLOW-UP', 'date'],
     ['CR', 'next_followup_date', 'NEXT FOLLOW-UP', 'date'],
     ['CS', 'escalated', 'ESCALATED?', 'enum', { options: YN }],
-    ['CT', 'blocker', 'OUTSTANDING ISSUE', 'text']
+    ['CT', 'blocker', 'OUTSTANDING ISSUE', 'text'],
+    ['CU', 'quote_approved_by', 'QUOTE APPROVED BY', 'text'],
+    ['CV', 'quote_approve_note', 'QUOTE APPROVAL REMARKS (WHY APPROVED)', 'longtext']
   ];
 
   function colToIndex(letters) {

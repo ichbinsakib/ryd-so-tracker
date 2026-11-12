@@ -103,5 +103,7 @@ Header row = 2, data starts at row 3. Row 1 holds helper numbers and is ignored.
 | CR | NEXT FOLLOW-UP | `next_followup_date` | date | Editable (unless the cell holds a formula) | Date YYYY-MM-DD |
 | CS | ESCALATED? | `escalated` | enum | Editable (unless the cell holds a formula) | Dropdown: YES, NO |
 | CT | OUTSTANDING ISSUE | `blocker` | text | Editable (unless the cell holds a formula) | Free text |
+| CU | QUOTE APPROVED BY | `quote_approved_by` | text | Editable (unless the cell holds a formula) | Free text |
+| CV | QUOTE APPROVAL REMARKS (WHY APPROVED) | `quote_approve_note` | longtext | Editable (unless the cell holds a formula) | Free text |
 
 | (added) | RECORD ID | `id` | text | hidden stable key | Added once by `setupApp()` after the last column |

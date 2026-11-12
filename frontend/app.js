@@ -15,7 +15,8 @@
   const TAB_DEFS = [
     ['Decide & quantity', [1, 2], ['notes', 'so_required', 'so_required_note', 'champion', 'customer', 'part_no', 'part_rev', 'part_price', 'so_qty', 'due_date']],
     ['Quote', [3, 4], ['steel_type..update_mat_cost_date', 'supplier', 'quote_expected_date', 'quote_valid_until', 'quote_analysis']],
-    ['SO request & number', [5, 6], ['quote_approve_date', 'kanban_or_po', 'so_type', 'so_req_date', 'req_by', 'appr_date', 'gap', 'so_no', 'so_no_received_date']],
+    // a 4th element adds boxes shown above the tab's own fields: [[legend, keys], ...]
+    ['SO request & number', [5, 6], ['kanban_or_po', 'so_type', 'so_req_date', 'req_by', 'appr_date', 'gap', 'so_no', 'so_no_received_date'], [['Quote approval', ['quote_approve_date', 'quote_approved_by', 'quote_approve_note']]]],
     ['PO & acknowledgment', [7, 8], ['po_receive_date', 'po_no_1', 'po_mention_bar_size', 'router_vs_po', 'price_on_po', 'quote_vs_po_price', 'po_approve_date', 'ack_status', 'ack_date', 'ack_note']],
     ['Documents & release', [9, 10], ['print_traveller..update_date']],
     ['Material arrival', [11, 11], ['po_no_2', 'po_due_date', 'mat_required_date', 'mat_receive_date_stockroom', 'verify_date', 'qty_in_stockroom']],
@@ -27,16 +28,16 @@
   function tabList() {
     if (tabCache && tabCache.n === state.fields.length) return tabCache.list;
     const order = state.fields.map((f) => f.key), used = new Set();
-    const list = TAB_DEFS.map(([title, stages, items]) => {
-      const keys = [];
-      items.forEach((it) => { const [a, b] = it.split('..'); const i = order.indexOf(a), j = b ? order.indexOf(b) : i; if (i >= 0) order.slice(i, j + 1).forEach((k) => { if (!used.has(k)) { used.add(k); keys.push(k); } }); });
-      return [title, stages, keys];
+    const take = (items) => { const keys = []; items.forEach((it) => { const [a, b] = it.split('..'); const i = order.indexOf(a), j = b ? order.indexOf(b) : i; if (i >= 0) order.slice(i, j + 1).forEach((k) => { if (!used.has(k)) { used.add(k); keys.push(k); } }); }); return keys; };
+    const list = TAB_DEFS.map(([title, stages, items, pre]) => {
+      const boxes = (pre || []).map(([legend, ks]) => [legend, take(ks)]).filter(([, ks]) => ks.length);
+      return [title, stages, take(items), boxes];
     });
     const rest = order.filter((k) => !used.has(k) && k !== 'record_id' && !ALWAYS_KEYS.includes(k)); list[list.length - 1][2].push(...rest);   // anything unlisted lands on the last tab
     tabCache = { n: state.fields.length, list }; return list;
   }
   const tabForStage = (n) => { const i = tabList().findIndex((t) => t[1].includes(n)); return i < 0 ? 0 : i; };
-  const PEOPLE_KEYS = ['champion', 'req_by', 'owner'];
+  const PEOPLE_KEYS = ['champion', 'req_by', 'owner', 'quote_approved_by'];
   const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail', 'view-subcon', 'view-dash', 'view-scdetail', 'view-bpo', 'view-sotracker'];
 
   // ---------- helpers
@@ -967,8 +968,9 @@
     renderStepper(rec); renderNextCard(rec); renderCallouts(rec); renderFacts(rec); afterFacts(rec);
     const form = $('detail-form'); form.replaceChildren();
     form.append(el('fieldset', { class: 'alwaysbar' }, el('legend', { text: 'Status (every stage)' }), el('div', { class: 'grid' }, ALWAYS_KEYS.filter((k) => state.byKey[k]).map((k) => fieldNode(state.byKey[k], rec)))));
-    tabList().forEach(([title, , keys], i) => {
+    tabList().forEach(([title, , keys, boxes], i) => {
       form.append(el('div', { class: 'tabpanel', id: 'panel-' + i, role: 'tabpanel', hidden: i !== state.tab },
+        ...(boxes || []).map(([legend, ks]) => el('fieldset', { class: 'prebox' }, el('legend', { text: legend }), el('div', { class: 'grid' }, ks.map((k) => fieldNode(state.byKey[k], rec))))),
         el('fieldset', {}, el('legend', { text: title }), el('div', { class: 'grid' }, keys.map((k) => fieldNode(state.byKey[k], rec))))));
     });
     $('scan-upload').hidden = state.role === 'viewer';

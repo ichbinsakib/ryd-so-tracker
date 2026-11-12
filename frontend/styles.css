@@ -694,3 +694,4 @@ button.mtile { cursor: pointer; } button.mtile:hover { border-color: var(--accen
 
 /* status box shown above the stage tabs on the SO page */
 #detail-form .alwaysbar { margin-bottom: 10px; } #detail-form .alwaysbar .grid { grid-template-columns: minmax(200px, 260px); }
+#detail-form .prebox { margin-bottom: 10px; }
