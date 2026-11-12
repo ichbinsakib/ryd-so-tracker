@@ -70,7 +70,9 @@
   const initials = (email) => email.split('@')[0].split(/[._-]+/).filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('') || '?';
   const niceName = (email) => email.split('@')[0].split(/[._-]+/).filter(Boolean).map((p) => p[0].toUpperCase() + p.slice(1)).join(' ');
   function store(k, v) { try { if (v === undefined) return sessionStorage.getItem(k); v === null ? sessionStorage.removeItem(k) : sessionStorage.setItem(k, v); } catch (e) { return null; } }
-  function show(id) { VIEWS.forEach((v) => { $(v).hidden = v !== id; }); navSync(id); window.scrollTo(0, 0); }
+  // Refresh only does something on these views, so it is hidden everywhere else
+  const REFRESH_VIEWS = ['view-admin', 'view-dash', 'view-detail'];
+  function show(id) { VIEWS.forEach((v) => { $(v).hidden = v !== id; }); $('btn-refresh').hidden = !state.token || !REFRESH_VIEWS.includes(id); navSync(id); window.scrollTo(0, 0); }
   const CRUMBS = { 'view-dash': 'Dashboard', 'view-admin': 'Inhouse', 'view-detail': 'Inhouse › Shop order', 'view-new': 'Inhouse › Open an SO', 'view-users': 'Administration › Users', 'view-home': 'Home', 'view-scdetail': 'Subcontractor › Order', 'view-bpo': 'Subcontractor › BPO', 'view-sotracker': 'Planning › SO Tracker' };
   // sidebar badges: how many things need you in each area
   function navBadge(id, n, tone) { const b = $(id); if (!b) return; b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n || ''); b.className = 'navbadge ' + (tone || 'warn'); }
@@ -86,13 +88,17 @@
     const t = $('toast'); t.textContent = msg; t.className = 'toast' + (isErr ? ' err' : ''); t.hidden = false;
     clearTimeout(toast.h); toast.h = setTimeout(() => { t.hidden = true; }, isErr ? 8000 : 3500);
   }
+  // Escape closes a <dialog> without changing returnValue, so clear it first: otherwise Escape would repeat the last OK.
+  // SheetJS turns a Date into an Excel serial in LOCAL time, so a date cell must be local midnight (UTC midnight shows a day early in the US)
+  const localMidnight = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Date(y, m - 1, d); };
+  function openModal(d) { d.returnValue = ''; d.showModal(); }
   function confirmDialog(title, bodyNode, okLabel, danger) {
     return new Promise((resolve) => {
       const d = $('dlg'); $('dlg-title').textContent = title;
       const b = $('dlg-body'); b.replaceChildren(bodyNode);
       const ok = $('dlg-ok'); ok.textContent = okLabel || 'OK'; ok.className = 'btn ' + (danger ? 'btn-danger' : 'btn-primary');
       d.addEventListener('close', () => resolve(d.returnValue === 'ok'), { once: true });
-      d.showModal();
+      openModal(d);
     });
   }
   function banner(id, kind, msg, node) { const b = $(id); b.className = kind; b.replaceChildren(node || msg || ''); }
@@ -133,7 +139,7 @@
       el('p', { text: c.reason + '.' }),
       el('div', { class: 'prow' }, el('span', { text: 'Worksheet PART PRICE' }), el('strong', { text: money(c.appPrice) })),
       el('div', { class: 'prow' }, el('span', { text: 'Stockroom sheet price' }), el('strong', { text: c.stockPrices.length ? c.stockPrices.map(money).join(', ') : 'not listed' })));
-    $('dlg-price').showModal();
+    openModal($('dlg-price'));
   }
   function lookupBadge(rec, key) {
     const c = rec.lookupChecks && rec.lookupChecks[key]; if (!c) return '';
@@ -141,7 +147,7 @@
     return el('button', { class: 'issue', type: 'button', title: c.reason, text: '!', onclick: () => {
       $('dp-title').textContent = 'Missing data · part ' + norm(rec.values.part_no);
       $('dp-body').replaceChildren(el('p', { text: c.reason + '.' }), el('p', { class: 'muted', text: 'An admin can fix this by uploading STEEL USAGE data that includes this part number.' }));
-      $('dlg-price').showModal();
+      openModal($('dlg-price'));
     } });
   }
 
@@ -254,7 +260,7 @@
     $('dp-body').replaceChildren(el('p', { text: 'Choose which one to open:' }), ...r.records.map((rec) => el('div', { class: 'prow' },
       el('span', { text: 'Part ' + norm(rec.values.part_no) + ' · ' + norm(rec.values.customer) + ' · ' + norm(rec.values.status) }),
       el('button', { class: 'btn', type: 'button', text: 'Open', onclick: () => { $('dlg-price').close(); openRecord(rec); } }))));
-    $('dlg-price').showModal();
+    openModal($('dlg-price'));
   }
 
   // ---------- dashboard: overview of inhouse and subcontractor work
@@ -278,6 +284,7 @@
     state.dashAll = inh.ok ? inh : null; if (inh.ok && !reuse) state.dashAt = Date.now();
     st.className = 'statusline' + (bad ? ' err' : ''); st.textContent = bad ? bad.error + ' (some data unavailable)' : '';
     renderDash(state.dashAll, sc.ok ? sc : null);
+    if (fresh || !state.stSumAt || Date.now() - state.stSumAt > 5 * 60000) loadStSummary();
   }
   const REPORT_CAP = 8;
   const SECTIONS = [['A', 'Immediate actions', 'Needs you now', 'warn'], ['B', 'Blocked shop orders', 'Waiting on someone else', 'info'], ['C', 'Material and production risks', 'Late or at-risk material', 'bad'],
@@ -327,7 +334,7 @@
     const items = [];
     (dash ? dash.rows : []).forEach((r) => {
       const lc = r.lc; if (!lc || !['A', 'C', 'E'].includes(lc.section)) return; const crit = lc.reasons.some((x) => x.level === 'crit');
-      items.push({ kind: 'Inhouse', crit, rank: lc.rank, title: (norm(r.so_no) ? 'SO ' + norm(r.so_no) : 'Part check') + ' · ' + norm(r.part_no), sub: [norm(r.customer), norm(r.qty) ? norm(r.qty) + ' pcs' : '', r.stage].filter(Boolean).join(' · '),
+      items.push({ id: r.id, kind: 'Inhouse', crit, rank: lc.rank, title: (norm(r.so_no) ? 'SO ' + norm(r.so_no) : 'Part check') + ' · ' + norm(r.part_no), sub: [norm(r.customer), norm(r.qty) ? norm(r.qty) + ' pcs' : '', r.stage].filter(Boolean).join(' · '),
         action: lc.next || lc.status, who: lc.owner === 'me' ? 'Me' : lc.waitingOn, by: lc.actionDate || lc.followup, why: lc.reasons.slice(0, 2), open: () => openById(r.id) });
     });
     scNeeds(sc).forEach((b) => {
@@ -337,60 +344,95 @@
     });
     return items.sort((a, b) => (b.crit - a.crit) || (a.rank - b.rank));
   }
-  function dashUpcoming(dash, sc) {
+  // SO due dates and subcontractor arrivals in the next n days (overdue ones are on the to-do list instead)
+  function dashUpcoming(dash, sc, n) {
     const out = [];
-    (dash ? dash.rows : []).filter((r) => rowOpen(r) && dueWithin(r, 14)).forEach((r) => out.push({ date: toIso(norm(r.due)), kind: 'Inhouse', title: (norm(r.so_no) ? 'SO ' + norm(r.so_no) : 'Part check') + ' · ' + norm(r.part_no), sub: 'Due · ' + r.stage + ' · ' + r.lc.status, open: () => openById(r.id) }));
-    (sc ? sc.lines : []).filter((o) => o.open && within(o.expected, 14)).forEach((o) => out.push({ date: o.expected, kind: 'Subcontractor', title: o.part_no + ' · ' + qtyFmt(o.qty) + ' pcs', sub: 'Expected at CAMCO · ' + o.status, open: () => scEditLine(o) }));
+    (dash ? dash.rows : []).filter((r) => rowOpen(r) && dueWithin(r, n)).forEach((r) => out.push({ date: toIso(norm(r.due)), kind: 'Inhouse', title: (norm(r.so_no) ? 'SO ' + norm(r.so_no) : 'Part check') + ' · ' + norm(r.part_no), sub: 'Due · ' + r.stage, open: () => openById(r.id) }));
+    (sc ? sc.lines : []).filter((o) => o.open && within(o.expected, n)).forEach((o) => out.push({ date: o.expected, kind: 'Subcontractor', title: o.part_no + ' · ' + qtyFmt(o.qty) + ' pcs', sub: 'Arrives at CAMCO' + (o.bpo_no ? ' · ' + o.bpo_no : ''), open: () => scEditLine(o) }));
     return out.filter((x) => x.date).sort((a, b) => a.date.localeCompare(b.date));
   }
-  function dashDone(dash, sc) {
-    const out = [];
-    (dash ? dash.rows : []).forEach((r) => { const lc = r.lc; if (lc && lc.section === 'F' && lc.closedOn && daysUntil(parseDate(lc.closedOn)) >= -14) out.push({ date: lc.closedOn, kind: 'Inhouse', title: 'SO ' + norm(r.so_no) + ' · ' + norm(r.part_no), sub: 'Closed and verified', open: () => openById(r.id) }); });
-    (sc ? sc.sections.completed.map((id) => sc.lines.find((l) => l.id === id)).filter(Boolean) : []).forEach((o) => out.push({ date: o.ms.received_camco, kind: 'Subcontractor', title: o.part_no + ' · ' + qtyFmt(o.qty) + ' pcs', sub: 'Arrived at CAMCO' + (o.spans[9].days !== null ? ' · ' + o.spans[9].days + ' days in total' : ''), open: () => scEditLine(o) }));
-    return out.sort((a, b) => b.date.localeCompare(a.date));
-  }
   const kindTag = (k) => el('span', { class: 'tag-kind ' + (k === 'Inhouse' ? 'in' : 'sub'), text: k });
+  // SO Tracker counts from the planner's last run (summary only: the report itself is ~1 MB)
+  async function loadStSummary() {
+    const r = await api('stGet', { summary: true });
+    state.stSum = r.ok ? r : null; state.stSumAt = Date.now();
+    if (!$('view-dash').hidden && state.dashAll) renderDash(state.dashAll, SC.data);
+  }
+  // horizontal bar chart: [[label, count, onclick]]
+  function barChart(items, emptyText) {
+    const max = Math.max(1, ...items.map((i) => i[1]));
+    if (!items.some((i) => i[1])) return el('p', { class: 'muted', text: emptyText });
+    return el('div', { class: 'hbars' }, ...items.map(([label, n, go]) => el('button', { class: 'hbar', type: 'button', onclick: go, disabled: !n, title: n + ' · ' + label },
+      el('span', { class: 'hbl', text: label }), el('span', { class: 'hbt' }, el('span', { class: 'hbf', style: 'width:' + Math.round(n / max * 100) + '%' })), el('b', { class: 'hbn', text: String(n) }))));
+  }
   function renderDash(dash, sc) {
     const rows = dash ? dash.rows.filter(rowOpen) : [], open = sc ? sc.lines.filter((o) => o.open) : [];
-    const mineIn = rows.filter(isMine).length, mineSc = scNeeds(sc).length;
+    const needSc = scNeeds(sc), actions = dashActions(dash, sc);
+    const mine = actions.filter((a) => a.who === 'Me' || a.kind === 'Subcontractor');   // a flagged BPO is on you to chase
     const lateIn = rows.filter((r) => r.lc && r.lc.daysToDue !== null && r.lc.daysToDue < 0).length, lateSc = open.filter((o) => o.section === 'overdue').length;
-    const risk = rows.filter(matRisk), lateMat = risk.filter((r) => r.lc.matStatus === 'Late').length;
     const soonIn = rows.filter((r) => dueWithin(r, 14)).length, soonSc = open.filter((o) => within(o.expected, 14)).length;
-    const actions = dashActions(dash, sc), upcoming = dashUpcoming(dash, sc), done = dashDone(dash, sc);
-    navBadge('nb-dash', actions.length, actions.some((a) => a.crit) ? 'bad' : 'warn'); navBadge('nb-inhouse', mineIn); navBadge('nb-subcon', mineSc);
-    $('dash2-sub').textContent = LONG_DATE() + (actions.length ? ' · ' + actions.length + ' thing' + (actions.length === 1 ? '' : 's') + ' need you' : ' · nothing needs you right now');
-    const fc = (tone, n, label, sub, go) => el('button', { class: 'fc ' + tone, type: 'button', onclick: go }, el('span', { class: 'fcn', text: String(n) }), el('span', { class: 'fcl', text: label }), el('small', { text: sub }));
+    const pcsIn = rows.reduce((t, r) => t + (parseFloat(norm(r.qty).replace(/,/g, '')) || 0), 0);
+    navBadge('nb-dash', mine.length, mine.some((a) => a.crit) ? 'bad' : 'warn'); navBadge('nb-inhouse', mine.filter((a) => a.kind === 'Inhouse').length); navBadge('nb-subcon', needSc.length);
+    $('dash2-sub').textContent = LONG_DATE() + (mine.length ? ' · ' + mine.length + ' thing' + (mine.length === 1 ? '' : 's') + ' need you' : ' · nothing needs you right now');
+    const goIn = (chip, stage) => () => { state.chip = chip; state.stage = stage || ''; state.mat = ''; goHome(); };
     const jump = (id) => () => { const t = $(id); if (t) t.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
-    $('dash2-tiles').replaceChildren(fc(actions.length ? 'warn' : 'ok', actions.length, 'Needs your action', 'Inhouse ' + mineIn + ' · Subcontractor ' + mineSc, jump('dash2-actions')),
-      fc(lateIn + lateSc ? 'bad' : 'ok', lateIn + lateSc, 'Overdue', 'SOs ' + lateIn + ' · sub follow-ups ' + lateSc, jump('dash2-actions')),
-      fc(risk.length ? 'bad' : 'ok', risk.length, 'Material at risk', risk.length ? lateMat + ' late · ' + (risk.length - lateMat) + ' at risk' : 'deliveries on track', () => { state.chip = 'risk'; state.stage = ''; state.mat = ''; goHome(); }),
-      fc('info', soonIn + soonSc, 'Due or arriving in 14 days', 'SOs ' + soonIn + ' · subcontractor ' + soonSc, jump('dash2-coming')));
-    // what to do now
-    const CAP = 7, all = state.dashAllActions;
-    $('dash2-actions').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'What to do now' }), el('span', { class: 'muted small', text: actions.length ? 'most urgent first' : '' })),
-      actions.length ? el('div', { class: 'dlist' }, ...actions.slice(0, all ? actions.length : CAP).map((a) => el('button', { class: 'ditem aitem' + (a.crit ? ' crit' : ''), type: 'button', onclick: a.open },
-        el('span', { class: 'dmain' }, el('b', {}, kindTag(a.kind), ' ', a.title), el('small', { text: a.sub }), a.why.length ? el('span', { class: 'nextwhy' }, a.why.map((x) => el('span', { class: 'badge ' + (x.level === 'crit' ? 'sc-bad' : 'sc-warn'), text: x.text }))) : ''),
-        el('span', { class: 'aact' }, el('b', { text: a.action }), el('small', { text: [a.who ? (a.who === 'Me' ? 'Me' : 'Waiting on ' + a.who) : '', a.by ? 'by ' + dshort(a.by) : ''].filter(Boolean).join(' · ') })))),
-        actions.length > CAP ? el('button', { class: 'btn btn-sm dmore', type: 'button', text: all ? 'Show fewer' : 'Show all ' + actions.length + ' ›', onclick: () => { state.dashAllActions = !all; renderDash(dash, sc); } }) : '') : el('p', { class: 'muted', text: 'Nothing needs your action right now.' }));
-    // the next two weeks
-    const dayTxt = (iso) => { const n = daysUntil(parseDate(iso)); return n === 0 ? 'today' : n === 1 ? 'tomorrow' : 'in ' + n + ' days'; };
-    $('dash2-coming').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Next 14 days' }), el('span', { class: 'muted small', text: 'SO due dates and subcontractor arrivals' })),
-      upcoming.length ? el('div', { class: 'dlist' }, ...upcoming.slice(0, 8).map((u) => el('button', { class: 'ditem upitem', type: 'button', onclick: u.open },
-        el('span', { class: 'update' }, el('b', { text: shortDate(parseDate(u.date)) }), el('small', { text: dayTxt(u.date) })), el('span', { class: 'dmain' }, el('b', {}, kindTag(u.kind), ' ', u.title), el('small', { text: u.sub }))))) : el('p', { class: 'muted', text: 'No SO due dates or arrivals in the next two weeks.' }));
-    // at a glance
-    const stageChips = (names, count, go) => el('div', { class: 'stagechips' }, ...names.map((n) => { const c = count(n); return c ? el('button', { class: 'chip', type: 'button', onclick: () => go(n) }, n, el('b', { text: String(c) })) : ''; }));
-    const waitIn = rows.filter(isWaiting).length, pcsIn = rows.reduce((t, r) => t + (parseFloat(norm(r.qty).replace(/,/g, '')) || 0), 0);
-    $('dash2-inh').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Inhouse' }), el('button', { class: 'btn btn-sm', type: 'button', text: 'Open Inhouse ›', onclick: () => { state.chip = 'all'; state.stage = ''; state.mat = ''; goHome(); } })),
-      el('div', { class: 'glance' }, ...[[rows.length, 'open SOs'], [fmtN(pcsIn, 0), 'pcs'], [mineIn, 'need you'], [waitIn, 'waiting on others']].map(([n, l]) => el('div', {}, el('b', { text: String(n) }), el('small', { text: l })))),
-      rows.length ? stageChips(STAGE_GROUPS.map((g) => g[0]), (n) => rows.filter((r) => groupOf(r) === n).length, (n) => { state.chip = 'all'; state.stage = n; state.mat = ''; goHome(); }) : el('p', { class: 'muted', text: 'No open SOs.' }));
-    const waitSc = open.filter((o) => o.owner_role && o.owner_role !== 'me' && o.owner_role !== 'none').length, pcsSc = open.reduce((t, o) => t + (o.remaining || 0), 0);
-    $('dash2-sc').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Subcontractor' }), el('button', { class: 'btn btn-sm', type: 'button', text: 'Open Subcontractor ›', onclick: () => openSubcon('subcon') })),
-      sc ? el('div', { class: 'glance' }, ...[[open.length, 'open orders'], [qtyFmt(pcsSc), 'pcs'], [mineSc, 'need you'], [waitSc, 'waiting on others']].map(([n, l]) => el('div', {}, el('b', { text: String(n) }), el('small', { text: l })))) : el('p', { class: 'muted', text: 'Subcontractor data is unavailable.' }),
-      sc && open.length ? stageChips(SC_GROUPS.filter((g) => g[1].length).map((g) => g[0]), (n) => open.filter((o) => scGroupOf(o) === n).length, (n) => openScFiltered('all', n)) : (sc ? el('p', { class: 'muted', text: 'No open orders.' }) : ''));
-    // recently finished
-    $('dash2-done').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Recently completed' }), el('span', { class: 'muted small', text: 'closed SOs (14 days) and parts arrived at CAMCO (30 days)' })),
-      done.length ? el('div', { class: 'donegrid' }, ...done.slice(0, 8).map((d) => el('button', { class: 'ditem upitem', type: 'button', onclick: d.open }, el('span', { class: 'update' }, el('b', { text: shortDate(parseDate(d.date)) }), el('small', { text: '✓' })),
-        el('span', { class: 'dmain' }, el('b', {}, kindTag(d.kind), ' ', d.title), el('small', { text: d.sub }))))) : el('p', { class: 'muted', text: 'Nothing completed recently.' }));
+    // 1) key numbers
+    const kpi = (tone, n, label, sub, go, extra) => el('button', { class: 'kpi ' + tone, type: 'button', onclick: go }, el('span', { class: 'kpil', text: label }), el('span', { class: 'kpin', text: String(n) }), el('small', { text: sub }), extra || '');
+    const st = state.stSum, stc = st && st.counts ? st.counts : null;
+    $('dash2-tiles').replaceChildren(
+      kpi('info', rows.length, 'Open SOs', fmtN(pcsIn, 0) + ' pcs · ' + open.length + ' subcontract lines', goIn('all')),
+      kpi(mine.length ? 'warn' : 'ok', mine.length, 'Need you', 'Inhouse ' + mine.filter((a) => a.kind === 'Inhouse').length + ' · Subcontractor ' + mine.filter((a) => a.kind !== 'Inhouse').length, jump('dash2-actions')),
+      kpi(lateIn + lateSc ? 'bad' : 'ok', lateIn + lateSc, 'Overdue', 'SOs ' + lateIn + ' · subcontract ' + lateSc, jump('dash2-actions')),
+      kpi('info', soonIn + soonSc, 'Due or arriving · 14 days', 'SOs ' + soonIn + ' · subcontract ' + soonSc, jump('dash2-coming')),
+      kpi(stc && stc['OPEN SO'] ? 'warn' : 'ok', stc ? (stc['OPEN SO'] || 0) : '—', 'SO Tracker: open SO now', stc ? 'Urgent review ' + (stc['URGENT REVIEW REQUIRED'] || 0) + ' · ' + (st.parts || 0) + ' parts checked' : (st === null ? 'not available' : 'loading…'), openSoTracker,
+        st && st.run_at ? el('small', { class: 'kpit', text: 'Planner run ' + st.run_at }) : ''));
+    // 2) where things are
+    const inhStages = STAGE_GROUPS.map((g) => g[0]);
+    $('dash2-inh').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Inhouse SOs by stage' }), el('button', { class: 'btn btn-sm', type: 'button', text: 'Open Inhouse ›', onclick: goIn('all') })),
+      barChart(inhStages.map((n) => [n, rows.filter((r) => groupOf(r) === n).length, goIn('all', n)]), 'No open SOs.'),
+      el('p', { class: 'muted small', text: rows.filter(isWaiting).length + ' waiting on others · ' + rows.filter(matRisk).length + ' with material late or at risk' }));
+    $('dash2-sc').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Subcontractor pipeline' }), el('button', { class: 'btn btn-sm', type: 'button', text: 'Open Subcontractor ›', onclick: () => openSubcon('subcon') })),
+      sc ? barChart(SC_GROUPS.filter((g) => g[1].length).map((g) => [g[0], open.filter((o) => scGroupOf(o) === g[0]).length, () => openScFiltered('all', g[0])]), 'No open subcontract lines.') : el('p', { class: 'muted', text: 'Subcontractor data is unavailable.' }),
+      sc ? el('p', { class: 'muted small', text: qtyFmt(open.reduce((t, o) => t + (o.remaining || 0), 0)) + ' pcs still to arrive · ' + needSc.length + ' BPO' + (needSc.length === 1 ? '' : 's') + ' need attention' }) : '');
+    // 3) to do: today, this week, waiting on others
+    const t0 = today();
+    const todayL = mine.filter((a) => a.crit || !a.by || a.by <= t0), weekL = mine.filter((a) => !todayL.includes(a));
+    const waitMap = new Map();
+    actions.filter((a) => !mine.includes(a)).concat(rows.filter((r) => isWaiting(r) && !actions.some((a) => a.id === r.id)).map((r) => ({ id: r.id, kind: 'Inhouse', title: soLabel(r) + ' · ' + norm(r.part_no), action: r.lc.next || r.lc.status, who: r.lc.waitingOn, by: r.lc.followup, open: () => openById(r.id) })))
+      .forEach((a) => { const k = a.who || 'Someone else'; if (!waitMap.has(k)) waitMap.set(k, []); waitMap.get(k).push(a); });
+    const item = (a) => el('button', { class: 'todo' + (a.crit ? ' crit' : ''), type: 'button', onclick: a.open },
+      el('span', { class: 'todot' }, kindTag(a.kind), ' ', el('b', { text: a.title })), el('span', { class: 'todoa', text: a.action || '' }),
+      el('small', { text: [a.by ? (a.by < t0 ? 'was due ' : 'by ') + dshort(a.by) : '', (a.why || []).map((x) => x.text).slice(0, 1).join('')].filter(Boolean).join(' · ') }));
+    const CAP = 6, all = state.dashAllActions;
+    const col = (title, list, emptyText, tone) => el('div', { class: 'todocol ' + (tone || '') }, el('h4', {}, title, el('b', { text: String(list.length) })),
+      list.length ? el('div', { class: 'todolist' }, ...list.slice(0, all ? list.length : CAP).map(item)) : el('p', { class: 'muted small', text: emptyText }),
+      list.length > CAP && !all ? el('button', { class: 'btn btn-sm', type: 'button', text: 'Show all ' + list.length, onclick: () => { state.dashAllActions = true; renderDash(dash, sc); } }) : '');
+    const waits = [...waitMap.entries()].sort((a, b) => b[1].length - a[1].length);
+    const waitCol = el('div', { class: 'todocol' }, el('h4', {}, 'Waiting on others', el('b', { text: String(waits.reduce((t, w) => t + w[1].length, 0)) })),
+      waits.length ? el('div', { class: 'waitlist' }, ...waits.slice(0, all ? waits.length : 6).map(([who, list]) => el('details', { class: 'waitgrp' }, el('summary', {}, el('span', { text: who }), el('b', { text: String(list.length) })), el('div', { class: 'todolist' }, ...list.map(item))))) : el('p', { class: 'muted small', text: 'Nobody else owes you anything.' }));
+    $('dash2-actions').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'To do' }), el('span', { class: 'muted small', text: 'most urgent first' }), all ? el('button', { class: 'btn btn-sm', type: 'button', text: 'Show fewer', onclick: () => { state.dashAllActions = false; renderDash(dash, sc); } }) : ''),
+      el('div', { class: 'todocols' }, col('Today', todayL, 'Nothing due today.', 'today'), col('This week and later', weekL, 'Nothing else on your list.'), waitCol));
+    // 4) how far each inhouse SO is (SO release status bar from the sheet; material bar alongside)
+    const withPct = rows.filter((r) => r.soBar !== null && r.soBar !== undefined).sort((a, b) => a.soBar - b.soBar);
+    const avg = withPct.length ? Math.round(withPct.reduce((t, r) => t + r.soBar, 0) / withPct.length) : null;
+    const CAPC = 10, allC = state.dashAllComp;
+    const pbar = (v, cls) => el('span', { class: 'pbar ' + (cls || '') }, el('span', { style: 'width:' + Math.max(0, Math.min(100, v)) + '%' }));
+    $('dash2-comp').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'SO completion' }), el('span', { class: 'muted small', text: withPct.length ? 'average ' + avg + '% · least complete first' : '' })),
+      withPct.length ? el('div', { class: 'complist' }, ...withPct.slice(0, allC ? withPct.length : CAPC).map((r) => el('button', { class: 'comp', type: 'button', onclick: () => openById(r.id), title: 'SO release ' + r.soBar + '%' + (r.matBar !== null && r.matBar !== undefined ? ' · material ' + r.matBar + '%' : '') },
+        el('span', { class: 'compt' }, el('b', { text: soLabel(r) }), el('small', { text: norm(r.part_no) + ' · ' + (r.stage || '') })),
+        el('span', { class: 'compb' }, pbar(r.soBar, r.soBar >= 80 ? 'hi' : r.soBar >= 40 ? 'mid' : 'lo'), r.matBar !== null && r.matBar !== undefined ? pbar(r.matBar, 'mat') : ''),
+        el('b', { class: 'compn', text: Math.round(r.soBar) + '%' })))) : el('p', { class: 'muted', text: 'No open SOs with a completion % yet.' }),
+      withPct.length > CAPC ? el('button', { class: 'btn btn-sm', type: 'button', text: allC ? 'Show fewer' : 'Show all ' + withPct.length, onclick: () => { state.dashAllComp = !allC; renderDash(dash, sc); } }) : '',
+      withPct.length ? el('p', { class: 'muted small', text: 'Thick bar: SO release progress. Thin bar: material.' }) : '');
+    // 5) next 30 days, by week
+    const up = dashUpcoming(dash, sc, 30), weeks = [0, 1, 2, 3, 4].map((i) => ({ i, items: [] }));
+    up.forEach((u) => { const w = Math.min(4, Math.floor(daysUntil(parseDate(u.date)) / 7)); weeks[w].items.push(u); });
+    const wkName = (i) => { const s = new Date(startOfToday().getTime() + i * 7 * 86400000), e = new Date(s.getTime() + 6 * 86400000); return (i === 0 ? 'Next 7 days' : shortDate(s).replace(/, \d+$/, '') + ' – ' + shortDate(e).replace(/, \d+$/, '')); };
+    $('dash2-coming').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Next 30 days' }), el('span', { class: 'muted small', text: 'SO due dates and subcontractor arrivals' })),
+      up.length ? el('div', { class: 'tline' }, ...weeks.filter((w) => w.i < 4 || w.items.length).map((w) => el('div', { class: 'tweek' }, el('h4', {}, wkName(w.i), el('b', { text: String(w.items.length) })),
+        w.items.length > 6 && !state.dashAllTl ? el('button', { class: 'btn btn-sm tmore', type: 'button', text: '+' + (w.items.length - 6) + ' more', onclick: () => { state.dashAllTl = true; renderDash(dash, sc); } }) : '',
+        w.items.length ? el('div', { class: 'tlist' }, ...w.items.slice(0, state.dashAllTl ? w.items.length : 6).map((u) => el('button', { class: 'titem ' + (u.kind === 'Inhouse' ? 'in' : 'sub'), type: 'button', onclick: u.open },
+          el('span', { class: 'tdate', text: shortDate(parseDate(u.date)).replace(/, \d+$/, '') }), el('span', { class: 'tmain' }, el('b', { text: u.title }), el('small', { text: u.kind + ' · ' + u.sub }))))) : el('p', { class: 'muted small', text: 'Nothing.' })))) : el('p', { class: 'muted', text: 'No SO due dates or arrivals in the next 30 days.' }));
   }
 
   // ---------- inhouse list
@@ -492,6 +534,9 @@
     freshness('card-steel', 'steel-when', 'steel-sub', st ? st.at : null,
       st ? st.count + ' rows' + (st.by ? ' · by ' + st.by : '') + (st.fileName ? ' · ' + st.fileName : '') : '', 'Not updated through the app yet');
   }
+  // the status tiles on the Inhouse board: [status, label, explanation]
+  const METRIC_LIST = [['1. ANALYSIS', 'Analysis', 'analysis for SO release'], ['1.ANR', 'ANR', 'approved, not released'], ['2.RFS', 'RFS', 'request for SO'], ['3.OPEN', 'Open', 'SO open'], ['5.HOLD', 'On hold', ''], ['4.CLOSE', 'Closed', '']];
+  const METRIC_NAMES = Object.fromEntries(METRIC_LIST.map(([k, l]) => [k, 'status ' + l]));
   const CHIPS = [['all', 'All'], ['mine', 'Needs my action'], ['waiting', 'Waiting on others'], ['soon', 'Due in 14 days'], ['late', 'Overdue'], ['risk', 'Material risk'], ['check', 'Part checks'], ['5.HOLD', 'On hold'], ['4.CLOSE', 'Closed']];
   function chipMatch(r, c) {
     if (c === 'all') return true; if (c === 'mine') return rowOpen(r) && isMine(r); if (c === 'waiting') return rowOpen(r) && isWaiting(r);
@@ -519,7 +564,11 @@
   }
   function renderBoard() {
     const rows = state.view.filter(rowOpen), mineN = (state.dash ? state.dash.rows : []).filter((r) => rowOpen(r) && isMine(r)).length, allN = (state.dash ? state.dash.rows : []).filter(rowOpen).length;
-    const scope = (c, label, n) => el('button', { class: 'chip' + (state.chip === c ? ' on' : ''), type: 'button', onclick: () => { state.chip = c; applyView(); } }, label, el('b', { text: String(n) }));
+    const scope = (c, label, n) => el('button', { class: 'chip' + (state.chip === c && !state.stage && !state.mat ? ' on' : ''), type: 'button', onclick: () => { state.chip = c; state.stage = ''; state.mat = ''; applyView(); } }, label, el('b', { text: String(n) }));
+    // filters set from the dashboard (stage, material, a status/risk chip) are otherwise invisible in this view
+    const chipName = (CHIPS.find((c) => c[0] === state.chip) || [])[1] || (METRIC_NAMES[state.chip] || '');
+    const active = [state.stage ? 'stage ' + state.stage : '', state.mat ? (state.mat === 'none' ? 'no steel data' : 'material ' + state.mat.split(' | ')[0]) : '', !['all', 'mine'].includes(state.chip) && chipName ? chipName : ''].filter(Boolean);
+    const filterNote = active.length ? el('p', { class: 'filternote' }, 'Showing only: ' + active.join(' and ') + ' ', el('button', { class: 'btn btn-sm', type: 'button', text: 'Clear filter', onclick: () => { state.chip = 'all'; state.stage = ''; state.mat = ''; applyView(); } })) : '';
     const groups = STAGE_GROUPS.map(([title]) => [title, rows.filter((r) => groupOf(r) === title)]);
     const other = rows.filter((r) => !groupOf(r)); if (other.length) groups.push(['On hold / other', other]);
     const sec = groups.filter(([, g]) => g.length).map(([title, g]) => el('section', { class: 'bstage' },
@@ -530,11 +579,11 @@
           el('span', { class: 'bnext' }, el('span', { text: lc && lc.next ? lc.next : '—' }), el('small', { text: lc ? (lc.owner === 'me' ? 'You' + (lc.actionDate ? ' · by ' + dshort(lc.actionDate) : '') : lc.waitingOn ? 'Waiting on ' + lc.waitingOn : '') : '' })),
           dueNode(d, false), dupBtn(r)); })));
     const cnt = state.dash && state.dash.counts ? state.dash.counts : null, all = state.dash ? state.dash.rows : [];
-    const METRICS = [['1. ANALYSIS', 'Analysis', 'analysis for SO release'], ['1.ANR', 'ANR', 'approved, not released'], ['2.RFS', 'RFS', 'request for SO'], ['3.OPEN', 'Open', 'SO open'], ['5.HOLD', 'On hold', ''], ['4.CLOSE', 'Closed', '']];
+    const METRICS = METRIC_LIST;
     const tile = ([st, label, sub]) => { const n = cnt ? cnt[st] || 0 : st === '4.CLOSE' ? null : all.filter((r) => norm(r.status).trim() === st).length, closed = st === '4.CLOSE';
       return el(closed ? 'div' : 'button', { class: 'mtile' + (state.chip === st ? ' on' : ''), type: closed ? undefined : 'button', title: sub, onclick: closed ? undefined : () => { state.chip = state.chip === st ? 'all' : st; applyView(); } },
         el('b', { text: n === null ? '—' : String(n) }), el('span', { text: label }), sub ? el('small', { text: sub }) : ''); };
-    $('board').replaceChildren(el('div', { class: 'metrics' }, ...METRICS.map(tile)), el('div', { class: 'chips' }, scope('all', 'All open', allN), scope('mine', 'Needs my action', mineN)), ...(sec.length ? sec : [el('p', { class: 'muted', text: 'No open SOs match.' })]));
+    $('board').replaceChildren(el('div', { class: 'metrics' }, ...METRICS.map(tile)), el('div', { class: 'chips' }, scope('all', 'All open', allN), scope('mine', 'Needs my action', mineN)), filterNote, ...(sec.length ? sec : [el('p', { class: 'muted', text: 'No open SOs match.' })]));
   }
   function renderTable() {
     if (state.simple) { renderBoard(); const ls = $('list-status'); ls.className = 'statusline'; ls.textContent = ''; return; }
@@ -601,7 +650,7 @@
     else if (f.type === 'longtext') input = el('textarea', { id });
     else input = el('input', { id, type: 'text', inputmode: f.type === 'number' ? 'decimal' : 'text' });
     input.dataset.key = key;
-    input.addEventListener('input', () => { const w = input.closest('.field'); w.classList.remove('invalid'); w.querySelector('.ferr')?.remove(); });
+    input.addEventListener('input', () => { const w = input.closest('.field'); w.classList.remove('invalid'); w.querySelector('.ferr')?.remove(); state.dirty = true; });
     return el('div', { class: 'field' + (req ? ' mandatory' : '') + (f.type === 'longtext' ? ' wide' : '') },
       el('label', { for: id }, f.label, req ? el('span', { class: 'req', title: 'Required', text: ' *' }) : el('span', { class: 'tag', text: 'optional' })), input);
   }
@@ -745,7 +794,7 @@
   async function decideSO(rec, needed) {
     let note = '';
     if (!needed) {
-      const ta = el('textarea', { rows: 3, placeholder: 'Why is no SO needed? (for example: covered by stock, customer cancelled)' });
+      const ta = el('textarea', { rows: 3, 'aria-label': 'Why no SO is needed', placeholder: 'Why is no SO needed? (for example: covered by stock, customer cancelled)' });
       if (!(await confirmDialog('SO not required', el('div', {}, el('p', { text: 'The part will be marked Cancelled / Not Required and leave your action list.' }), ta), 'Mark not required'))) return;
       note = ta.value.trim(); if (!note) { toast('Enter the reason.', true); return; }
     }
@@ -784,8 +833,8 @@
   function renderLog(err) {
     const rec = state.current; if (!rec) return;
     const kind = el('select', { id: 'log-kind' }, [['FOLLOW-UP', 'Follow-up'], ['NOTE', 'Note'], ['DECISION', 'Decision'], ['ESCALATION', 'Escalation'], ['EVIDENCE', 'Evidence']].map(([v, l]) => el('option', { value: v, text: l })));
-    const text = el('textarea', { id: 'log-text', rows: 2, placeholder: 'What happened? Who did you contact, what did they say?' });
-    const ref = el('input', { id: 'log-ref', type: 'text', placeholder: 'Link or reference to the email / document (optional)' });
+    const text = el('textarea', { id: 'log-text', rows: 2, placeholder: 'What happened? Who did you contact, what did they say?', 'aria-label': 'What happened' });
+    const ref = el('input', { id: 'log-ref', type: 'text', placeholder: 'Link or reference to the email / document (optional)', 'aria-label': 'Link or reference (optional)' });
     const nxt = el('input', { id: 'log-next', type: 'date', 'aria-label': 'Next follow-up date' });
     const msg = el('span', { class: 'error', id: 'log-msg' });
     const go = el('button', { class: 'btn btn-primary', type: 'button', text: 'Add to log' });
@@ -794,8 +843,11 @@
       go.disabled = true; const r = await addLog(rec, kind.value, text.value.trim(), ref.value.trim()); go.disabled = false;
       if (!r.ok) { msg.textContent = (r.fieldErrors && Object.values(r.fieldErrors)[0]) || r.error || 'Could not save.'; return; }
       const ch = {}; if (kind.value === 'FOLLOW-UP' || kind.value === 'ESCALATION') ch.last_followup_date = today(); if (kind.value === 'ESCALATION') ch.escalated = 'YES'; if (nxt.value) ch.next_followup_date = nxt.value;
-      if (Object.keys(ch).length && !state.dirty) await quickUpdate(state.current, ch); else if (Object.keys(ch).length) toast('Logged. Save your edits, then set the follow-up dates on the Workflow tab.');
-      toast('Added to the log.'); loadLog();
+      // one message only: the date update's own success/error, the unsaved-edits warning, or plain "added"
+      if (Object.keys(ch).length && !state.dirty) await quickUpdate(state.current, ch, 'Added to the log and updated the follow-up dates.');
+      else if (Object.keys(ch).length) toast('Logged. Save your edits, then set the follow-up dates on the Workflow tab.');
+      else toast('Added to the log.');
+      loadLog();
     };
     $('log-form').replaceChildren(...(canEdit() ? [el('div', { class: 'logrow' }, kind, el('label', { class: 'lognext' }, 'Next follow-up ', nxt)), text, ref, el('div', { class: 'logrow' }, go, msg)] : [el('p', { class: 'muted', text: 'You have read-only access.' })]));
     const log = state.log || [];
@@ -903,9 +955,9 @@
     const cur = (k) => norm(rec.values[k]).trim(), iso = (k) => (isIso(cur(k)) ? cur(k) : ''), pick = (k) => (people.find(([p]) => p.toLowerCase() === cur(k).toLowerCase()) || [''])[0];
     const f = { so_no: scInput('text', cur('so_no')), so_req_date: dateIn(iso('so_req_date') || today()), due_date: dateIn(iso('due_date')), so_type: scSelect(opt('so_type'), cur('so_type')), kanban_or_po: scSelect(opt('kanban_or_po'), cur('kanban_or_po')), champion: scSelect(people, pick('champion') || me), req_by: scSelect(people, pick('req_by') || me) };
     const body = el('div', { class: 'scform' }, el('p', { class: 'muted', text: 'Part ' + norm(rec.values.part_no) + ' · ' + norm(rec.values.customer) + ' · ' + norm(rec.values.so_qty) + ' pcs. Check the details below (filled from this record), then click Request SO: the status changes from 1. ANALYSIS to 3.OPEN and it becomes a real SO.' }),
-      scField('SO#', f.so_no, 'so_no'), scField('SO request date', f.so_req_date, 'so_req_date'), scField('Due date', f.due_date, 'due_date', true), scField('SO type', f.so_type, 'so_type', true),
+      scField('SO#', f.so_no, 'so_no', true), scField('SO request date', f.so_req_date, 'so_req_date'), scField('Due date', f.due_date, 'due_date', true), scField('SO type', f.so_type, 'so_type', true),
       scField('Kanban or PO?', f.kanban_or_po, 'kanban_or_po', true), scField('Champion', f.champion, 'champion', true), scField('Req. by', f.req_by, 'req_by', true));
-    const need = ['due_date', 'so_type', 'kanban_or_po', 'champion', 'req_by'];
+    const need = ['so_no', 'due_date', 'so_type', 'kanban_or_po', 'champion', 'req_by'];   // 3.OPEN needs an SO# (server rule)
     const collect = () => { const ch = { status: '3.OPEN', so_required: 'YES' }; Object.entries(f).forEach(([k, i]) => { if (i.value.trim() !== '') ch[k] = i.value.trim(); }); if (ch.so_no && !norm(rec.values.so_no_received_date)) ch.so_no_received_date = today(); return { id: rec.id, baseVersion: rec.version, changes: ch }; };
     for (;;) {
       if (!(await confirmDialog('Request the SO', body, 'Request SO'))) return;
@@ -1320,7 +1372,7 @@
     $('up-title').textContent = mode.title; $('up-note').textContent = mode.note;
     $('up-go').textContent = mode.danger ? 'Replace data' : 'Upload and compare'; $('up-go').className = 'btn ' + (mode.danger ? 'btn-danger' : 'btn-primary');
     $('upload-file').value = ''; $('upload-map').hidden = true; $('upload-msg').textContent = ''; $('up-go').disabled = true; up.rows = [];
-    $('dlg-upload').showModal();
+    openModal($('dlg-upload'));
   }
   $('btn-upload-steel').onclick = () => openUpload('steel');
   // daily inventory: one ALL CUSTOMER INVENTORY file feeds both the STOCK list and the stockroom prices
@@ -1343,7 +1395,7 @@
     }
     throw new Error('Could not find the columns PartNumber, CustomerName, TotalQuantity and UnitPrice in this file.' + (found ? ' Columns found: ' + found + '.' : ''));
   }
-  $('btn-upload').onclick = () => { $('inv-file').value = ''; $('inv-sum').hidden = true; $('inv-msg').textContent = ''; $('inv-go').disabled = true; inv.rows = []; $('dlg-inv').showModal(); };
+  $('btn-upload').onclick = () => { $('inv-file').value = ''; $('inv-sum').hidden = true; $('inv-msg').textContent = ''; $('inv-go').disabled = true; inv.rows = []; openModal($('dlg-inv')); };
   $('inv-file').addEventListener('change', async (e) => {
     const f = e.target.files[0]; $('inv-msg').textContent = ''; $('inv-sum').hidden = true; $('inv-go').disabled = true; inv.rows = [];
     if (!f) return;
@@ -1465,15 +1517,15 @@
       const col = (re) => head.findIndex((h) => re.test(h));
       const ie = col(/mail/), inm = col(/name/), ii = col(/employee|emp.?id|^id$/), ir = col(/role/);
       if (ie < 0) throw new Error('No "email" column found in the first row.');
-      importRows = rows.slice(1).map((r) => ({ email: r[ie], name: inm >= 0 ? r[inm] : undefined, employeeId: ii >= 0 ? r[ii] : undefined, role: ir >= 0 && String(r[ir]).trim() ? r[ir] : 'viewer', active: true }));
+      importRows = rows.slice(1).map((r) => ({ email: r[ie], name: inm >= 0 ? r[inm] : undefined, employeeId: ii >= 0 ? r[ii] : undefined, role: ir >= 0 && String(r[ir]).trim() ? r[ir] : '' }));   // blank role / no active flag: existing users keep theirs, new users get viewer + active (server)
       msg.textContent = importRows.length + ' rows ready.'; $('ua-import').disabled = !importRows.length;
     } catch (err) { msg.textContent = err.message || 'Could not read the file.'; }
   });
   $('ua-import').onclick = async () => {
     if (!importRows.length) return;
-    if (!(await confirmDialog('Import users?', el('p', { text: importRows.length + ' users will be added or updated. Roles in the file are applied.' }), 'Import'))) return;
+    if (!(await confirmDialog('Import users?', el('p', { text: importRows.length + ' users will be added or updated. Roles in the file are applied; a blank role keeps an existing user\'s role, and nobody is re-enabled.' }), 'Import'))) return;
     const ok = await saveUsers(importRows.slice(0, 500), 'Imported ' + Math.min(importRows.length, 500) + ' users.');
-    if (ok) { $('ua-file').value = ''; $('ua-import').disabled = true; importRows = []; $('ua-import-msg').textContent = importRows.length > 500 ? 'Only the first 500 were imported; import the rest separately.' : ''; }
+    if (ok) { const over = importRows.length > 500; $('ua-file').value = ''; $('ua-import').disabled = true; importRows = []; $('ua-import-msg').textContent = over ? 'Only the first 500 were imported; import the rest separately.' : ''; }
   };
 
   // ---------- wiring
@@ -1603,12 +1655,14 @@
         sec !== 'completed' && o.impact ? el('small', { class: 'impact', text: 'If not resolved: ' + o.impact }) : ''),
       el('span', { class: 'rlines' }, lines.map(([k, v]) => el('span', {}, el('small', { text: k }), ' ', v))));
   }
+  // CSV cell: quoted when needed; a leading = + - @ gets a ' so Excel never runs it as a formula
+  const csvCell = (v) => { v = norm(v); if (/^[=+@-]/.test(v)) v = "'" + v; return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
   function scExportCsv(rows) {
     const ms = SC.data.milestones.map((m) => m.key);
     const cols = ['part_no', 'revision', 'description', 'so_required', 'sub_required', 'team_member', 'bpo_no', 'batch', 'po_no', 'so_no', 'ryd_part', 'qty', 'qty_shipped', 'qty_received', 'qty_hold', 'qty_rejected', 'qty_stocked', 'priority', 'owner', 'review_status', 'required_date', 'expected', 'stage', 'status', 'followup', 'progress', 'blocker_type', 'blocker', 'next_action', 'next_action_date', 'revised_date', 'delay_reason', 'last_update', 'note'];
-    const esc = (v) => { v = norm(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const esc = csvCell;
     const lines = [cols.concat(ms).join(',')].concat(rows.map((o) => cols.map((c) => esc(o[c])).concat(ms.map((k) => esc(o.ms && o.ms[k]))).join(',')));
-    const a = el('a', { href: URL.createObjectURL(new Blob([lines.join('\r\n')], { type: 'text/csv' })), download: 'subcontractor-lines-' + today() + '.csv' });
+    const a = el('a', { href: URL.createObjectURL(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' })), download: 'subcontractor-lines-' + today() + '.csv' });
     document.body.append(a); a.click(); a.remove();
   }
   // each batch row opens in place and lists its orders: click a line to open it
@@ -1691,7 +1745,7 @@
     if (!scCanWrite()) { toast('Your access (' + (state.role || 'unknown') + ') is read-only here.', true); return; }
     const D = SC.data, stages = D.boardStages;
     const sel = scSelect(stages.map((s) => [s.key, s.label]).concat(b.manual ? [['AUTO', 'Follow the dates again (automatic)']] : []), to || b.stage);
-    const date = dateIn(today()), note = el('textarea', { rows: 3, placeholder: 'What happened? (optional)' }), apply = el('input', { type: 'checkbox' }), tail = el('span');
+    const date = dateIn(today()), note = el('textarea', { rows: 3, 'aria-label': 'What happened (optional)', placeholder: 'What happened? (optional)' }), apply = el('input', { type: 'checkbox' }), tail = el('span');
     const aw = el('label', { class: 'inline' }, apply, tail);
     const sync = () => {
       const def = stages.find((s) => s.key === sel.value), m = def && def.ms ? D.milestones.find((x) => x.key === def.ms) : null;
@@ -1738,10 +1792,10 @@
     }) : [el('tr', {}, el('td', { colspan: TRACK.length, class: 'muted', text: SC.data.board.length ? 'No BPOs match your filters.' : 'No BPOs yet. Use "New order" or "Import Excel".' }))]));
   }
   function scTrackerCsv() {
-    const esc = (v) => { v = norm(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const esc = csvCell;
     const rows = [['BPO', 'Batch', 'Part numbers', 'Subcontractor', 'Request sent', 'Days since request', 'Working days since request', 'Current stage', 'Days in stage', 'Latest update', 'Next action', 'Expected completion', 'Status']]
       .concat((SC.view || []).map((b) => [b.bpo_no, b.batch, linesOfBpo(b).map(partLabel).join('; '), b.vendors.join('; '), b.requestDate || 'Not Recorded', b.daysSinceRequest === null ? '' : b.daysSinceRequest, b.workdaysSinceRequest === null ? '' : b.workdaysSinceRequest, boardLabel(b.stage), b.daysInStage === null ? '' : b.daysInStage, b.latestUpdate || 'Not Recorded', b.next, b.expected || 'Not Recorded', COLOR_TEXT[b.color]]));
-    const a = el('a', { href: URL.createObjectURL(new Blob([rows.map((r) => r.map(esc).join(',')).join('\r\n')], { type: 'text/csv' })), download: 'bpo-tracker-' + today() + '.csv' });
+    const a = el('a', { href: URL.createObjectURL(new Blob(['﻿' + rows.map((r) => r.map(esc).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' })), download: 'bpo-tracker-' + today() + '.csv' });
     document.body.append(a); a.click(); a.remove();
   }
 
@@ -1766,7 +1820,7 @@
   async function scBpoExcel(b, ls) {
     try { await loadSheetJs(); } catch (e) { toast(e.message, true); return; }
     const head = ['CAMCO PART #', 'REV', 'RYD PART #', 'DESCRIPTION', 'QTY', 'QTY ON HOLD', 'REQUESTED', 'SO #', 'PO #', 'STAGE', 'STATUS', 'NEXT ACTION', 'WHO / WAITING ON', 'FOLLOW-UP', 'REQUIRED', 'EXPECTED', 'ISSUES'];
-    const d = (v) => (v && isIso(String(v)) ? new Date(String(v) + 'T00:00:00Z') : v || '');
+    const d = (v) => (v && isIso(String(v)) ? localMidnight(String(v)) : v || '');
     const rows = ls.map((o) => [o.part_no || '', o.revision || '', rydOf(o) || '', o.description || '', Number(o.qty) || 0, Number(o.qty_hold) || 0, d((o.ms || {}).rfq), o.so_no || '', o.po_no || '', o.stage || '', o.status || '',
       o.open ? (o.next || '') : (o.complete ? 'Arrived' : ''), o.open ? (o.owner_role === 'me' ? 'Me' : o.waitingOn || '') : '', o.open ? d(o.followup) : '', d(o.required_date), d(o.expected),
       o.open ? (o.reasons || []).map((r) => r.text).join('; ') : (o.complete ? 'Arrived' : '')]);
@@ -1834,7 +1888,7 @@
   }
   function bpoLogForm(b, canWrite) {
     if (!canWrite) return '';
-    const kind = scSelect([['NOTE', 'Note'], ['FOLLOW-UP', 'Follow-up']], 'FOLLOW-UP'), date = dateIn(today()), text = el('textarea', { rows: 2, placeholder: 'What was asked or answered? Email, call, message…' });
+    const kind = scSelect([['NOTE', 'Note'], ['FOLLOW-UP', 'Follow-up']], 'FOLLOW-UP'), date = dateIn(today()), text = el('textarea', { rows: 2, 'aria-label': 'What was asked or answered', placeholder: 'What was asked or answered? Email, call, message…' });
     const btn = el('button', { class: 'btn btn-primary btn-sm', type: 'button', text: 'Add' });
     btn.onclick = async () => {
       if (!text.value.trim()) { toast('Write the update first.', true); return; }
@@ -2053,7 +2107,7 @@
   function renderScLog(err) {
     const o = SCD.o; if (!o) return;
     const kind = el('select', { id: 'scd-logkind' }, SC.data.updateKinds.filter((k) => k !== 'CHANGE').map((k) => el('option', { value: k, text: k.charAt(0) + k.slice(1).toLowerCase() })));
-    const text = el('textarea', { id: 'scd-logtext', rows: 2, placeholder: 'What you asked / what the team or vendor replied' });
+    const text = el('textarea', { id: 'scd-logtext', rows: 2, 'aria-label': 'Update text', placeholder: 'What you asked / what the team or vendor replied' });
     const msg = el('span', { class: 'error' }), go = el('button', { class: 'btn btn-primary', type: 'button', text: 'Add to log' });
     go.onclick = async () => {
       msg.textContent = ''; if (!text.value.trim()) { msg.textContent = 'Write what happened.'; return; }
@@ -2171,7 +2225,7 @@
     try { await loadSheetJs(); } catch (e) { toast(e.message, true); return; }
     const cols = SOSub.TEMPLATE_COLUMNS, lines = SC.data.lines.slice().sort((a, b) => String(a.order_ref).localeCompare(String(b.order_ref)));
     const val = (o, c) => { const v = c.ms ? (o.ms || {})[c.ms] : c.exp ? (o.exp || {})[c.exp] : c.kind === 'yn' ? (o[c.k] ? 'YES' : '') : o[c.k];
-      if (v === undefined || v === null || v === '') return ''; if (c.kind === 'date' && isIso(String(v))) return new Date(String(v) + 'T00:00:00Z'); if (c.kind === 'num') return Number(v); return v; };
+      if (v === undefined || v === null || v === '') return ''; if (c.kind === 'date' && isIso(String(v))) return localMidnight(String(v)); if (c.kind === 'num') return Number(v); return v; };
     const aoa = [cols.map((c) => c.h)].concat(lines.map((o) => cols.map((c) => val(o, c))));
     const ws = XLSX.utils.aoa_to_sheet(aoa, { cellDates: true });
     cols.forEach((c, j) => { if (c.kind === 'date') for (let r = 1; r < aoa.length; r++) { const cell = ws[XLSX.utils.encode_cell({ r, c: j })]; if (cell && cell.t === 'd') cell.z = 'yyyy-mm-dd'; } });
@@ -2350,7 +2404,7 @@
   $('dash2-copy').onclick = async () => { if (!state.dashAll) return; try { await navigator.clipboard.writeText(reportText()); toast('Report copied.'); } catch (e) { toast('Could not copy. Select the text from the page instead.', true); } };
   $('dash2-new').onclick = openNewForm;
   $('dash2-find').addEventListener('submit', (e) => { e.preventDefault(); findSO($('dash2-find-input').value, $('dash2-status')); });
-  $('nav-inhouse').onclick = async () => { if (!state.token || !state.role) return; if (!(await leaveGuard())) return; goHome(); };
+  $('nav-inhouse').onclick = async () => { if (!state.token || !state.role) return; if (!(await leaveGuard())) return; state.chip = 'all'; state.stage = ''; state.mat = ''; goHome(); };
   $('nav-subcon').onclick = () => openSubcon('subcon');
   $('nav-lead').onclick = () => openSubcon('leads');
   $('nav-price').onclick = () => openSubcon('price');
@@ -2382,7 +2436,7 @@
   $('users-back').onclick = () => goHome();
   $('home-find').addEventListener('submit', (e) => { e.preventDefault(); findSO($('home-find-input').value, $('home-msg')); });
   $('admin-find').addEventListener('submit', (e) => { e.preventDefault(); findSO($('admin-find-input').value, $('list-status')); });
-  $('new-back').onclick = () => goHome();
+  $('new-back').onclick = async () => { if (!(await leaveGuard())) return; goHome(); };
   $('new-submit').onclick = submitNew;
   $('q').addEventListener('input', () => { clearTimeout(applyView.t); applyView.t = setTimeout(applyView, 150); });
   $('sort').addEventListener('change', (e) => { state.sort = e.target.value; applyView(); });
@@ -2408,7 +2462,7 @@
   $('btn-print').onclick = printSheet;
   $('btn-dup').onclick = () => { const r = state.current; if (r) duplicateSO(r.id); };
   $('btn-delete').onclick = () => { const r = state.current; if (r) deleteSO(r.id, norm(r.values.so_no) || norm(r.values.part_no)); };
-  $('btn-signout').onclick = signOut;
+  $('btn-signout').onclick = async () => { if (!(await leaveGuard())) return; signOut(); };
   $('btn-pw').onclick = async () => {
     const mk = (ph, ac) => el('input', { type: 'password', placeholder: ph, autocomplete: ac, 'aria-label': ph });
     const cur = mk('Current password', 'current-password'), n1 = mk('New password (min 8)', 'new-password'), n2 = mk('Repeat new password', 'new-password');

@@ -903,7 +903,13 @@ var SOSub = (function () {
     { h: 'Qty rejected', k: 'qty_rejected', kind: 'num', opt: true },
     { h: 'Qty moved to stock', k: 'qty_stocked', kind: 'num', opt: true }
   ];
-  function normHeader(h) { return String(h == null ? '' : h).toLowerCase().replace(/[^a-z0-9#?]+/g, ' ').trim(); }
+  // Headers are compared without case, spaces, '#', '?' or other punctuation: 'PO#', 'PO #' and 'po' all match, as do 'SO required' and 'SO required?'.
+  function normHeader(h) { return String(h == null ? '' : h).toLowerCase().replace(/[^a-z0-9]+/g, ''); }
+  /** The sheet headers that match no template column (blank headers are ignored), so callers can warn that a column was not imported. */
+  function unmatchedHeaders(headers) {
+    var known = {}; TEMPLATE_COLUMNS.forEach(function (c) { known[normHeader(c.h)] = true; });
+    return (headers || []).filter(function (h) { var n = normHeader(h); return n !== '' && !known[n]; });
+  }
 
   /** One sheet row (values by header) -> the fields it filled in. Blank cells are left out so they never overwrite existing data. */
   function fromTemplateRow(row) {
@@ -994,6 +1000,9 @@ var SOSub = (function () {
     return { ok: !Object.keys(errors).length, value: { kind: kind, text: text }, errors: errors };
   }
 
+  // Arrival at CAMCO is proven by the confirmed arrival date, or by a later move to inspection or stock.
+  function arrivedOn(ms) { ms = ms || {}; return ms.received_camco || ms.to_inspection || ms.to_stock || null; }
+
   function milestoneLabel(k) { var m = MILESTONES.filter(function (x) { return x.key === k; })[0]; return m ? m.label : k; }
 
   // Where the order is: the first stage whose finishing milestone is missing. Later evidence skips earlier stages.
@@ -1004,11 +1013,12 @@ var SOSub = (function () {
     if (l.so_no && evidence < 6) evidence = Math.max(evidence, 6);   // an SO number typed without a date still proves it exists
     var urgent = l.priority !== 'NORMAL', team = l.team_member || 'Subcontractor team';
     var r = { n: 0, status: '', next: '', owner: 'none', waitingOn: '', base: null, days: 0 };
-    function at(n, status, next, owner, waitingOn, base, days) { r.n = n; r.status = status; r.next = next; r.owner = owner; r.waitingOn = waitingOn || ''; r.base = base || null; r.days = days || 0; return r; }
-    var lastContact = l.last_update || null;
+    function at(n, status, next, owner, waitingOn, base, days) { r.n = n; r.status = status; r.next = next; r.owner = owner; r.waitingOn = waitingOn || ''; r.base = base || (owner !== 'me' && owner !== 'none' ? latestMs : null); r.days = days || 0; return r; }
+    var lastContact = l.last_update || null, latestMs = null;
+    MILESTONES.forEach(function (m) { if (!m.estimate && ms[m.key] && (!latestMs || ms[m.key] > latestMs)) latestMs = ms[m.key]; });
     if (l.sub_required === 'NO' || l.so_required === 'NO') return at(1, 'Not required', '', 'none');
     if (evidence < 2 && (l.sub_required !== 'YES' || l.so_required !== 'YES')) return at(1, 'Awaiting decision', 'Decide whether an SO and subcontracting are needed', 'me', '', today, 0);
-    function done(n) { return n < evidence || !!(STAGE_DONE[n] && (has(STAGE_DONE[n]) || (n === 6 && l.so_no))); }
+    function done(n) { return n < evidence || !!(STAGE_DONE[n] && (has(STAGE_DONE[n]) || (n === 6 && l.so_no) || (n === 12 && arrivedOn(ms)))); }
     if (!done(2)) return at(2, 'Part number not yet sent', 'Send the part number and requirements to the subcontractor team', 'me', '', today, 0);
     if (!done(3)) return at(3, 'Waiting for China quotation', 'Follow up on the China quotation', 'team', team, lastContact && lastContact > ms.rfq ? lastContact : ms.rfq, urgent ? cfg.quoteUrgentDays : cfg.quoteFollowDays);
     if (!done(4)) {
@@ -1028,13 +1038,14 @@ var SOSub = (function () {
     }
     if (!done(9)) return at(9, 'PO verified, not yet sent to the vendor', 'Send the verified PO to the Chinese vendor', 'me', '', today, 0);
     if (!done(10)) {
-      if (!has('ack') && !has('production_start')) return at(10, 'Waiting for vendor acknowledgment', 'Ask the team and vendor to acknowledge the PO', 'team', team + ' / vendor', lastContact && lastContact > ms.po_to_vendor ? lastContact : ms.po_to_vendor, cfg.ackDays);
+      if (!has('ack') && !has('production_start')) return at(10, 'Waiting for vendor acknowledgment', 'Ask the team and vendor to acknowledge the PO', 'team', team + ' / vendor', lastContact && lastContact > (ms.po_to_vendor || ms.down_payment) ? lastContact : (ms.po_to_vendor || ms.down_payment), cfg.ackDays);
       return at(10, 'Acknowledged, production not started', 'Ask for the production start date', 'team', team + ' / vendor', lastContact && lastContact > (ms.ack || ms.po_to_vendor) ? lastContact : (ms.ack || ms.po_to_vendor), cfg.ackDays);
     }
     if (!done(11)) return at(11, 'In production', 'Follow up on production progress and the completion date', 'team', team + ' / vendor', lastContact && lastContact > ms.production_start ? lastContact : ms.production_start, cfg.prodFollowDays);
     if (!done(12)) {
-      var shipped = has('vendor_ship') || has('port_departure') || has('forwarder_pickup');
-      return at(12, shipped ? 'Shipped, awaiting arrival' : 'Production done, awaiting shipment', shipped ? 'Track the shipment to CAMCO' : 'Confirm the shipment date with the vendor', 'team', team + ' / vendor', lastContact && lastContact > ms.ready_to_ship ? lastContact : (ms.vendor_ship || ms.ready_to_ship), cfg.prodFollowDays);
+      var shipped = has('vendor_ship') || has('port_departure') || has('forwarder_pickup') || has('arrived_port');
+      var shipBase = ms.arrived_port || ms.port_departure || ms.forwarder_pickup || ms.vendor_ship || ms.ready_to_ship;
+      return at(12, shipped ? 'Shipped, awaiting arrival' : 'Production done, awaiting shipment', shipped ? 'Track the shipment to CAMCO' : 'Confirm the shipment date with the vendor', 'team', team + ' / vendor', lastContact && lastContact > shipBase ? lastContact : shipBase, cfg.prodFollowDays);
     }
     return at(13, 'Arrived at CAMCO', '', 'none');
   }
@@ -1051,11 +1062,11 @@ var SOSub = (function () {
     cfg = cfg || CFG;
     var ms = l.ms || {}, exp = l.exp || {}, orig = l.orig || {};
     var st = stageOf(l, today, cfg);
-    var complete = !!ms.received_camco;
+    var complete = !!arrivedOn(ms);
     var notRequired = st.status === 'Not required';
     var open = !l.closed && !complete && !notRequired;
     var remaining = Math.max(0, l.qty - (l.qty_stocked || 0) - (l.qty_rejected || 0));
-    var expectedArrival = ms.received_camco || exp.exp_arrival || ms.eta_camco || l.revised_date || l.required_date || null;
+    var expectedArrival = arrivedOn(ms) || exp.exp_arrival || ms.eta_camco || l.revised_date || l.required_date || null;
     var late = 0, forecastLate = 0;
     if (open && l.required_date) {
       if (today > l.required_date) late = daysBetween(l.required_date, today);
@@ -1099,14 +1110,16 @@ var SOSub = (function () {
     EXPECTED.forEach(function (e) {
       if (exp[e.key] && exp[e.key] < today && !ms[e.actual]) add(e.key === 'exp_arrival' ? 'crit' : 'warn', 'exp-missed-' + e.key, e.label.replace('Expected ', '') + ' was expected ' + shortDate(exp[e.key]) + ', not confirmed', 'Ask for the actual date or a new commitment and record it.');
     });
+    if (d.expected && d.expected < today && !arrivedOn(ms) && !d.pastDue && !(exp.exp_arrival && exp.exp_arrival < today)) add('warn', 'exp-missed-arrival', 'Expected arrival passed (' + shortDate(d.expected) + '), not confirmed', 'Ask for the actual arrival or a new ETA and record it.');
     if (!(d.qty > 0)) add('warn', 'no-qty', 'Quantity not set', 'Enter the required quantity.');
     if (d.blocker) add(urgent ? 'crit' : 'warn', 'blocked', 'Blocked' + (d.blocker_type ? ': ' + d.blocker_type : ''), 'Chase the blocker: ' + (d.blocker_type || d.blocker).toLowerCase() + '.');
     if (st.n === 3 && ms.rfq && daysBetween(ms.rfq, today) >= cfg.quoteAgeWarn) add('warn', 'quote-aging', 'Quotation pending ' + plural(daysBetween(ms.rfq, today), 'day'), 'Press the team for the China quotation date.');
     if (st.n === 4 && ms.quote_to_rich && daysBetween(ms.quote_to_rich, today) >= cfg.approvalAgeWarn) add('warn', 'approval-aging', 'With Rich ' + plural(daysBetween(ms.quote_to_rich, today), 'day') + ', no approval', 'Ask the team where the approval stands.');
     if (st.n === 6 && ms.so_costing && daysBetween(ms.so_costing, today) >= 4) add('warn', 'so-aging', 'SO number pending ' + plural(daysBetween(ms.so_costing, today), 'day'), 'Follow up with the costing manager.');
     if (st.n === 8 && ms.po_sent_approval && daysBetween(ms.po_sent_approval, today) >= 4) add('warn', 'verify-aging', 'PO verification pending ' + plural(daysBetween(ms.po_sent_approval, today), 'day'), 'Ask the team to verify the PO.');
-    if (ms.po_to_vendor && !ms.ack && !ms.production_start && daysBetween(ms.po_to_vendor, today) >= cfg.ackDays) add('warn', 'no-ack', 'Not acknowledged ' + plural(daysBetween(ms.po_to_vendor, today), 'day') + ' after PO', 'Ask the team to confirm the vendor received the PO.');
-    if (ms.po_to_vendor && !ms.production_start && daysBetween(ms.po_to_vendor, today) >= cfg.startDays) add('warn', 'not-started', 'Production not started ' + plural(daysBetween(ms.po_to_vendor, today), 'day') + ' after PO', 'Ask for the planned start date and what is holding it.');
+    // stage 10 (vendor start) is finished by production_start; later evidence (ready_to_ship, shipment ...) means these no longer apply
+    if (st.n <= 10 && ms.po_to_vendor && !ms.ack && !ms.production_start && daysBetween(ms.po_to_vendor, today) >= cfg.ackDays) add('warn', 'no-ack', 'Not acknowledged ' + plural(daysBetween(ms.po_to_vendor, today), 'day') + ' after PO', 'Ask the team to confirm the vendor received the PO.');
+    if (st.n <= 10 && ms.po_to_vendor && !ms.production_start && daysBetween(ms.po_to_vendor, today) >= cfg.startDays) add('warn', 'not-started', 'Production not started ' + plural(daysBetween(ms.po_to_vendor, today), 'day') + ' after PO', 'Ask for the planned start date and what is holding it.');
     if (st.owner !== 'me' && st.n > 1 && (d.lastUpdateAge === null ? false : d.lastUpdateAge > cfg.staleDays)) add('warn', 'stale', 'No update for ' + plural(d.lastUpdateAge, 'day'), 'Request a status update from the team.');
     return r.sort(function (a, b) { return (a.level === 'crit' ? 0 : 1) - (b.level === 'crit' ? 0 : 1); });
   }
@@ -1138,7 +1151,7 @@ var SOSub = (function () {
 
   // Project the date a line will arrive at CAMCO from past spans, starting at the latest dated milestone in the chain.
   function projectReceipt(l, stats) {
-    var ms = l.ms || {}; if (ms.received_camco) return null;
+    var ms = l.ms || {}; if (arrivedOn(ms)) return null;
     var chain = ['po_to_vendor', 'ready_to_ship', 'received_camco'], last = -1;
     chain.forEach(function (k, i) { if (ms[k]) last = i; });
     if (last < 0) return null;
@@ -1180,7 +1193,7 @@ var SOSub = (function () {
     { key: 'order', label: 'PO / Order Placement', hint: 'SO, PO, vendor confirmation', ms: 'quote_approved', enter: ['quote_approved'] },
     { key: 'production', label: 'In Production', hint: 'Vendor is making the parts', ms: 'production_start', enter: ['production_start'] },
     { key: 'ready', label: 'Ready for Shipment', hint: 'Made, awaiting shipment', ms: 'ready_to_ship', enter: ['ready_to_ship'] },
-    { key: 'transit', label: 'In Transit', hint: 'On the way to CAMCO', ms: 'vendor_ship', enter: ['vendor_ship', 'forwarder_pickup', 'port_departure'] },
+    { key: 'transit', label: 'In Transit', hint: 'On the way to CAMCO', ms: 'vendor_ship', enter: ['vendor_ship', 'forwarder_pickup', 'port_departure', 'arrived_port'] },
     { key: 'arrived', label: 'Arrived at CAMCO', hint: 'Received, being inspected / stocked', ms: 'received_camco', enter: ['received_camco'] },
     { key: 'closed', label: 'Completed / Closed', hint: 'Finished', ms: null, enter: ['to_stock'] }
   ];
@@ -1240,7 +1253,8 @@ var SOSub = (function () {
       var latest = lastDates.length ? lastDates[lastDates.length - 1] : null;
       var rank = { crit: 0, warn: 1, ok: 2 };
       var pick = open.slice().sort(function (a, b) { return rank[a.attention] - rank[b.attention] || String(a.followup || '9999').localeCompare(String(b.followup || '9999')); })[0] || null;
-      var exp = active.map(function (d) { return d.expected; }).filter(Boolean).sort(), req = active.map(function (d) { return d.required_date; }).filter(Boolean).sort();
+      // expected arrival of what is still open (an arrived part's "expected" is its arrival date, which is not a pending commitment)
+      var exp = (open.length ? open : active).map(function (d) { return d.expected; }).filter(Boolean).sort(), req = active.map(function (d) { return d.required_date; }).filter(Boolean).sort();
       var vendors = [], team = [];
       active.forEach(function (d) { if (d.vendor && vendors.indexOf(d.vendor) < 0) vendors.push(d.vendor); var p = d.team_member || d.owner; if (p && team.indexOf(p) < 0) team.push(p); });
       var pastDue = open.reduce(function (t, d) { return Math.max(t, d.pastDue || 0); }, 0);
@@ -1249,7 +1263,7 @@ var SOSub = (function () {
       var stale = open.length > 0 && stage !== 'closed' && stage !== 'arrived' && (staleAge === null ? (sinceReq !== null && sinceReq > cfg.staleDays) : staleAge > cfg.staleDays);
       var crit = open.filter(function (d) { return d.attention === 'crit'; }).length, warn = open.filter(function (d) { return d.attention === 'warn'; }).length;
       var overdueExp = exp.length && stage !== 'closed' && stage !== 'arrived' && open.length && exp[exp.length - 1] < today ? daysBetween(exp[exp.length - 1], today) : 0;
-      var color = stage === 'closed' ? (heldParts.length ? 'yellow' : 'grey') : (pastDue > 0 || crit > 0) ? 'red' : (warn > 0 || stale || (stage === 'arrived' && open.length)) ? 'yellow' : 'green';
+      var color = stage === 'closed' ? (heldParts.length ? 'yellow' : 'grey') : (pastDue > 0 || crit > 0) ? 'red' : (warn > 0 || stale || overdueExp > 0 || (stage === 'arrived' && open.length)) ? 'yellow' : 'green';
       if (stage === 'arrived' && !open.length) color = 'green';
       var flags = [];
       if (stage === 'quoteReq' && sinceDays !== null && sinceDays >= cfg.quoteAgeWarn) flags.push('No quotation response for ' + plural(sinceDays, 'day'));
@@ -1300,9 +1314,9 @@ var SOSub = (function () {
     var sections = {};
     SECTIONS.forEach(function (s) { sections[s.key] = described.filter(function (d) {
       if (d.section !== s.key) return false;
-      if (s.key === 'completed') return d.ms.received_camco && daysBetween(d.ms.received_camco, today) <= cfg.completedDays;
+      if (s.key === 'completed') return arrivedOn(d.ms) && daysBetween(arrivedOn(d.ms), today) <= cfg.completedDays;
       return true;
-    }).sort(s.key === 'completed' ? function (a, b) { return String(b.ms.received_camco).localeCompare(String(a.ms.received_camco)); } : byUrgency).map(function (d) { return d.id; }); });
+    }).sort(s.key === 'completed' ? function (a, b) { return String(arrivedOn(b.ms)).localeCompare(String(arrivedOn(a.ms))); } : byUrgency).map(function (d) { return d.id; }); });
     var queue = open.filter(function (d) { return d.section === 'immediate' || d.section === 'overdue'; }).sort(byUrgency);
     function has(d, code) { return d.reasons.some(function (r) { return r.code === code; }); }
     return {
@@ -1320,7 +1334,7 @@ var SOSub = (function () {
   return {
     MILESTONES: MILESTONES, EXPECTED: EXPECTED, STAGES: STAGES, SECTIONS: SECTIONS, DECISIONS: DECISIONS, REVIEW_STATUSES: REVIEW_STATUSES, PRIORITIES: PRIORITIES, BLOCKERS: BLOCKERS,
     UPDATE_KINDS: UPDATE_KINDS, SEGMENTS: SEGMENTS, CFG: CFG,
-    TEMPLATE_COLUMNS: TEMPLATE_COLUMNS, normHeader: normHeader, fromTemplateRow: fromTemplateRow, mergeLine: mergeLine,
+    TEMPLATE_COLUMNS: TEMPLATE_COLUMNS, normHeader: normHeader, unmatchedHeaders: unmatchedHeaders, fromTemplateRow: fromTemplateRow, mergeLine: mergeLine,
     isDate: isDate, daysBetween: daysBetween, addDays: addDays, cleanLine: cleanLine, cleanUpdate: cleanUpdate, completionGaps: completionGaps, milestoneLabel: milestoneLabel,
     BOARD: BOARD, boardOf: boardOf, boardKeyOf: boardKeyOf, boardIndex: boardIndex, workdaysBetween: workdaysBetween,
     describe: describe, spansOf: spansOf, leadStats: leadStats, projectReceipt: projectReceipt, batches: batches, build: build
@@ -1345,7 +1359,7 @@ var SOLife = (function () {
   ];
   var STATUSES = ['Not Started', 'Awaiting Decision', 'In Progress', 'Waiting for Supplier', 'Waiting for Costing Manager', 'Waiting for Material Quote',
     'Waiting for PO Acknowledgment', 'Awaiting Documentation', 'Ready for Release', 'Released to Production', 'Awaiting Material',
-    'Initial Workflow Complete', 'Monitoring Until Due Date', 'Overdue — Awaiting Closure', 'Closed — Verified', 'Cancelled / Not Required'];
+    'Initial Workflow Complete', 'Monitoring Until Due Date', 'Overdue — Awaiting Closure', 'Closed — Verified', 'Cancelled / Not Required', 'On hold'];
   var CFG = { quoteFollowDays: 3, soNoFollowDays: 2, ackFollowDays: 3, dueSoonDays: 14, matRiskDays: 3, quoteValidWarnDays: 3 };
   var DOCS = [['print_traveller', 'traveller'], ['print_router', 'router'], ['print_part_prints', 'part prints'], ['print_req_po', 'req./PO'], ['verify_by_sakib', 'verification']];
 
@@ -1386,6 +1400,8 @@ var SOLife = (function () {
     var docMissing = DOCS.filter(function (x) { return !yes(d, x[0]); }).map(function (x) { return x[1]; });
     var promised = date(d, 'po_due_date'), required = date(d, 'mat_required_date') || due;
     var supplier = txt(d, 'supplier');
+    // An acknowledgment date is evidence of the acknowledgment even when the status column was not filled in (an explicit DISCREPANCY still wins).
+    var ackStatus = txt(d, 'ack_status').toUpperCase(), ackDone = ackStatus === 'RECEIVED' || (has(d, 'ack_date') && ackStatus !== 'DISCREPANCY');
 
     // Evidence that the SO already exists: earlier stages are then history, not open work.
     var progressed = soNo || poCreated || poApproved || released || matReceived, preSO = !progressed && !soReq;
@@ -1413,7 +1429,7 @@ var SOLife = (function () {
     var followDate = date(d, 'next_followup_date');
     function followupBy(def) { return followDate || def; }
 
-    var closedStatus = /CLOSE/.test(status);
+    var closedStatus = /CLOSE/.test(status), held = /HOLD/.test(status);
     if (so === 'NO') {
       at(1, 'Cancelled / Not Required', '', 'none'); r.initial = 'Not required'; r.final = 'Cancelled';
     } else if (closedStatus && soClose) {
@@ -1445,14 +1461,17 @@ var SOLife = (function () {
       at(6, 'Waiting for Costing Manager', 'Follow up with the costing manager for the SO number', 'costing', 'Costing manager', sd, followupBy(sd));
     } else if (poNeeded && !poApproved && !released && !matReceived) {
       at(7, 'In Progress', poCreated ? 'Approve the PO and send it to the supplier' : 'Purchase the material and create the PO', 'me', '', today);
-    } else if (poNeeded && poApproved && !released && !matReceived && txt(d, 'ack_status').toUpperCase() !== 'RECEIVED') {
+    } else if (poNeeded && poApproved && !released && !matReceived && !ackDone) {
       var ad = addDays(date(d, 'po_approve_date'), CFG.ackFollowDays);
-      if (txt(d, 'ack_status').toUpperCase() === 'DISCREPANCY') at(8, 'In Progress', 'Resolve the acknowledgment discrepancy with ' + (supplier || 'the supplier'), 'supplier', supplier || 'Supplier', today, followupBy(today));
+      if (ackStatus === 'DISCREPANCY') at(8, 'In Progress', 'Resolve the acknowledgment discrepancy with ' + (supplier || 'the supplier'), 'supplier', supplier || 'Supplier', today, followupBy(today));
       else at(8, 'Waiting for PO Acknowledgment', 'Follow up for the supplier acknowledgment of the PO', 'supplier', supplier || 'Supplier', ad, followupBy(ad));
     } else if (!released && docMissing.length) {
       at(9, 'Awaiting Documentation', 'Prepare the release documents: ' + docMissing.join(', '), 'me', '', today);
     } else if (!released) {
       at(10, 'Ready for Release', 'Release the SO to production', 'me', '', today);
+    } else if (poNeeded && !matReceived && !poApproved) {
+      // released, material not in, but the PO approval was never recorded: material status cannot be judged, so it is my data gap to close
+      at(11, 'Awaiting Material', poCreated ? 'Record the PO approval date' : 'Record the material PO (number and approval date)', 'me', '', today);
     } else if (poNeeded && !matReceived) {
       var md = promised || required;
       at(11, 'Awaiting Material', r.matStatus === 'Late' ? 'Material is late: get a new delivery date from ' + (supplier || 'the supplier') : r.matStatus === 'Unknown' ? 'Get the promised delivery date from ' + (supplier || 'the supplier') : 'Monitor the material delivery', r.matStatus === 'Late' || r.matStatus === 'Unknown' ? 'supplier' : 'none', r.matStatus === 'On Time' ? '' : (supplier || 'Supplier'), md, followupBy(r.matStatus === 'On Time' ? md : today));
@@ -1465,8 +1484,14 @@ var SOLife = (function () {
       at(13, 'Overdue — Awaiting Closure', ec ? 'Confirm the SO closes on ' + iso(ec) : 'Get the SO closure status and an expected closure date', 'me', 'CAMCO personnel', ec || today, followupBy(ec && diff(ec, today) > 0 ? ec : today));
       r.initial = 'Complete'; r.final = 'Overdue';
     }
+    // On hold (status 5.HOLD): the SO keeps its stage, but nothing is chased until the hold is lifted. It is reported in section B
+    // (waiting on others / blocked) so it stays visible as on hold, and it is never counted overdue (final stays 'Open', no overdue,
+    // follow-up or material reasons, section never E). Escalation and the recorded issue are still shown.
+    var onHold = held && so !== 'NO' && !closedStatus;
+    if (onHold) { r.status = 'On hold'; r.next = 'On hold: resume when the hold is lifted'; r.owner = 'none'; r.waitingOn = ''; r.actionDate = null; r.followup = null; r.matStatus = ''; }
     if (r.stage >= 12 && r.stage < 13 && r.final === 'Open') r.final = 'Monitoring';
-    if (due && diff(due, today) < 0 && r.final !== 'Closed — Verified' && r.final !== 'Cancelled') r.final = 'Overdue';   // past the due date without verified closure, whatever stage it is in
+    if (onHold) r.final = 'Open';
+    else if (due && diff(due, today) < 0 && r.final !== 'Closed — Verified' && r.final !== 'Cancelled') r.final = 'Overdue';   // past the due date without verified closure, whatever stage it is in
     if (r.stage >= 12 && r.initial !== 'Not required') r.initial = 'Complete';
     if (r.stage <= 11 && r.initial === 'In progress' && poNeeded === false && released) r.initial = 'Complete';
 
@@ -1476,7 +1501,11 @@ var SOLife = (function () {
 
     // ---- flags that matter at any stage
     var live = r.status !== 'Closed — Verified' && r.status !== 'Cancelled / Not Required';
-    if (live) {
+    if (onHold) {
+      why('info', 'On hold');
+      if (yes(d, 'escalated')) why('crit', 'Escalated');
+      if (has(d, 'blocker')) why('warn', 'Issue: ' + txt(d, 'blocker'));
+    } else if (live) {
       if (due && r.stage < 13 && diff(due, today) < 0) why('crit', 'Overdue ' + plural(-diff(due, today), 'day') + ', not closed');
       else if (due && diff(due, today) <= CFG.dueSoonDays && r.stage < 13) why(diff(due, today) <= 7 ? 'warn' : 'info', 'Due in ' + plural(diff(due, today), 'day') + ' (' + iso(due) + ')');
       if (r.stage === 13 && r.final === 'Overdue') why('crit', 'Overdue ' + plural(-diff(due, today), 'day') + ', closure not verified');
@@ -1486,7 +1515,8 @@ var SOLife = (function () {
       if (r.followup && diff(r.followup, today) <= 0) why(diff(r.followup, today) < 0 ? 'warn' : 'info', 'Follow-up ' + (diff(r.followup, today) < 0 ? 'overdue by ' + plural(-diff(r.followup, today), 'day') : 'due today'));
       if (yes(d, 'escalated')) why('crit', 'Escalated');
       if (has(d, 'blocker')) why('warn', 'Issue: ' + txt(d, 'blocker'));
-      if (released && poNeeded && poApproved && txt(d, 'ack_status').toUpperCase() !== 'RECEIVED') why('info', 'Supplier acknowledgment not recorded');
+      if (released && poNeeded && !matReceived && !poApproved) why('warn', poCreated ? 'PO approval not recorded' : 'Material PO not recorded');
+      if (released && poNeeded && poApproved && !ackDone) why('info', 'Supplier acknowledgment not recorded');
       if (progressed && !soNo) why('warn', 'SO number not recorded');
       if (progressed && !(has(d, 'steel_type') && has(d, 'router_bar_size') && has(d, 'qty_per_bar'))) why('info', 'Steel data missing: material need cannot be calculated');
     }
@@ -1496,6 +1526,7 @@ var SOLife = (function () {
     var hasCrit = reasons.some(function (x) { return x.level === 'crit'; });
     if (r.status === 'Closed — Verified') sec = 'F';
     else if (!live) sec = null;
+    else if (onHold) sec = 'B';
     else if (r.final === 'Overdue') sec = 'E';
     else if (r.matStatus === 'Late' || r.matStatus === 'At Risk') sec = 'C';
     else if (r.owner === 'me' || yes(d, 'escalated') || (followDue && r.owner !== 'none')) sec = 'A';
@@ -1780,19 +1811,32 @@ var SOService = (function () {
     var list = req.users;
     if (!Array.isArray(list) || !list.length) return fail('BAD_REQUEST', 'No users to save.');
     if (list.length > 500) return fail('BAD_REQUEST', 'Too many users in one request (limit 500).');
-    var clean = [], errors = [];
+    // A row may leave role blank / omit active (e.g. a CSV import): for an existing user that keeps the stored value;
+    // a new user then gets viewer / active.
+    var clean = [], errors = [], given = [];
     list.forEach(function (u, i) {
-      var r = Core.validateUser(u);
-      if (r.ok) clean.push(r.user); else errors.push('Row ' + (i + 1) + ': ' + r.error);
+      var src = u && typeof u === 'object' ? Object.assign({}, u) : u;
+      var roleGiven = !!src && typeof src === 'object' && !blank(src.role);
+      var activeGiven = !!src && typeof src === 'object' && !blank(src.active);
+      if (src && typeof src === 'object') { if (!roleGiven) delete src.role; if (!activeGiven) delete src.active; }
+      var r = Core.validateUser(src);
+      if (r.ok) { clean.push(r.user); given.push({ role: roleGiven, active: activeGiven }); } else errors.push('Row ' + (i + 1) + ': ' + r.error);
     });
     if (errors.length) return fail('INVALID', errors.slice(0, 5).join(' '), { errors: errors.slice(0, 20) });
     var me = String(actor).toLowerCase();
-    var self = clean.filter(function (u) { return u.email === me; })[0];
-    if (self && (self.role !== 'admin' || !self.active) && !isBootstrapAdmin(cfg, actor)) {
-      return fail('INVALID', 'You cannot remove your own admin access or disable yourself. Ask another admin.');
-    }
     return adapter.withLock(function () {
       var existing = adapter.readUsers();
+      var stored = {};
+      existing.forEach(function (u) { stored[String(u.email).toLowerCase()] = u; });
+      clean.forEach(function (u, i) {
+        var old = stored[u.email]; if (!old) return;
+        if (!given[i].role && Core.ROLES.indexOf(String(old.role).toLowerCase()) >= 0) u.role = String(old.role).toLowerCase();
+        if (!given[i].active) u.active = old.active !== false;
+      });
+      var self = clean.filter(function (u) { return u.email === me; })[0];
+      if (self && (self.role !== 'admin' || !self.active) && !isBootstrapAdmin(cfg, actor)) {
+        return fail('INVALID', 'You cannot remove your own admin access or disable yourself. Ask another admin.');
+      }
       var merged = Core.mergeUsers(existing, clean);
       if (merged.length > Core.MAX_USERS) return fail('INVALID', 'Too many users (limit ' + Core.MAX_USERS + ').');
       var stamp = adapter.now();
@@ -2267,7 +2311,49 @@ var SOPg = (function () {
     return { adapter: adapter, ops: ops };
   }
 
-  return { create: create, ID_INDEX: ID_INDEX };
+  // ---- Subcontractor BPO Tracking CSV import (scImport): how one CSV row updates an existing sc_lines row.
+  function sub() { return (typeof SOSub !== 'undefined') ? SOSub : require('./Subcon.js'); }
+  function sameVal(a, b) {
+    var x = a == null ? '' : a, y = b == null ? '' : b;
+    if (typeof x === 'object' || typeof y === 'object') return JSON.stringify(x, Object.keys(x || {}).sort()) === JSON.stringify(y, Object.keys(y || {}).sort());
+    return String(x) === String(y) || (x !== '' && y !== '' && Number(x) === Number(y));
+  }
+  function filled(v) { return !(v === undefined || v === null || (typeof v === 'string' && v.trim() === '')); }
+  /** A date that changes keeps its first value in `orig`; the changes are described for the log. */
+  function dateChanges(prev, value) {
+    var S = sub(), orig = Object.assign({}, (prev && prev.orig) || {}), changed = [];
+    function track(key, label, a, b) { if (a && a !== b) { if (!orig[key]) orig[key] = a; changed.push(label + ': ' + a + ' → ' + (b || 'cleared')); } }
+    S.MILESTONES.forEach(function (x) { track(x.key, x.label, ((prev && prev.ms) || {})[x.key], ((value && value.ms) || {})[x.key]); });
+    S.EXPECTED.forEach(function (x) { track(x.key, x.label, ((prev && prev.exp) || {})[x.key], ((value && value.exp) || {})[x.key]); });
+    return { orig: orig, changed: changed };
+  }
+  /**
+   * existing: the full sc_lines row; row: one parsed BPO Tracking CSV row.
+   * Only the cells the CSV filled in change anything: blank cells never erase, the order ref is never touched,
+   * a closed line is never reopened, and qty 0 ("not known") never replaces a known quantity.
+   * Returns { ok, errors, value (the full cleaned line), diff (changed columns, last_update ignored), orig, changed }.
+   */
+  function bpoImportMerge(existing, row) {
+    var S = sub(), inc = {}, src = row || {};
+    Object.keys(src).forEach(function (k) {
+      if (k === 'ms' || k === 'exp' || k === 'order_ref' || k === 'id') return;
+      if (filled(src[k])) inc[k] = src[k];
+    });
+    ['ms', 'exp'].forEach(function (g) {
+      var o = {}, s = src[g] && typeof src[g] === 'object' ? src[g] : {};
+      Object.keys(s).forEach(function (k) { if (filled(s[k])) o[k] = s[k]; });
+      inc[g] = o;
+    });
+    if (existing && existing.closed) delete inc.closed;   // never reopen
+    if (existing && inc.qty !== undefined && Number(inc.qty) === 0 && Number(existing.qty) > 0) delete inc.qty;
+    var c = S.cleanLine(S.mergeLine(existing || null, inc));
+    if (!c.ok) return { ok: false, errors: c.errors, value: c.value, diff: [], orig: {}, changed: [] };
+    var diff = Object.keys(c.value).filter(function (k) { return k !== 'last_update' && !sameVal((existing || {})[k], c.value[k]); });
+    var dc = dateChanges(existing || {}, c.value);
+    return { ok: true, errors: {}, value: c.value, diff: diff, orig: dc.orig, changed: dc.changed };
+  }
+
+  return { create: create, ID_INDEX: ID_INDEX, bpoImportMerge: bpoImportMerge, dateChanges: dateChanges };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = SOPg;
@@ -2363,8 +2449,20 @@ async function changePassword(email: string, req: any) {
   if (chk.error || chk.data !== true) { await sb.from('login_attempts').insert({ email, ok: false }); return fail('INVALID', 'The current password is wrong.'); }
   const set = await sb.rpc('set_user_password', { p_email: email, p_password: next });
   if (set.error) throw new Error(set.error.message);
+  await revokeSessions(email, typeof req.idToken === 'string' ? req.idToken : undefined);   // sign out the person's other devices, keep this one
   await sb.from('app_audit').insert({ user_email: email, field: 'PASSWORD CHANGED', new_value: email });
   return { ok: true };
+}
+
+// After a password change/reset: drop the person's sessions (all of them, or all but `keepToken`) and their cached tokens.
+async function revokeSessions(email: string, keepToken?: string) {
+  const who = String(email || '').trim().toLowerCase();
+  if (!who) return;
+  for (const [tok, v] of tokenCache) if (String(v.email).toLowerCase() === who && tok !== keepToken) tokenCache.delete(tok);
+  let q = sb.from('sessions').delete().eq('email', who);
+  if (keepToken) q = q.neq('token_hash', await sha256hex(keepToken));
+  const r = await q;
+  if (r.error) throw new Error(r.error.message);
 }
 
 // ---- helpers
@@ -2380,6 +2478,17 @@ async function allOrderRows() {
     const page = must(await sb.from('shop_orders').select('row_no,id,data').order('row_no').range(from, from + 999)) as any[];
     out.push(...page);
     if (page.length < 1000) break;
+  }
+  return out;
+}
+// every row of a query, 1000 at a time (PostgREST caps one response at 1000 rows). `page(from, to)` must build
+// a fresh, fully ordered query (end with a unique column such as id) and apply .range(from, to).
+async function pagedRows(page: (from: number, to: number) => PromiseLike<any>): Promise<any[]> {
+  const out: any[] = [];
+  for (let from = 0; ; from += 1000) {
+    const rows = must(await page(from, from + 999)) as any[];
+    out.push(...rows);
+    if (rows.length < 1000) break;
   }
   return out;
 }
@@ -2494,7 +2603,7 @@ async function flush(ops: any[]) {
       if (doneUpdate.has(o.id)) continue;
       doneUpdate.add(o.id);
       const r = await sb.rpc('patch_order', { p_id: o.id, p_patch: patches.get(o.id) });
-      if (r.error) throw new Error(r.error.message);
+      if (r.error) { if (r.error.code === '23505') throw { duplicate: true }; throw new Error(r.error.message); }   // so_no changed to one that exists (shop_orders_so_key_uq)
     } else if (o.type === 'insert') {
       const r = await sb.from('shop_orders').insert({ id: o.id, data: o.data, created_by: String(o.createdBy || '').toLowerCase() });
       if (r.error) { if (r.error.code === '23505') throw { duplicate: true }; throw new Error(r.error.message); }
@@ -2517,6 +2626,7 @@ async function flush(ops: any[]) {
     } else if (o.type === 'setPassword') {
       const r = await sb.rpc('set_user_password', { p_email: o.email, p_password: o.password });
       if (r.error) throw new Error(r.error.message);
+      await revokeSessions(o.email);   // an admin reset signs the person out everywhere
     } else if (o.type === 'stockItems') {
       const r = await sb.rpc('replace_stock_items', { p_rows: o.rows });
       if (r.error) throw new Error(r.error.message);
@@ -2557,7 +2667,7 @@ const scDup = (e: any) => e && /duplicate key|unique/i.test(e.message || '');
 const scToday = () => new Date().toISOString().slice(0, 10);
 // next free SUB-0001 style references for orders that arrive without one
 async function nextRefs(count: number): Promise<string[]> {
-  const rows = must(await sb.from('sc_lines').select('order_ref').like('order_ref', 'SUB-%') as any) as any[];
+  const rows = await pagedRows((a, b) => sb.from('sc_lines').select('id,order_ref').like('order_ref', 'SUB-%').order('id').range(a, b));   // max over ALL refs, not the first 1000
   let max = 0; rows.forEach((x: any) => { const mm = /^SUB-(\d+)$/i.exec(String(x.order_ref || '')); if (mm) max = Math.max(max, +mm[1]); });
   return Array.from({ length: count }, (_, i) => 'SUB-' + String(max + i + 1).padStart(4, '0'));
 }
@@ -2673,15 +2783,16 @@ async function subconAction(req: any, email: string, role: string | null) {
   const action = req.action as string;
   const today = SOSub.isDate(req.today) ? req.today : scToday();
   if (action === 'scList') {
-    const r = await sb.from('sc_lines').select('*').order('bpo_no').order('batch').order('so_no');
-    const rows = must(r as any) as any[];
+    const rows = await pagedRows((a, b) => sb.from('sc_lines').select('*').order('bpo_no').order('batch').order('so_no').order('id').range(a, b));
     if (write) {   // orders that predate order refs get one, so an exported sheet can always update them
       const blank = rows.filter((x: any) => !String(x.order_ref || '').trim());
       if (blank.length) { const refs = await nextRefs(blank.length); for (let i = 0; i < blank.length; i++) { const u = await sb.from('sc_lines').update({ order_ref: refs[i] }).eq('id', blank[i].id); if (!u.error) blank[i].order_ref = refs[i]; } }
     }
-    const evq = await sb.from('sc_bpo_events').select('id,bpo_no,batch,at,event_date,by_user,kind,from_stage,to_stage,text,applied').order('at', { ascending: true }).limit(20000);
-    const built = SOSub.build(rows, today, undefined, evq.error ? [] : (evq.data as any[]));   // before subcon5.sql is applied the board simply follows the dates
-    return { ok: true, today, role, boardStages: SOSub.BOARD, boardSaved: !evq.error, milestones: SOSub.MILESTONES, expected: SOSub.EXPECTED, stages: SOSub.STAGES, sectionDefs: SOSub.SECTIONS, decisions: SOSub.DECISIONS, reviewStatuses: SOSub.REVIEW_STATUSES, priorities: SOSub.PRIORITIES, blockers: SOSub.BLOCKERS, updateKinds: SOSub.UPDATE_KINDS, cfg: SOSub.CFG, ...built };
+    let events: any[] = [], boardSaved = true;
+    try { events = await pagedRows((a, b) => sb.from('sc_bpo_events').select('id,bpo_no,batch,at,event_date,by_user,kind,from_stage,to_stage,text,applied').order('at', { ascending: true }).order('id').range(a, b)); }
+    catch (_e) { boardSaved = false; }   // before subcon5.sql is applied the board simply follows the dates
+    const built = SOSub.build(rows, today, undefined, events);
+    return { ok: true, today, role, boardStages: SOSub.BOARD, boardSaved, milestones: SOSub.MILESTONES, expected: SOSub.EXPECTED, stages: SOSub.STAGES, sectionDefs: SOSub.SECTIONS, decisions: SOSub.DECISIONS, reviewStatuses: SOSub.REVIEW_STATUSES, priorities: SOSub.PRIORITIES, blockers: SOSub.BLOCKERS, updateKinds: SOSub.UPDATE_KINDS, cfg: SOSub.CFG, ...built };
   }
   if (action === 'scUpdates') {
     const r = await sb.from('sc_updates').select('id,at,by_user,kind,text').eq('line_id', String(req.id)).order('at', { ascending: false }).limit(100);
@@ -2824,26 +2935,45 @@ async function subconAction(req: any, email: string, role: string | null) {
   if (action === 'scImport') {
     const list = Array.isArray(req.rows) ? req.rows.slice(0, 500) : [];
     if (!list.length) return fail('INVALID', 'The file has no rows to import.');
-    const good: any[] = [], problems: string[] = [];
-    list.forEach((row: any, i: number) => { const c = SOSub.cleanLine(row); if (c.ok && !c.value.po_no) { problems.push('Row ' + (i + 1) + ': PO # is required to import a line.'); return; } if (c.ok) good.push(c.value); else problems.push('Row ' + (i + 1) + ' (PO ' + (row && row.po_no || '?') + '): ' + Object.values(c.errors).join(' ')); });
-    const keys = good.map((g) => g.po_no.toUpperCase());
-    const ex = await sb.from('sc_lines').select('id,po_key').in('po_key', keys);
-    const have = new Map(must(ex as any).map((r: any) => [r.po_key, r.id]));
-    const seen = new Set<string>(); let added = 0, updated = 0;
-    const fresh: any[] = [];
-    for (const g of good) {
-      const k = g.po_no.toUpperCase(); if (seen.has(k)) { problems.push('PO ' + g.po_no + ' appears twice in the file; the first row was used.'); continue; } seen.add(k);
-      if (have.has(k)) { const { order_ref: _r, ...gu } = g; const u = await sb.from('sc_lines').update({ ...gu, updated_at: new Date().toISOString() }).eq('id', have.get(k)); if (u.error) return fail('SERVER_ERROR', u.error.message); updated++; }
-      else fresh.push({ ...g, created_by: email });
+    const problems: string[] = [];
+    const poOf = (row: any) => String(row && row.po_no != null ? row.po_no : '').trim().slice(0, 60);
+    const keys = [...new Set(list.map((row: any) => poOf(row).toUpperCase()).filter(Boolean))] as string[];
+    const have = new Map<string, any>((keys.length ? await chunkedIn('sc_lines', '*', 'po_key', keys) : []).map((r: any) => [r.po_key, r]));
+    const seen = new Set<string>(); let added = 0, updated = 0, unchanged = 0;
+    const fresh: any[] = [], upds: any[] = [];
+    list.forEach((row: any, i: number) => {
+      const po = poOf(row), k = po.toUpperCase(), label = 'Row ' + (i + 1) + ' (PO ' + (po || '?') + '): ';
+      if (!po) { problems.push('Row ' + (i + 1) + ': PO # is required to import a line.'); return; }
+      if (seen.has(k)) { problems.push('PO ' + po + ' appears twice in the file; the first row was used.'); return; }
+      seen.add(k);
+      const ex = have.get(k);
+      if (ex) {   // merge: only the cells the CSV filled in change; dates keep their first value in orig
+        const m = SOPg.bpoImportMerge(ex, row);
+        if (!m.ok) { problems.push(label + Object.values(m.errors).join(' ')); return; }
+        if (m.diff.length) upds.push({ ex, m }); else unchanged++;
+      } else {
+        const c = SOSub.cleanLine(row);
+        if (!c.ok) { problems.push(label + Object.values(c.errors).join(' ')); return; }
+        fresh.push({ ...c.value, created_by: email });
+      }
+    });
+    for (const { ex, m } of upds) {
+      const v: any = { ...m.value, orig: m.orig, updated_at: new Date().toISOString() }; delete v.order_ref;   // the CSV never carries the order ref
+      const u = await sb.from('sc_lines').update(v).eq('id', ex.id);
+      if (u.error) return scDup(u.error) ? dupFail(u.error) : fail('SERVER_ERROR', u.error.message);
+      const fields = m.diff.filter((d: string) => d !== 'ms' && d !== 'exp');
+      const text = 'BPO Tracking import' + (m.changed.length ? ': ' + m.changed.join('; ') : '') + (fields.length ? (m.changed.length ? '; ' : ': ') + 'updated ' + fields.join(', ') : '');
+      await sb.from('sc_updates').insert({ line_id: ex.id, by_user: email, kind: 'CHANGE', text: text.slice(0, 1900) });
+      updated++;
     }
-    if (fresh.length) { const refs = await nextRefs(fresh.length); fresh.forEach((f: any, i: number) => { f.order_ref = refs[i]; }); const ins = await sb.from('sc_lines').insert(fresh); if (ins.error) return fail('SERVER_ERROR', ins.error.message); added = fresh.length; }
-    await scAudit(email, '', 'SUBCON IMPORT', added + ' added, ' + updated + ' updated');
-    return { ok: true, added, updated, problems: problems.slice(0, 20), problemCount: problems.length };
+    if (fresh.length) { const refs = await nextRefs(fresh.length); fresh.forEach((f: any, i: number) => { f.order_ref = refs[i]; }); const ins = await sb.from('sc_lines').insert(fresh); if (ins.error) return scDup(ins.error) ? dupFail(ins.error) : fail('SERVER_ERROR', ins.error.message); added = fresh.length; }
+    await scAudit(email, '', 'SUBCON IMPORT', added + ' added, ' + updated + ' updated, ' + unchanged + ' unchanged');
+    return { ok: true, added, updated, unchanged, problems: problems.slice(0, 20), problemCount: problems.length };
   }
   if (action === 'scImportTemplate') {
     const list = Array.isArray(req.rows) ? req.rows.slice(0, 500) : [];
     if (!list.length) return fail('INVALID', 'The sheet has no rows to import.');
-    const all = must(await sb.from('sc_lines').select('*') as any) as any[];
+    const all = await pagedRows((a, b) => sb.from('sc_lines').select('*').order('id').range(a, b));
     const byRef = new Map<string, any>(), byPo = new Map<string, any>();
     all.forEach((l: any) => { if (l.order_ref) byRef.set(String(l.order_ref).toUpperCase(), l); if (l.po_key) byPo.set(l.po_key, l); });
     const problems: string[] = [], plan: any[] = [], seen = new Set<string>(); const preview: any[] = [];
@@ -2899,10 +3029,16 @@ async function gunzipB64(b64: unknown, max: number): Promise<string> {
 async function stAction(req: any, email: string, role: string | null) {
   if (!role) return fail('FORBIDDEN', 'You are not allowed to use this app.');
   if (req.action === 'stGet') {
-    const dl = await sb.storage.from(ST_BUCKET).download('latest/so_tracker.html');
-    if (dl.error || !dl.data) return fail('NOT_FOUND', 'The SO Tracker has not been uploaded yet. It is published by the planner\'s PC every day at 7:00 AM.');
+    const notYet = 'The SO Tracker has not been uploaded yet. It is published by the planner\'s PC every day at 7:00 AM.';
     const run = await sb.from('so_tracker_runs').select('run_at,counts,parts,created_at').order('created_at', { ascending: false }).limit(1);
     const r: any = !run.error && run.data && run.data[0] ? run.data[0] : {};
+    if (req.summary === true) {   // dashboard tile: the latest run's numbers only, no HTML download
+      if (run.error) return fail('SERVER_ERROR', run.error.message);
+      if (!run.data || !run.data[0]) return fail('NOT_FOUND', notYet);
+      return { ok: true, run_at: r.run_at || '', uploaded_at: r.created_at || '', counts: r.counts || {}, parts: r.parts ?? null };
+    }
+    const dl = await sb.storage.from(ST_BUCKET).download('latest/so_tracker.html');
+    if (dl.error || !dl.data) return fail('NOT_FOUND', notYet);
     return { ok: true, run_at: r.run_at || '', uploaded_at: r.created_at || '', counts: r.counts || {}, parts: r.parts ?? null, html: await dl.data.text() };
   }
   // stUpload: only accounts flagged can_upload_tracker (column added by supabase/so-tracker.sql)

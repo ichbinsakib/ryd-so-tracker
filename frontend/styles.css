@@ -695,3 +695,66 @@ button.mtile { cursor: pointer; } button.mtile:hover { border-color: var(--accen
 /* status box shown above the stage tabs on the SO page */
 #detail-form .alwaysbar { margin-bottom: 10px; } #detail-form .alwaysbar .grid { grid-template-columns: minmax(200px, 260px); }
 #detail-form .prebox { margin-bottom: 10px; }
+#board .filternote { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -4px 0 12px; padding: 6px 10px; border-radius: var(--radius); background: var(--accent-soft); font-size: 13px; }
+/* phones: the top bar keeps only the menu, Refresh, the user and Sign out, so the page never scrolls sideways */
+@media (max-width: 600px) {
+  .topbar { padding: 0 10px; gap: 8px; }
+  .topbar .crumb, #refreshed, .userchip .who { display: none; }
+  .topbar-right { gap: 6px; }
+  .topbar-right .btn { padding: 5px 8px; font-size: 12.5px; }
+  .userchip { padding: 2px; }
+}
+
+/* ---- dashboard (overview + to-do) ---- */
+.dbkpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.kpi { display: grid; gap: 2px; text-align: left; padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: var(--radius); box-shadow: var(--shadow); cursor: pointer; font: inherit; color: inherit; }
+.kpi:hover, .kpi:focus-visible { border-color: var(--accent); outline: 0; }
+.kpi.warn { border-left-color: #e0a100; } .kpi.bad { border-left-color: var(--err); } .kpi.ok { border-left-color: #2e9d58; } .kpi.info { border-left-color: var(--accent); }
+.kpil { font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.kpin { font-size: 30px; font-weight: 800; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.kpi.bad .kpin { color: var(--err); }
+.kpi small { color: var(--muted); font-size: 12px; } .kpi .kpit { font-size: 11px; }
+.dbrow2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+.dbrow2.wide { grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); }
+#dash2-actions { margin-bottom: 14px; }
+@media (max-width: 1000px) { .dbrow2, .dbrow2.wide { grid-template-columns: 1fr; } }
+/* bar charts */
+.hbars { display: grid; gap: 4px; margin: 4px 0 8px; }
+.hbar { display: grid; grid-template-columns: minmax(110px, 160px) 1fr 36px; align-items: center; gap: 10px; padding: 4px 6px; border: 0; border-radius: 6px; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.hbar:hover:not(:disabled), .hbar:focus-visible { background: var(--accent-soft); outline: 0; } .hbar:disabled { cursor: default; opacity: .55; }
+.hbl { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hbt { height: 12px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; }
+.hbf { display: block; height: 100%; background: var(--accent); border-radius: 6px; }
+.hbn { text-align: right; font-variant-numeric: tabular-nums; }
+/* to do */
+.todocols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+@media (max-width: 1000px) { .todocols { grid-template-columns: 1fr; } }
+.todocol h4, .tweek h4 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.todocol h4 b, .tweek h4 b { font-size: 11px; padding: 0 7px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); color: var(--ink); }
+.todocol.today h4 { color: var(--err); }
+.todolist, .tlist { display: grid; gap: 6px; }
+.todo { display: grid; gap: 2px; text-align: left; padding: 8px 10px; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; font: inherit; color: inherit; cursor: pointer; }
+.todo.crit { border-left-color: var(--err); } .todo:hover, .todo:focus-visible { border-color: var(--accent); outline: 0; }
+.todot { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .todoa { font-size: 13px; } .todo small { color: var(--muted); font-size: 11.5px; }
+.waitlist { display: grid; gap: 6px; }
+.waitgrp { border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+.waitgrp summary { display: flex; justify-content: space-between; gap: 8px; padding: 7px 10px; cursor: pointer; font-size: 13px; font-weight: 600; }
+.waitgrp .todolist { padding: 0 8px 8px; }
+.todocol > .btn { margin-top: 8px; }
+/* SO completion */
+.complist { display: grid; gap: 2px; margin-bottom: 8px; }
+.comp { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(120px, 1.3fr) 44px; align-items: center; gap: 10px; padding: 6px; border: 0; border-radius: 6px; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.comp:hover, .comp:focus-visible { background: var(--accent-soft); outline: 0; }
+.compt { display: grid; min-width: 0; } .compt b { font-size: 13px; } .compt small { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.compb { display: grid; gap: 3px; }
+.pbar { display: block; height: 10px; border-radius: 5px; background: var(--panel-2); border: 1px solid var(--line); overflow: hidden; } .pbar > span { display: block; height: 100%; }
+.pbar.lo > span { background: var(--err); } .pbar.mid > span { background: #e0a100; } .pbar.hi > span { background: #2e9d58; }
+.pbar.mat { height: 5px; } .pbar.mat > span { background: #8a97a8; }
+.compn { text-align: right; font-variant-numeric: tabular-nums; }
+/* next 30 days */
+.tline { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.tweek { min-width: 0; padding: 8px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--line); }
+.titem { display: grid; grid-template-columns: 44px 1fr; gap: 6px; align-items: start; padding: 6px; text-align: left; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; font: inherit; color: inherit; cursor: pointer; }
+.titem.sub { border-left-color: #e0a100; } .titem:hover, .titem:focus-visible { border-color: var(--accent); outline: 0; }
+.tdate { font-size: 12px; font-weight: 700; } .tmain { display: grid; min-width: 0; } .tmain b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .tmain small { color: var(--muted); font-size: 11px; }
+.tweek { display: flex; flex-direction: column; } .tweek .tmore { order: 3; margin-top: 6px; align-self: flex-start; }

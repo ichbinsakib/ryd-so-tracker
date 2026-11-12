@@ -145,7 +145,13 @@ var SOSub = (function () {
     { h: 'Qty rejected', k: 'qty_rejected', kind: 'num', opt: true },
     { h: 'Qty moved to stock', k: 'qty_stocked', kind: 'num', opt: true }
   ];
-  function normHeader(h) { return String(h == null ? '' : h).toLowerCase().replace(/[^a-z0-9#?]+/g, ' ').trim(); }
+  // Headers are compared without case, spaces, '#', '?' or other punctuation: 'PO#', 'PO #' and 'po' all match, as do 'SO required' and 'SO required?'.
+  function normHeader(h) { return String(h == null ? '' : h).toLowerCase().replace(/[^a-z0-9]+/g, ''); }
+  /** The sheet headers that match no template column (blank headers are ignored), so callers can warn that a column was not imported. */
+  function unmatchedHeaders(headers) {
+    var known = {}; TEMPLATE_COLUMNS.forEach(function (c) { known[normHeader(c.h)] = true; });
+    return (headers || []).filter(function (h) { var n = normHeader(h); return n !== '' && !known[n]; });
+  }
 
   /** One sheet row (values by header) -> the fields it filled in. Blank cells are left out so they never overwrite existing data. */
   function fromTemplateRow(row) {
@@ -236,6 +242,9 @@ var SOSub = (function () {
     return { ok: !Object.keys(errors).length, value: { kind: kind, text: text }, errors: errors };
   }
 
+  // Arrival at CAMCO is proven by the confirmed arrival date, or by a later move to inspection or stock.
+  function arrivedOn(ms) { ms = ms || {}; return ms.received_camco || ms.to_inspection || ms.to_stock || null; }
+
   function milestoneLabel(k) { var m = MILESTONES.filter(function (x) { return x.key === k; })[0]; return m ? m.label : k; }
 
   // Where the order is: the first stage whose finishing milestone is missing. Later evidence skips earlier stages.
@@ -246,11 +255,12 @@ var SOSub = (function () {
     if (l.so_no && evidence < 6) evidence = Math.max(evidence, 6);   // an SO number typed without a date still proves it exists
     var urgent = l.priority !== 'NORMAL', team = l.team_member || 'Subcontractor team';
     var r = { n: 0, status: '', next: '', owner: 'none', waitingOn: '', base: null, days: 0 };
-    function at(n, status, next, owner, waitingOn, base, days) { r.n = n; r.status = status; r.next = next; r.owner = owner; r.waitingOn = waitingOn || ''; r.base = base || null; r.days = days || 0; return r; }
-    var lastContact = l.last_update || null;
+    function at(n, status, next, owner, waitingOn, base, days) { r.n = n; r.status = status; r.next = next; r.owner = owner; r.waitingOn = waitingOn || ''; r.base = base || (owner !== 'me' && owner !== 'none' ? latestMs : null); r.days = days || 0; return r; }
+    var lastContact = l.last_update || null, latestMs = null;
+    MILESTONES.forEach(function (m) { if (!m.estimate && ms[m.key] && (!latestMs || ms[m.key] > latestMs)) latestMs = ms[m.key]; });
     if (l.sub_required === 'NO' || l.so_required === 'NO') return at(1, 'Not required', '', 'none');
     if (evidence < 2 && (l.sub_required !== 'YES' || l.so_required !== 'YES')) return at(1, 'Awaiting decision', 'Decide whether an SO and subcontracting are needed', 'me', '', today, 0);
-    function done(n) { return n < evidence || !!(STAGE_DONE[n] && (has(STAGE_DONE[n]) || (n === 6 && l.so_no))); }
+    function done(n) { return n < evidence || !!(STAGE_DONE[n] && (has(STAGE_DONE[n]) || (n === 6 && l.so_no) || (n === 12 && arrivedOn(ms)))); }
     if (!done(2)) return at(2, 'Part number not yet sent', 'Send the part number and requirements to the subcontractor team', 'me', '', today, 0);
     if (!done(3)) return at(3, 'Waiting for China quotation', 'Follow up on the China quotation', 'team', team, lastContact && lastContact > ms.rfq ? lastContact : ms.rfq, urgent ? cfg.quoteUrgentDays : cfg.quoteFollowDays);
     if (!done(4)) {
@@ -270,13 +280,14 @@ var SOSub = (function () {
     }
     if (!done(9)) return at(9, 'PO verified, not yet sent to the vendor', 'Send the verified PO to the Chinese vendor', 'me', '', today, 0);
     if (!done(10)) {
-      if (!has('ack') && !has('production_start')) return at(10, 'Waiting for vendor acknowledgment', 'Ask the team and vendor to acknowledge the PO', 'team', team + ' / vendor', lastContact && lastContact > ms.po_to_vendor ? lastContact : ms.po_to_vendor, cfg.ackDays);
+      if (!has('ack') && !has('production_start')) return at(10, 'Waiting for vendor acknowledgment', 'Ask the team and vendor to acknowledge the PO', 'team', team + ' / vendor', lastContact && lastContact > (ms.po_to_vendor || ms.down_payment) ? lastContact : (ms.po_to_vendor || ms.down_payment), cfg.ackDays);
       return at(10, 'Acknowledged, production not started', 'Ask for the production start date', 'team', team + ' / vendor', lastContact && lastContact > (ms.ack || ms.po_to_vendor) ? lastContact : (ms.ack || ms.po_to_vendor), cfg.ackDays);
     }
     if (!done(11)) return at(11, 'In production', 'Follow up on production progress and the completion date', 'team', team + ' / vendor', lastContact && lastContact > ms.production_start ? lastContact : ms.production_start, cfg.prodFollowDays);
     if (!done(12)) {
-      var shipped = has('vendor_ship') || has('port_departure') || has('forwarder_pickup');
-      return at(12, shipped ? 'Shipped, awaiting arrival' : 'Production done, awaiting shipment', shipped ? 'Track the shipment to CAMCO' : 'Confirm the shipment date with the vendor', 'team', team + ' / vendor', lastContact && lastContact > ms.ready_to_ship ? lastContact : (ms.vendor_ship || ms.ready_to_ship), cfg.prodFollowDays);
+      var shipped = has('vendor_ship') || has('port_departure') || has('forwarder_pickup') || has('arrived_port');
+      var shipBase = ms.arrived_port || ms.port_departure || ms.forwarder_pickup || ms.vendor_ship || ms.ready_to_ship;
+      return at(12, shipped ? 'Shipped, awaiting arrival' : 'Production done, awaiting shipment', shipped ? 'Track the shipment to CAMCO' : 'Confirm the shipment date with the vendor', 'team', team + ' / vendor', lastContact && lastContact > shipBase ? lastContact : shipBase, cfg.prodFollowDays);
     }
     return at(13, 'Arrived at CAMCO', '', 'none');
   }
@@ -293,11 +304,11 @@ var SOSub = (function () {
     cfg = cfg || CFG;
     var ms = l.ms || {}, exp = l.exp || {}, orig = l.orig || {};
     var st = stageOf(l, today, cfg);
-    var complete = !!ms.received_camco;
+    var complete = !!arrivedOn(ms);
     var notRequired = st.status === 'Not required';
     var open = !l.closed && !complete && !notRequired;
     var remaining = Math.max(0, l.qty - (l.qty_stocked || 0) - (l.qty_rejected || 0));
-    var expectedArrival = ms.received_camco || exp.exp_arrival || ms.eta_camco || l.revised_date || l.required_date || null;
+    var expectedArrival = arrivedOn(ms) || exp.exp_arrival || ms.eta_camco || l.revised_date || l.required_date || null;
     var late = 0, forecastLate = 0;
     if (open && l.required_date) {
       if (today > l.required_date) late = daysBetween(l.required_date, today);
@@ -341,14 +352,16 @@ var SOSub = (function () {
     EXPECTED.forEach(function (e) {
       if (exp[e.key] && exp[e.key] < today && !ms[e.actual]) add(e.key === 'exp_arrival' ? 'crit' : 'warn', 'exp-missed-' + e.key, e.label.replace('Expected ', '') + ' was expected ' + shortDate(exp[e.key]) + ', not confirmed', 'Ask for the actual date or a new commitment and record it.');
     });
+    if (d.expected && d.expected < today && !arrivedOn(ms) && !d.pastDue && !(exp.exp_arrival && exp.exp_arrival < today)) add('warn', 'exp-missed-arrival', 'Expected arrival passed (' + shortDate(d.expected) + '), not confirmed', 'Ask for the actual arrival or a new ETA and record it.');
     if (!(d.qty > 0)) add('warn', 'no-qty', 'Quantity not set', 'Enter the required quantity.');
     if (d.blocker) add(urgent ? 'crit' : 'warn', 'blocked', 'Blocked' + (d.blocker_type ? ': ' + d.blocker_type : ''), 'Chase the blocker: ' + (d.blocker_type || d.blocker).toLowerCase() + '.');
     if (st.n === 3 && ms.rfq && daysBetween(ms.rfq, today) >= cfg.quoteAgeWarn) add('warn', 'quote-aging', 'Quotation pending ' + plural(daysBetween(ms.rfq, today), 'day'), 'Press the team for the China quotation date.');
     if (st.n === 4 && ms.quote_to_rich && daysBetween(ms.quote_to_rich, today) >= cfg.approvalAgeWarn) add('warn', 'approval-aging', 'With Rich ' + plural(daysBetween(ms.quote_to_rich, today), 'day') + ', no approval', 'Ask the team where the approval stands.');
     if (st.n === 6 && ms.so_costing && daysBetween(ms.so_costing, today) >= 4) add('warn', 'so-aging', 'SO number pending ' + plural(daysBetween(ms.so_costing, today), 'day'), 'Follow up with the costing manager.');
     if (st.n === 8 && ms.po_sent_approval && daysBetween(ms.po_sent_approval, today) >= 4) add('warn', 'verify-aging', 'PO verification pending ' + plural(daysBetween(ms.po_sent_approval, today), 'day'), 'Ask the team to verify the PO.');
-    if (ms.po_to_vendor && !ms.ack && !ms.production_start && daysBetween(ms.po_to_vendor, today) >= cfg.ackDays) add('warn', 'no-ack', 'Not acknowledged ' + plural(daysBetween(ms.po_to_vendor, today), 'day') + ' after PO', 'Ask the team to confirm the vendor received the PO.');
-    if (ms.po_to_vendor && !ms.production_start && daysBetween(ms.po_to_vendor, today) >= cfg.startDays) add('warn', 'not-started', 'Production not started ' + plural(daysBetween(ms.po_to_vendor, today), 'day') + ' after PO', 'Ask for the planned start date and what is holding it.');
+    // stage 10 (vendor start) is finished by production_start; later evidence (ready_to_ship, shipment ...) means these no longer apply
+    if (st.n <= 10 && ms.po_to_vendor && !ms.ack && !ms.production_start && daysBetween(ms.po_to_vendor, today) >= cfg.ackDays) add('warn', 'no-ack', 'Not acknowledged ' + plural(daysBetween(ms.po_to_vendor, today), 'day') + ' after PO', 'Ask the team to confirm the vendor received the PO.');
+    if (st.n <= 10 && ms.po_to_vendor && !ms.production_start && daysBetween(ms.po_to_vendor, today) >= cfg.startDays) add('warn', 'not-started', 'Production not started ' + plural(daysBetween(ms.po_to_vendor, today), 'day') + ' after PO', 'Ask for the planned start date and what is holding it.');
     if (st.owner !== 'me' && st.n > 1 && (d.lastUpdateAge === null ? false : d.lastUpdateAge > cfg.staleDays)) add('warn', 'stale', 'No update for ' + plural(d.lastUpdateAge, 'day'), 'Request a status update from the team.');
     return r.sort(function (a, b) { return (a.level === 'crit' ? 0 : 1) - (b.level === 'crit' ? 0 : 1); });
   }
@@ -380,7 +393,7 @@ var SOSub = (function () {
 
   // Project the date a line will arrive at CAMCO from past spans, starting at the latest dated milestone in the chain.
   function projectReceipt(l, stats) {
-    var ms = l.ms || {}; if (ms.received_camco) return null;
+    var ms = l.ms || {}; if (arrivedOn(ms)) return null;
     var chain = ['po_to_vendor', 'ready_to_ship', 'received_camco'], last = -1;
     chain.forEach(function (k, i) { if (ms[k]) last = i; });
     if (last < 0) return null;
@@ -422,7 +435,7 @@ var SOSub = (function () {
     { key: 'order', label: 'PO / Order Placement', hint: 'SO, PO, vendor confirmation', ms: 'quote_approved', enter: ['quote_approved'] },
     { key: 'production', label: 'In Production', hint: 'Vendor is making the parts', ms: 'production_start', enter: ['production_start'] },
     { key: 'ready', label: 'Ready for Shipment', hint: 'Made, awaiting shipment', ms: 'ready_to_ship', enter: ['ready_to_ship'] },
-    { key: 'transit', label: 'In Transit', hint: 'On the way to CAMCO', ms: 'vendor_ship', enter: ['vendor_ship', 'forwarder_pickup', 'port_departure'] },
+    { key: 'transit', label: 'In Transit', hint: 'On the way to CAMCO', ms: 'vendor_ship', enter: ['vendor_ship', 'forwarder_pickup', 'port_departure', 'arrived_port'] },
     { key: 'arrived', label: 'Arrived at CAMCO', hint: 'Received, being inspected / stocked', ms: 'received_camco', enter: ['received_camco'] },
     { key: 'closed', label: 'Completed / Closed', hint: 'Finished', ms: null, enter: ['to_stock'] }
   ];
@@ -482,7 +495,8 @@ var SOSub = (function () {
       var latest = lastDates.length ? lastDates[lastDates.length - 1] : null;
       var rank = { crit: 0, warn: 1, ok: 2 };
       var pick = open.slice().sort(function (a, b) { return rank[a.attention] - rank[b.attention] || String(a.followup || '9999').localeCompare(String(b.followup || '9999')); })[0] || null;
-      var exp = active.map(function (d) { return d.expected; }).filter(Boolean).sort(), req = active.map(function (d) { return d.required_date; }).filter(Boolean).sort();
+      // expected arrival of what is still open (an arrived part's "expected" is its arrival date, which is not a pending commitment)
+      var exp = (open.length ? open : active).map(function (d) { return d.expected; }).filter(Boolean).sort(), req = active.map(function (d) { return d.required_date; }).filter(Boolean).sort();
       var vendors = [], team = [];
       active.forEach(function (d) { if (d.vendor && vendors.indexOf(d.vendor) < 0) vendors.push(d.vendor); var p = d.team_member || d.owner; if (p && team.indexOf(p) < 0) team.push(p); });
       var pastDue = open.reduce(function (t, d) { return Math.max(t, d.pastDue || 0); }, 0);
@@ -491,7 +505,7 @@ var SOSub = (function () {
       var stale = open.length > 0 && stage !== 'closed' && stage !== 'arrived' && (staleAge === null ? (sinceReq !== null && sinceReq > cfg.staleDays) : staleAge > cfg.staleDays);
       var crit = open.filter(function (d) { return d.attention === 'crit'; }).length, warn = open.filter(function (d) { return d.attention === 'warn'; }).length;
       var overdueExp = exp.length && stage !== 'closed' && stage !== 'arrived' && open.length && exp[exp.length - 1] < today ? daysBetween(exp[exp.length - 1], today) : 0;
-      var color = stage === 'closed' ? (heldParts.length ? 'yellow' : 'grey') : (pastDue > 0 || crit > 0) ? 'red' : (warn > 0 || stale || (stage === 'arrived' && open.length)) ? 'yellow' : 'green';
+      var color = stage === 'closed' ? (heldParts.length ? 'yellow' : 'grey') : (pastDue > 0 || crit > 0) ? 'red' : (warn > 0 || stale || overdueExp > 0 || (stage === 'arrived' && open.length)) ? 'yellow' : 'green';
       if (stage === 'arrived' && !open.length) color = 'green';
       var flags = [];
       if (stage === 'quoteReq' && sinceDays !== null && sinceDays >= cfg.quoteAgeWarn) flags.push('No quotation response for ' + plural(sinceDays, 'day'));
@@ -542,9 +556,9 @@ var SOSub = (function () {
     var sections = {};
     SECTIONS.forEach(function (s) { sections[s.key] = described.filter(function (d) {
       if (d.section !== s.key) return false;
-      if (s.key === 'completed') return d.ms.received_camco && daysBetween(d.ms.received_camco, today) <= cfg.completedDays;
+      if (s.key === 'completed') return arrivedOn(d.ms) && daysBetween(arrivedOn(d.ms), today) <= cfg.completedDays;
       return true;
-    }).sort(s.key === 'completed' ? function (a, b) { return String(b.ms.received_camco).localeCompare(String(a.ms.received_camco)); } : byUrgency).map(function (d) { return d.id; }); });
+    }).sort(s.key === 'completed' ? function (a, b) { return String(arrivedOn(b.ms)).localeCompare(String(arrivedOn(a.ms))); } : byUrgency).map(function (d) { return d.id; }); });
     var queue = open.filter(function (d) { return d.section === 'immediate' || d.section === 'overdue'; }).sort(byUrgency);
     function has(d, code) { return d.reasons.some(function (r) { return r.code === code; }); }
     return {
@@ -562,7 +576,7 @@ var SOSub = (function () {
   return {
     MILESTONES: MILESTONES, EXPECTED: EXPECTED, STAGES: STAGES, SECTIONS: SECTIONS, DECISIONS: DECISIONS, REVIEW_STATUSES: REVIEW_STATUSES, PRIORITIES: PRIORITIES, BLOCKERS: BLOCKERS,
     UPDATE_KINDS: UPDATE_KINDS, SEGMENTS: SEGMENTS, CFG: CFG,
-    TEMPLATE_COLUMNS: TEMPLATE_COLUMNS, normHeader: normHeader, fromTemplateRow: fromTemplateRow, mergeLine: mergeLine,
+    TEMPLATE_COLUMNS: TEMPLATE_COLUMNS, normHeader: normHeader, unmatchedHeaders: unmatchedHeaders, fromTemplateRow: fromTemplateRow, mergeLine: mergeLine,
     isDate: isDate, daysBetween: daysBetween, addDays: addDays, cleanLine: cleanLine, cleanUpdate: cleanUpdate, completionGaps: completionGaps, milestoneLabel: milestoneLabel,
     BOARD: BOARD, boardOf: boardOf, boardKeyOf: boardKeyOf, boardIndex: boardIndex, workdaysBetween: workdaysBetween,
     describe: describe, spansOf: spansOf, leadStats: leadStats, projectReceipt: projectReceipt, batches: batches, build: build

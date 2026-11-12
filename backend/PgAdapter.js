@@ -157,7 +157,49 @@ var SOPg = (function () {
     return { adapter: adapter, ops: ops };
   }
 
-  return { create: create, ID_INDEX: ID_INDEX };
+  // ---- Subcontractor BPO Tracking CSV import (scImport): how one CSV row updates an existing sc_lines row.
+  function sub() { return (typeof SOSub !== 'undefined') ? SOSub : require('./Subcon.js'); }
+  function sameVal(a, b) {
+    var x = a == null ? '' : a, y = b == null ? '' : b;
+    if (typeof x === 'object' || typeof y === 'object') return JSON.stringify(x, Object.keys(x || {}).sort()) === JSON.stringify(y, Object.keys(y || {}).sort());
+    return String(x) === String(y) || (x !== '' && y !== '' && Number(x) === Number(y));
+  }
+  function filled(v) { return !(v === undefined || v === null || (typeof v === 'string' && v.trim() === '')); }
+  /** A date that changes keeps its first value in `orig`; the changes are described for the log. */
+  function dateChanges(prev, value) {
+    var S = sub(), orig = Object.assign({}, (prev && prev.orig) || {}), changed = [];
+    function track(key, label, a, b) { if (a && a !== b) { if (!orig[key]) orig[key] = a; changed.push(label + ': ' + a + ' → ' + (b || 'cleared')); } }
+    S.MILESTONES.forEach(function (x) { track(x.key, x.label, ((prev && prev.ms) || {})[x.key], ((value && value.ms) || {})[x.key]); });
+    S.EXPECTED.forEach(function (x) { track(x.key, x.label, ((prev && prev.exp) || {})[x.key], ((value && value.exp) || {})[x.key]); });
+    return { orig: orig, changed: changed };
+  }
+  /**
+   * existing: the full sc_lines row; row: one parsed BPO Tracking CSV row.
+   * Only the cells the CSV filled in change anything: blank cells never erase, the order ref is never touched,
+   * a closed line is never reopened, and qty 0 ("not known") never replaces a known quantity.
+   * Returns { ok, errors, value (the full cleaned line), diff (changed columns, last_update ignored), orig, changed }.
+   */
+  function bpoImportMerge(existing, row) {
+    var S = sub(), inc = {}, src = row || {};
+    Object.keys(src).forEach(function (k) {
+      if (k === 'ms' || k === 'exp' || k === 'order_ref' || k === 'id') return;
+      if (filled(src[k])) inc[k] = src[k];
+    });
+    ['ms', 'exp'].forEach(function (g) {
+      var o = {}, s = src[g] && typeof src[g] === 'object' ? src[g] : {};
+      Object.keys(s).forEach(function (k) { if (filled(s[k])) o[k] = s[k]; });
+      inc[g] = o;
+    });
+    if (existing && existing.closed) delete inc.closed;   // never reopen
+    if (existing && inc.qty !== undefined && Number(inc.qty) === 0 && Number(existing.qty) > 0) delete inc.qty;
+    var c = S.cleanLine(S.mergeLine(existing || null, inc));
+    if (!c.ok) return { ok: false, errors: c.errors, value: c.value, diff: [], orig: {}, changed: [] };
+    var diff = Object.keys(c.value).filter(function (k) { return k !== 'last_update' && !sameVal((existing || {})[k], c.value[k]); });
+    var dc = dateChanges(existing || {}, c.value);
+    return { ok: true, errors: {}, value: c.value, diff: diff, orig: dc.orig, changed: dc.changed };
+  }
+
+  return { create: create, ID_INDEX: ID_INDEX, bpoImportMerge: bpoImportMerge, dateChanges: dateChanges };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = SOPg;

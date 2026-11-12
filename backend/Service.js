@@ -250,19 +250,32 @@ var SOService = (function () {
     var list = req.users;
     if (!Array.isArray(list) || !list.length) return fail('BAD_REQUEST', 'No users to save.');
     if (list.length > 500) return fail('BAD_REQUEST', 'Too many users in one request (limit 500).');
-    var clean = [], errors = [];
+    // A row may leave role blank / omit active (e.g. a CSV import): for an existing user that keeps the stored value;
+    // a new user then gets viewer / active.
+    var clean = [], errors = [], given = [];
     list.forEach(function (u, i) {
-      var r = Core.validateUser(u);
-      if (r.ok) clean.push(r.user); else errors.push('Row ' + (i + 1) + ': ' + r.error);
+      var src = u && typeof u === 'object' ? Object.assign({}, u) : u;
+      var roleGiven = !!src && typeof src === 'object' && !blank(src.role);
+      var activeGiven = !!src && typeof src === 'object' && !blank(src.active);
+      if (src && typeof src === 'object') { if (!roleGiven) delete src.role; if (!activeGiven) delete src.active; }
+      var r = Core.validateUser(src);
+      if (r.ok) { clean.push(r.user); given.push({ role: roleGiven, active: activeGiven }); } else errors.push('Row ' + (i + 1) + ': ' + r.error);
     });
     if (errors.length) return fail('INVALID', errors.slice(0, 5).join(' '), { errors: errors.slice(0, 20) });
     var me = String(actor).toLowerCase();
-    var self = clean.filter(function (u) { return u.email === me; })[0];
-    if (self && (self.role !== 'admin' || !self.active) && !isBootstrapAdmin(cfg, actor)) {
-      return fail('INVALID', 'You cannot remove your own admin access or disable yourself. Ask another admin.');
-    }
     return adapter.withLock(function () {
       var existing = adapter.readUsers();
+      var stored = {};
+      existing.forEach(function (u) { stored[String(u.email).toLowerCase()] = u; });
+      clean.forEach(function (u, i) {
+        var old = stored[u.email]; if (!old) return;
+        if (!given[i].role && Core.ROLES.indexOf(String(old.role).toLowerCase()) >= 0) u.role = String(old.role).toLowerCase();
+        if (!given[i].active) u.active = old.active !== false;
+      });
+      var self = clean.filter(function (u) { return u.email === me; })[0];
+      if (self && (self.role !== 'admin' || !self.active) && !isBootstrapAdmin(cfg, actor)) {
+        return fail('INVALID', 'You cannot remove your own admin access or disable yourself. Ask another admin.');
+      }
       var merged = Core.mergeUsers(existing, clean);
       if (merged.length > Core.MAX_USERS) return fail('INVALID', 'Too many users (limit ' + Core.MAX_USERS + ').');
       var stamp = adapter.now();

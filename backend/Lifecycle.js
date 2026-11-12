@@ -14,7 +14,7 @@ var SOLife = (function () {
   ];
   var STATUSES = ['Not Started', 'Awaiting Decision', 'In Progress', 'Waiting for Supplier', 'Waiting for Costing Manager', 'Waiting for Material Quote',
     'Waiting for PO Acknowledgment', 'Awaiting Documentation', 'Ready for Release', 'Released to Production', 'Awaiting Material',
-    'Initial Workflow Complete', 'Monitoring Until Due Date', 'Overdue — Awaiting Closure', 'Closed — Verified', 'Cancelled / Not Required'];
+    'Initial Workflow Complete', 'Monitoring Until Due Date', 'Overdue — Awaiting Closure', 'Closed — Verified', 'Cancelled / Not Required', 'On hold'];
   var CFG = { quoteFollowDays: 3, soNoFollowDays: 2, ackFollowDays: 3, dueSoonDays: 14, matRiskDays: 3, quoteValidWarnDays: 3 };
   var DOCS = [['print_traveller', 'traveller'], ['print_router', 'router'], ['print_part_prints', 'part prints'], ['print_req_po', 'req./PO'], ['verify_by_sakib', 'verification']];
 
@@ -55,6 +55,8 @@ var SOLife = (function () {
     var docMissing = DOCS.filter(function (x) { return !yes(d, x[0]); }).map(function (x) { return x[1]; });
     var promised = date(d, 'po_due_date'), required = date(d, 'mat_required_date') || due;
     var supplier = txt(d, 'supplier');
+    // An acknowledgment date is evidence of the acknowledgment even when the status column was not filled in (an explicit DISCREPANCY still wins).
+    var ackStatus = txt(d, 'ack_status').toUpperCase(), ackDone = ackStatus === 'RECEIVED' || (has(d, 'ack_date') && ackStatus !== 'DISCREPANCY');
 
     // Evidence that the SO already exists: earlier stages are then history, not open work.
     var progressed = soNo || poCreated || poApproved || released || matReceived, preSO = !progressed && !soReq;
@@ -82,7 +84,7 @@ var SOLife = (function () {
     var followDate = date(d, 'next_followup_date');
     function followupBy(def) { return followDate || def; }
 
-    var closedStatus = /CLOSE/.test(status);
+    var closedStatus = /CLOSE/.test(status), held = /HOLD/.test(status);
     if (so === 'NO') {
       at(1, 'Cancelled / Not Required', '', 'none'); r.initial = 'Not required'; r.final = 'Cancelled';
     } else if (closedStatus && soClose) {
@@ -114,14 +116,17 @@ var SOLife = (function () {
       at(6, 'Waiting for Costing Manager', 'Follow up with the costing manager for the SO number', 'costing', 'Costing manager', sd, followupBy(sd));
     } else if (poNeeded && !poApproved && !released && !matReceived) {
       at(7, 'In Progress', poCreated ? 'Approve the PO and send it to the supplier' : 'Purchase the material and create the PO', 'me', '', today);
-    } else if (poNeeded && poApproved && !released && !matReceived && txt(d, 'ack_status').toUpperCase() !== 'RECEIVED') {
+    } else if (poNeeded && poApproved && !released && !matReceived && !ackDone) {
       var ad = addDays(date(d, 'po_approve_date'), CFG.ackFollowDays);
-      if (txt(d, 'ack_status').toUpperCase() === 'DISCREPANCY') at(8, 'In Progress', 'Resolve the acknowledgment discrepancy with ' + (supplier || 'the supplier'), 'supplier', supplier || 'Supplier', today, followupBy(today));
+      if (ackStatus === 'DISCREPANCY') at(8, 'In Progress', 'Resolve the acknowledgment discrepancy with ' + (supplier || 'the supplier'), 'supplier', supplier || 'Supplier', today, followupBy(today));
       else at(8, 'Waiting for PO Acknowledgment', 'Follow up for the supplier acknowledgment of the PO', 'supplier', supplier || 'Supplier', ad, followupBy(ad));
     } else if (!released && docMissing.length) {
       at(9, 'Awaiting Documentation', 'Prepare the release documents: ' + docMissing.join(', '), 'me', '', today);
     } else if (!released) {
       at(10, 'Ready for Release', 'Release the SO to production', 'me', '', today);
+    } else if (poNeeded && !matReceived && !poApproved) {
+      // released, material not in, but the PO approval was never recorded: material status cannot be judged, so it is my data gap to close
+      at(11, 'Awaiting Material', poCreated ? 'Record the PO approval date' : 'Record the material PO (number and approval date)', 'me', '', today);
     } else if (poNeeded && !matReceived) {
       var md = promised || required;
       at(11, 'Awaiting Material', r.matStatus === 'Late' ? 'Material is late: get a new delivery date from ' + (supplier || 'the supplier') : r.matStatus === 'Unknown' ? 'Get the promised delivery date from ' + (supplier || 'the supplier') : 'Monitor the material delivery', r.matStatus === 'Late' || r.matStatus === 'Unknown' ? 'supplier' : 'none', r.matStatus === 'On Time' ? '' : (supplier || 'Supplier'), md, followupBy(r.matStatus === 'On Time' ? md : today));
@@ -134,8 +139,14 @@ var SOLife = (function () {
       at(13, 'Overdue — Awaiting Closure', ec ? 'Confirm the SO closes on ' + iso(ec) : 'Get the SO closure status and an expected closure date', 'me', 'CAMCO personnel', ec || today, followupBy(ec && diff(ec, today) > 0 ? ec : today));
       r.initial = 'Complete'; r.final = 'Overdue';
     }
+    // On hold (status 5.HOLD): the SO keeps its stage, but nothing is chased until the hold is lifted. It is reported in section B
+    // (waiting on others / blocked) so it stays visible as on hold, and it is never counted overdue (final stays 'Open', no overdue,
+    // follow-up or material reasons, section never E). Escalation and the recorded issue are still shown.
+    var onHold = held && so !== 'NO' && !closedStatus;
+    if (onHold) { r.status = 'On hold'; r.next = 'On hold: resume when the hold is lifted'; r.owner = 'none'; r.waitingOn = ''; r.actionDate = null; r.followup = null; r.matStatus = ''; }
     if (r.stage >= 12 && r.stage < 13 && r.final === 'Open') r.final = 'Monitoring';
-    if (due && diff(due, today) < 0 && r.final !== 'Closed — Verified' && r.final !== 'Cancelled') r.final = 'Overdue';   // past the due date without verified closure, whatever stage it is in
+    if (onHold) r.final = 'Open';
+    else if (due && diff(due, today) < 0 && r.final !== 'Closed — Verified' && r.final !== 'Cancelled') r.final = 'Overdue';   // past the due date without verified closure, whatever stage it is in
     if (r.stage >= 12 && r.initial !== 'Not required') r.initial = 'Complete';
     if (r.stage <= 11 && r.initial === 'In progress' && poNeeded === false && released) r.initial = 'Complete';
 
@@ -145,7 +156,11 @@ var SOLife = (function () {
 
     // ---- flags that matter at any stage
     var live = r.status !== 'Closed — Verified' && r.status !== 'Cancelled / Not Required';
-    if (live) {
+    if (onHold) {
+      why('info', 'On hold');
+      if (yes(d, 'escalated')) why('crit', 'Escalated');
+      if (has(d, 'blocker')) why('warn', 'Issue: ' + txt(d, 'blocker'));
+    } else if (live) {
       if (due && r.stage < 13 && diff(due, today) < 0) why('crit', 'Overdue ' + plural(-diff(due, today), 'day') + ', not closed');
       else if (due && diff(due, today) <= CFG.dueSoonDays && r.stage < 13) why(diff(due, today) <= 7 ? 'warn' : 'info', 'Due in ' + plural(diff(due, today), 'day') + ' (' + iso(due) + ')');
       if (r.stage === 13 && r.final === 'Overdue') why('crit', 'Overdue ' + plural(-diff(due, today), 'day') + ', closure not verified');
@@ -155,7 +170,8 @@ var SOLife = (function () {
       if (r.followup && diff(r.followup, today) <= 0) why(diff(r.followup, today) < 0 ? 'warn' : 'info', 'Follow-up ' + (diff(r.followup, today) < 0 ? 'overdue by ' + plural(-diff(r.followup, today), 'day') : 'due today'));
       if (yes(d, 'escalated')) why('crit', 'Escalated');
       if (has(d, 'blocker')) why('warn', 'Issue: ' + txt(d, 'blocker'));
-      if (released && poNeeded && poApproved && txt(d, 'ack_status').toUpperCase() !== 'RECEIVED') why('info', 'Supplier acknowledgment not recorded');
+      if (released && poNeeded && !matReceived && !poApproved) why('warn', poCreated ? 'PO approval not recorded' : 'Material PO not recorded');
+      if (released && poNeeded && poApproved && !ackDone) why('info', 'Supplier acknowledgment not recorded');
       if (progressed && !soNo) why('warn', 'SO number not recorded');
       if (progressed && !(has(d, 'steel_type') && has(d, 'router_bar_size') && has(d, 'qty_per_bar'))) why('info', 'Steel data missing: material need cannot be calculated');
     }
@@ -165,6 +181,7 @@ var SOLife = (function () {
     var hasCrit = reasons.some(function (x) { return x.level === 'crit'; });
     if (r.status === 'Closed — Verified') sec = 'F';
     else if (!live) sec = null;
+    else if (onHold) sec = 'B';
     else if (r.final === 'Overdue') sec = 'E';
     else if (r.matStatus === 'Late' || r.matStatus === 'At Risk') sec = 'C';
     else if (r.owner === 'me' || yes(d, 'escalated') || (followDue && r.owner !== 'none')) sec = 'A';

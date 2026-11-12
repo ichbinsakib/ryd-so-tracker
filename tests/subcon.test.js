@@ -197,3 +197,58 @@ test('board: a BPO whose only open item is an arrived part on quality hold count
   const mixed = Sub.build([done(1), Object.assign({ id: 5, part_no: 'M', ms: { rfq: '2026-06-01', production_start: '2026-08-01' } }, base)], '2026-11-04', undefined, []).board[0];
   assert.equal(mixed.stage, 'production'); assert.equal(mixed.summary, '1 of 2 in stock · 1 in production');
 });
+
+// ---- review fixes (today 2026-11-12)
+const T3 = '2026-11-12';
+const toVendor = { rfq: '2026-08-01', quote_received: '2026-08-05', quote_approved: '2026-08-10', so_requested: '2026-08-11', so_received: '2026-08-12', po_created: '2026-08-15', po_approved: '2026-08-16', po_to_vendor: '2026-08-17' };
+const made = Object.assign({}, toVendor, { production_start: '2026-08-20', ready_to_ship: '2026-10-01' });
+
+test('moved to inspection or stock proves arrival: the line is complete and agrees with the board', () => {
+  ['to_stock', 'to_inspection'].forEach((k) => {
+    const a = d({ ms: Object.assign({}, made, { [k]: '2026-11-01' }) }, T3);
+    assert.equal(a.stageNo, 13, k); assert.ok(a.complete, k); assert.equal(a.open, false, k); assert.equal(a.section, 'completed', k); assert.equal(a.expected, '2026-11-01', k);
+  });
+  const r = Sub.build([line({ id: 's', ms: Object.assign({}, made, { to_stock: '2026-11-01' }) })], T3);
+  assert.deepEqual(r.sections.completed, ['s']); assert.equal(r.board[0].stage, 'closed');
+});
+
+test('arrived at port without a vendor ship date counts as shipped on the line and the board', () => {
+  const b = d({ ms: Object.assign({}, made, { arrived_port: '2026-11-05' }), last_update: '2026-11-10' }, T3);
+  assert.equal(b.status, 'Shipped, awaiting arrival'); assert.equal(Sub.boardKeyOf(b), 'transit');
+});
+
+test('no-ack and not-started warnings stop once later milestones exist', () => {
+  const codes = (ms) => d({ ms, last_update: '2026-11-10' }, T3).reasons.map((r) => r.code);
+  const shipped = Object.assign({}, toVendor, { ready_to_ship: '2026-10-01', vendor_ship: '2026-10-05' });
+  assert.ok(!codes(shipped).includes('no-ack')); assert.ok(!codes(shipped).includes('not-started'));
+  assert.ok(codes(toVendor).includes('no-ack')); assert.ok(codes(toVendor).includes('not-started'));
+});
+
+test('a down payment without the PO-to-vendor date still gives a follow-up date', () => {
+  const r = d({ ms: { rfq: '2026-08-01', so_received: '2026-08-12', po_approved: '2026-08-16', down_payment: '2026-08-20' } }, T3);
+  assert.equal(r.stageNo, 10); assert.equal(r.followup, '2026-08-23'); assert.equal(r.section, 'overdue');
+});
+
+test('a passed ETA at CAMCO on a shipped line is a reason on the line', () => {
+  const r = d({ ms: Object.assign({}, made, { vendor_ship: '2026-10-05', eta_camco: '2026-11-01' }), last_update: '2026-11-10' }, T3);
+  assert.ok(r.reasons.some((x) => x.code === 'exp-missed-arrival' && /Expected arrival passed/.test(x.text)));
+  const ok = d({ ms: Object.assign({}, made, { vendor_ship: '2026-10-05', eta_camco: '2026-11-20' }), last_update: '2026-11-10' }, T3);
+  assert.ok(!ok.reasons.some((x) => x.code === 'exp-missed-arrival'));
+});
+
+test('board: the expected arrival comes from open parts only, and a passed one is never green', () => {
+  const b = (o) => Object.assign({ bpo_no: 'BX', batch: '1', qty: 10, priority: 'NORMAL', so_required: 'YES', sub_required: 'YES', exp: {}, orig: {}, last_update: '2026-11-10' }, o);
+  const arrived = b({ id: 1, part_no: 'A', ms: Object.assign({}, made, { vendor_ship: '2026-10-05', received_camco: '2026-10-20' }) });
+  const inTransit = (eta) => b({ id: 2, part_no: 'B', ms: Object.assign({}, made, { vendor_ship: '2026-11-10' }, eta ? { eta_camco: eta } : {}) });
+  const fine = Sub.build([arrived, inTransit(), inTransit()].map((x, i) => Object.assign({}, x, { id: i })), T3).board[0];
+  assert.equal(fine.stage, 'transit'); assert.equal(fine.overdueDays, 0); assert.ok(!fine.flags.some((f) => /past the expected arrival/.test(f)));
+  const late = Sub.build([arrived, Object.assign(inTransit('2026-11-05'), { id: 3 }), Object.assign(inTransit('2026-11-05'), { id: 4 })], T3).board[0];
+  assert.equal(late.expected, '2026-11-05'); assert.ok(late.flags.some((f) => /7 days past the expected arrival/.test(f))); assert.notEqual(late.color, 'green');
+});
+
+test('headers match without spaces, # or ? and unknown sheet columns are reported', () => {
+  const r = Sub.fromTemplateRow({ 'PO#': '4500', 'SO required': 'yes', 'part no': 'X', 'Part#': 'X', 'Escalated': 'y' });
+  assert.deepEqual([r.po_no, r.so_required, r.part_no, r.escalated], ['4500', 'YES', 'X', true]);
+  assert.equal(new Set(Sub.TEMPLATE_COLUMNS.map((c) => Sub.normHeader(c.h))).size, Sub.TEMPLATE_COLUMNS.length, 'normalised headers stay unique');
+  assert.deepEqual(Sub.unmatchedHeaders(['Part #', 'PO#', 'SO required', 'Colour', '', 'Ship via']), ['Colour', 'Ship via']);
+});

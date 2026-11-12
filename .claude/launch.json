@@ -6,6 +6,13 @@
       "runtimeExecutable": "node",
       "runtimeArgs": ["dev/mock-server.js"],
       "port": 5173
+    },
+    {
+      "name": "dev-mock-2",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["dev/mock-server.js"],
+      "port": 5174,
+      "env": { "PORT": "5174" }
     }
   ]
 }

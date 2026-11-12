@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Shop Order Tracking Details</title>
-<link rel="stylesheet" href="styles.css?v=c71cdde4">
+<link rel="stylesheet" href="styles.css?v=54d40a22">
 </head>
 <body>
 <aside id="sidenav" class="sidenav" aria-label="Sections" hidden>
@@ -103,16 +103,16 @@
     </div>
   </div>
   <p id="dash2-status" class="statusline" role="status"></p>
-  <section id="dash2-tiles" class="focus" aria-label="What needs attention"></section>
-  <div class="duo2">
-    <section class="card" id="dash2-actions"></section>
-    <section class="card" id="dash2-coming"></section>
+  <section id="dash2-tiles" class="dbkpis" aria-label="Key numbers"></section>
+  <div class="dbrow2">
+    <section class="card" id="dash2-inh" aria-label="Inhouse SOs by stage"></section>
+    <section class="card" id="dash2-sc" aria-label="Subcontractor pipeline"></section>
   </div>
-  <div class="duo2 even">
-    <section class="card" id="dash2-inh"></section>
-    <section class="card" id="dash2-sc"></section>
+  <section class="card" id="dash2-actions" aria-label="To do"></section>
+  <div class="dbrow2 wide">
+    <section class="card" id="dash2-comp" aria-label="SO completion"></section>
+    <section class="card" id="dash2-coming" aria-label="Next 30 days"></section>
   </div>
-  <section class="card" id="dash2-done"></section>
 </main>
 
 <!-- Inhouse: progress + data freshness -->
@@ -187,11 +187,11 @@
   <section class="card userbox">
     <h3>Add a user</h3>
     <form id="user-add" class="userform" autocomplete="off">
-      <input id="ua-email" type="email" placeholder="Email (their sign-in name)" required>
-      <input id="ua-name" type="text" placeholder="Name">
-      <input id="ua-eid" type="text" placeholder="Employee ID">
-      <input id="ua-pw" type="text" placeholder="Password (min 8, optional now)" autocomplete="off">
-      <select id="ua-role"><option value="viewer">viewer</option><option value="editor">editor</option><option value="admin">admin</option></select>
+      <input id="ua-email" type="email" aria-label="Email" placeholder="Email (their sign-in name)" required>
+      <input id="ua-name" type="text" aria-label="Name" placeholder="Name">
+      <input id="ua-eid" type="text" aria-label="Employee ID" placeholder="Employee ID">
+      <input id="ua-pw" type="text" aria-label="Password" placeholder="Password (min 8, optional now)" autocomplete="off">
+      <select id="ua-role" aria-label="Role"><option value="viewer">viewer</option><option value="editor">editor</option><option value="admin">admin</option></select>
       <button class="btn btn-primary" type="submit">Add user</button>
     </form>
     <h3>Import from a CSV file</h3>
@@ -404,9 +404,9 @@
 </dialog>
 
 <script src="config.js?v=c2514725"></script>
-<script src="subcon.js?v=4a33170a"></script>
+<script src="subcon.js?v=1e77d70d"></script>
 <script src="priceupdates.js?v=f2503fb6"></script>
-<script src="lifecycle.js?v=3d007b51"></script>
-<script src="app.js?v=2e499016"></script>
+<script src="lifecycle.js?v=40c4f277"></script>
+<script src="app.js?v=2c47d005"></script>
 </body>
 </html>

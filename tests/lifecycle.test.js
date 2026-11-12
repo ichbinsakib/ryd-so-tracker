@@ -66,3 +66,31 @@ test('follow-ups, escalation and issues raise reasons and put the SO in my actio
   const f = d({ ...base, so_no: '1', po_approve_date: '2026-10-27', next_followup_date: '2026-10-25' });
   assert.ok(f.reasons.some((x) => /Follow-up overdue by 4 days/.test(x.text)));
 });
+
+// ---- review fixes (today 2026-11-12)
+const T2 = '2026-11-12';
+const po = { ...base, due_date: '2026-12-20', so_no: 'SO1', supplier: 'Acme', po_no_1: 'PO1', po_approve_date: '2026-09-05', po_due_date: '2026-12-01', ...docs };
+
+test('an acknowledgment date alone passes the acknowledgment stage (an explicit discrepancy still holds it)', () => {
+  const r = L.describe({ ...po, ack_date: '2026-09-07' }, T2);
+  assert.equal(r.stage, 10); assert.equal(r.status, 'Ready for Release');
+  assert.equal(L.describe({ ...po, ack_date: '2026-09-07', ack_status: 'DISCREPANCY' }, T2).stage, 8);
+  const rel = L.describe({ ...po, ack_date: '2026-09-07', charllete_jay_release_date: '2026-10-01' }, T2);
+  assert.ok(!rel.reasons.some((x) => /acknowledgment not recorded/.test(x.text)));
+});
+
+test('released with a PO number but no PO approval: my action with a reason, in a report section', () => {
+  const r = L.describe({ ...po, po_approve_date: '', charllete_jay_release_date: '2026-10-01' }, T2);
+  assert.equal(r.stage, 11); assert.equal(r.owner, 'me'); assert.equal(r.section, 'A');
+  assert.ok(r.reasons.some((x) => x.text === 'PO approval not recorded'));
+  assert.ok(!r.reasons.some((x) => /Follow-up/.test(x.text)));
+});
+
+test('5.HOLD: on hold, nobody owes anything, never overdue, kept visible in section B', () => {
+  const h = L.describe({ ...po, status: '5.HOLD', due_date: '2026-10-01', po_due_date: '2026-10-01', next_followup_date: '2026-09-01' }, T2);
+  assert.equal(h.status, 'On hold'); assert.equal(h.owner, 'none'); assert.equal(h.waitingOn, '');
+  assert.equal(h.section, 'B'); assert.equal(h.final, 'Open'); assert.equal(h.followup, ''); assert.equal(h.followupDue, false);
+  assert.deepEqual(h.reasons.map((x) => x.text), ['On hold']);
+  assert.ok(L.STATUSES.includes('On hold'));
+  assert.ok(L.describe({ ...po, status: '5.HOLD', escalated: 'YES' }, T2).reasons.some((x) => x.text === 'Escalated'));
+});

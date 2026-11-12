@@ -89,3 +89,32 @@ test('bootstrap admins (Script Properties) are listed and can never be locked ou
   assert.equal(call(s, 'tok-admin', { action: 'whoami' }).role, 'admin', 'property admin keeps access');
   assert.equal(call(s, 'tok-admin', { action: 'deleteUser', email: 'ghost@x.co' }).code, 'NOT_FOUND');
 });
+
+test('re-importing users keeps stored role and active unless the row supplies them', () => {
+  const s = new FakeSheet(undefined, { tokens: withTokens({ 'tok-ta': { email: 'tableadmin@corp.com' } }) });
+  call(s, 'tok-admin', { action: 'saveUsers', users: [
+    { email: 'tableadmin@corp.com', role: 'admin', active: true },
+    { email: 'off@corp.com', role: 'editor', active: false },
+    { email: 'ed@corp.com', role: 'editor', active: true }] });
+  // a CSV import: role cell blank, active not sent
+  const r = call(s, 'tok-admin', { action: 'saveUsers', users: [
+    { email: 'TableAdmin@corp.com', name: 'T A', role: '' },
+    { email: 'off@corp.com', name: 'Off' },
+    { email: 'ed@corp.com', role: 'viewer' },
+    { email: 'brand.new@corp.com', role: '' }] });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  const by = Object.fromEntries(s.users.map((u) => [u.email, u]));
+  assert.equal(by['tableadmin@corp.com'].role, 'admin', 'blank role keeps the stored admin');
+  assert.equal(by['tableadmin@corp.com'].name, 'T A');
+  assert.equal(by['off@corp.com'].active, false, 'omitted active keeps a disabled user disabled');
+  assert.equal(by['off@corp.com'].role, 'editor');
+  assert.equal(by['ed@corp.com'].role, 'viewer', 'an explicit role is applied');
+  assert.equal(by['brand.new@corp.com'].role, 'viewer', 'new user defaults to viewer');
+  assert.equal(by['brand.new@corp.com'].active, true, 'new user defaults to active');
+  // explicit active:true still re-enables
+  call(s, 'tok-admin', { action: 'saveUsers', users: [{ email: 'off@corp.com', active: true }] });
+  assert.equal(s.users.find((u) => u.email === 'off@corp.com').active, true);
+  // a table-only admin re-importing themselves with a blank role is not treated as self-demotion
+  assert.equal(call(s, 'tok-ta', { action: 'saveUsers', users: [{ email: 'tableadmin@corp.com', role: '' }] }).ok, true);
+  assert.equal(call(s, 'tok-ta', { action: 'saveUsers', users: [{ email: 'tableadmin@corp.com', role: 'viewer' }] }).code, 'INVALID');
+});

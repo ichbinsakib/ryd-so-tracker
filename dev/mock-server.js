@@ -50,6 +50,7 @@ function puMock(rq) {
 // SO Tracker stub: a tiny self-contained page (scripts allowed in the sandbox; same-origin access is not).
 function stMock(rq) {
   if (rq.action === 'stUpload') return { ok: false, code: 'FORBIDDEN', error: 'This account may not upload the SO Tracker.' };
+  if (rq.summary === true) return { ok: true, run_at: '11/11/2026 7:00 AM', uploaded_at: new Date().toISOString(), counts: { 'OPEN SO': 12, 'URGENT REVIEW REQUIRED': 13, 'MONITOR': 52, 'DO NOT OPEN SO': 247 }, parts: 324 };
   const html = '<!doctype html><html><head><meta charset="utf-8"><title>SO Tracker</title><style>body{font:14px system-ui;margin:16px}table{border-collapse:collapse}td,th{border:1px solid #ccc;padding:4px 8px}</style></head><body>'
     + '<h2>SO Tracker (mock)</h2><p id="t"></p><table><tr><th>Part</th><th>Decision</th><th>Qty</th></tr><tr><td>1017785</td><td>OPEN SO</td><td>1190</td></tr><tr><td>1313323</td><td>URGENT REVIEW REQUIRED</td><td>216</td></tr></table>'
     + '<script>var c;try{c=document.cookie;}catch(e){c="blocked";}var p;try{p=String(parent.document.title);}catch(e){p="blocked";}document.getElementById("t").textContent="Script ran. Parent access: "+p+". Cookies: "+c+".";</' + 'script></body></html>';
@@ -106,4 +107,4 @@ http.createServer((req, res) => {
   const f = path.join(root, req.url === '/' ? 'index.html' : path.normalize(req.url.split('?')[0]).replace(/^(\.\.[\\/])+/, ''));
   if (!f.startsWith(root) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end('Not found'); }
   res.writeHead(200, { 'Content-Type': types[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(res);
-}).listen(5173, '127.0.0.1', () => console.log('DEV MOCK (synthetic data) on http://127.0.0.1:5173'));
+}).listen(Number(process.env.PORT) || 5173, '127.0.0.1', () => console.log('DEV MOCK (synthetic data) on http://127.0.0.1:' + (Number(process.env.PORT) || 5173)));

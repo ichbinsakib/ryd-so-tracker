@@ -90,8 +90,20 @@ async function changePassword(email: string, req: any) {
   if (chk.error || chk.data !== true) { await sb.from('login_attempts').insert({ email, ok: false }); return fail('INVALID', 'The current password is wrong.'); }
   const set = await sb.rpc('set_user_password', { p_email: email, p_password: next });
   if (set.error) throw new Error(set.error.message);
+  await revokeSessions(email, typeof req.idToken === 'string' ? req.idToken : undefined);   // sign out the person's other devices, keep this one
   await sb.from('app_audit').insert({ user_email: email, field: 'PASSWORD CHANGED', new_value: email });
   return { ok: true };
+}
+
+// After a password change/reset: drop the person's sessions (all of them, or all but `keepToken`) and their cached tokens.
+async function revokeSessions(email: string, keepToken?: string) {
+  const who = String(email || '').trim().toLowerCase();
+  if (!who) return;
+  for (const [tok, v] of tokenCache) if (String(v.email).toLowerCase() === who && tok !== keepToken) tokenCache.delete(tok);
+  let q = sb.from('sessions').delete().eq('email', who);
+  if (keepToken) q = q.neq('token_hash', await sha256hex(keepToken));
+  const r = await q;
+  if (r.error) throw new Error(r.error.message);
 }
 
 // ---- helpers
@@ -107,6 +119,17 @@ async function allOrderRows() {
     const page = must(await sb.from('shop_orders').select('row_no,id,data').order('row_no').range(from, from + 999)) as any[];
     out.push(...page);
     if (page.length < 1000) break;
+  }
+  return out;
+}
+// every row of a query, 1000 at a time (PostgREST caps one response at 1000 rows). `page(from, to)` must build
+// a fresh, fully ordered query (end with a unique column such as id) and apply .range(from, to).
+async function pagedRows(page: (from: number, to: number) => PromiseLike<any>): Promise<any[]> {
+  const out: any[] = [];
+  for (let from = 0; ; from += 1000) {
+    const rows = must(await page(from, from + 999)) as any[];
+    out.push(...rows);
+    if (rows.length < 1000) break;
   }
   return out;
 }
@@ -221,7 +244,7 @@ async function flush(ops: any[]) {
       if (doneUpdate.has(o.id)) continue;
       doneUpdate.add(o.id);
       const r = await sb.rpc('patch_order', { p_id: o.id, p_patch: patches.get(o.id) });
-      if (r.error) throw new Error(r.error.message);
+      if (r.error) { if (r.error.code === '23505') throw { duplicate: true }; throw new Error(r.error.message); }   // so_no changed to one that exists (shop_orders_so_key_uq)
     } else if (o.type === 'insert') {
       const r = await sb.from('shop_orders').insert({ id: o.id, data: o.data, created_by: String(o.createdBy || '').toLowerCase() });
       if (r.error) { if (r.error.code === '23505') throw { duplicate: true }; throw new Error(r.error.message); }
@@ -244,6 +267,7 @@ async function flush(ops: any[]) {
     } else if (o.type === 'setPassword') {
       const r = await sb.rpc('set_user_password', { p_email: o.email, p_password: o.password });
       if (r.error) throw new Error(r.error.message);
+      await revokeSessions(o.email);   // an admin reset signs the person out everywhere
     } else if (o.type === 'stockItems') {
       const r = await sb.rpc('replace_stock_items', { p_rows: o.rows });
       if (r.error) throw new Error(r.error.message);
@@ -284,7 +308,7 @@ const scDup = (e: any) => e && /duplicate key|unique/i.test(e.message || '');
 const scToday = () => new Date().toISOString().slice(0, 10);
 // next free SUB-0001 style references for orders that arrive without one
 async function nextRefs(count: number): Promise<string[]> {
-  const rows = must(await sb.from('sc_lines').select('order_ref').like('order_ref', 'SUB-%') as any) as any[];
+  const rows = await pagedRows((a, b) => sb.from('sc_lines').select('id,order_ref').like('order_ref', 'SUB-%').order('id').range(a, b));   // max over ALL refs, not the first 1000
   let max = 0; rows.forEach((x: any) => { const mm = /^SUB-(\d+)$/i.exec(String(x.order_ref || '')); if (mm) max = Math.max(max, +mm[1]); });
   return Array.from({ length: count }, (_, i) => 'SUB-' + String(max + i + 1).padStart(4, '0'));
 }
@@ -400,15 +424,16 @@ async function subconAction(req: any, email: string, role: string | null) {
   const action = req.action as string;
   const today = SOSub.isDate(req.today) ? req.today : scToday();
   if (action === 'scList') {
-    const r = await sb.from('sc_lines').select('*').order('bpo_no').order('batch').order('so_no');
-    const rows = must(r as any) as any[];
+    const rows = await pagedRows((a, b) => sb.from('sc_lines').select('*').order('bpo_no').order('batch').order('so_no').order('id').range(a, b));
     if (write) {   // orders that predate order refs get one, so an exported sheet can always update them
       const blank = rows.filter((x: any) => !String(x.order_ref || '').trim());
       if (blank.length) { const refs = await nextRefs(blank.length); for (let i = 0; i < blank.length; i++) { const u = await sb.from('sc_lines').update({ order_ref: refs[i] }).eq('id', blank[i].id); if (!u.error) blank[i].order_ref = refs[i]; } }
     }
-    const evq = await sb.from('sc_bpo_events').select('id,bpo_no,batch,at,event_date,by_user,kind,from_stage,to_stage,text,applied').order('at', { ascending: true }).limit(20000);
-    const built = SOSub.build(rows, today, undefined, evq.error ? [] : (evq.data as any[]));   // before subcon5.sql is applied the board simply follows the dates
-    return { ok: true, today, role, boardStages: SOSub.BOARD, boardSaved: !evq.error, milestones: SOSub.MILESTONES, expected: SOSub.EXPECTED, stages: SOSub.STAGES, sectionDefs: SOSub.SECTIONS, decisions: SOSub.DECISIONS, reviewStatuses: SOSub.REVIEW_STATUSES, priorities: SOSub.PRIORITIES, blockers: SOSub.BLOCKERS, updateKinds: SOSub.UPDATE_KINDS, cfg: SOSub.CFG, ...built };
+    let events: any[] = [], boardSaved = true;
+    try { events = await pagedRows((a, b) => sb.from('sc_bpo_events').select('id,bpo_no,batch,at,event_date,by_user,kind,from_stage,to_stage,text,applied').order('at', { ascending: true }).order('id').range(a, b)); }
+    catch (_e) { boardSaved = false; }   // before subcon5.sql is applied the board simply follows the dates
+    const built = SOSub.build(rows, today, undefined, events);
+    return { ok: true, today, role, boardStages: SOSub.BOARD, boardSaved, milestones: SOSub.MILESTONES, expected: SOSub.EXPECTED, stages: SOSub.STAGES, sectionDefs: SOSub.SECTIONS, decisions: SOSub.DECISIONS, reviewStatuses: SOSub.REVIEW_STATUSES, priorities: SOSub.PRIORITIES, blockers: SOSub.BLOCKERS, updateKinds: SOSub.UPDATE_KINDS, cfg: SOSub.CFG, ...built };
   }
   if (action === 'scUpdates') {
     const r = await sb.from('sc_updates').select('id,at,by_user,kind,text').eq('line_id', String(req.id)).order('at', { ascending: false }).limit(100);
@@ -551,26 +576,45 @@ async function subconAction(req: any, email: string, role: string | null) {
   if (action === 'scImport') {
     const list = Array.isArray(req.rows) ? req.rows.slice(0, 500) : [];
     if (!list.length) return fail('INVALID', 'The file has no rows to import.');
-    const good: any[] = [], problems: string[] = [];
-    list.forEach((row: any, i: number) => { const c = SOSub.cleanLine(row); if (c.ok && !c.value.po_no) { problems.push('Row ' + (i + 1) + ': PO # is required to import a line.'); return; } if (c.ok) good.push(c.value); else problems.push('Row ' + (i + 1) + ' (PO ' + (row && row.po_no || '?') + '): ' + Object.values(c.errors).join(' ')); });
-    const keys = good.map((g) => g.po_no.toUpperCase());
-    const ex = await sb.from('sc_lines').select('id,po_key').in('po_key', keys);
-    const have = new Map(must(ex as any).map((r: any) => [r.po_key, r.id]));
-    const seen = new Set<string>(); let added = 0, updated = 0;
-    const fresh: any[] = [];
-    for (const g of good) {
-      const k = g.po_no.toUpperCase(); if (seen.has(k)) { problems.push('PO ' + g.po_no + ' appears twice in the file; the first row was used.'); continue; } seen.add(k);
-      if (have.has(k)) { const { order_ref: _r, ...gu } = g; const u = await sb.from('sc_lines').update({ ...gu, updated_at: new Date().toISOString() }).eq('id', have.get(k)); if (u.error) return fail('SERVER_ERROR', u.error.message); updated++; }
-      else fresh.push({ ...g, created_by: email });
+    const problems: string[] = [];
+    const poOf = (row: any) => String(row && row.po_no != null ? row.po_no : '').trim().slice(0, 60);
+    const keys = [...new Set(list.map((row: any) => poOf(row).toUpperCase()).filter(Boolean))] as string[];
+    const have = new Map<string, any>((keys.length ? await chunkedIn('sc_lines', '*', 'po_key', keys) : []).map((r: any) => [r.po_key, r]));
+    const seen = new Set<string>(); let added = 0, updated = 0, unchanged = 0;
+    const fresh: any[] = [], upds: any[] = [];
+    list.forEach((row: any, i: number) => {
+      const po = poOf(row), k = po.toUpperCase(), label = 'Row ' + (i + 1) + ' (PO ' + (po || '?') + '): ';
+      if (!po) { problems.push('Row ' + (i + 1) + ': PO # is required to import a line.'); return; }
+      if (seen.has(k)) { problems.push('PO ' + po + ' appears twice in the file; the first row was used.'); return; }
+      seen.add(k);
+      const ex = have.get(k);
+      if (ex) {   // merge: only the cells the CSV filled in change; dates keep their first value in orig
+        const m = SOPg.bpoImportMerge(ex, row);
+        if (!m.ok) { problems.push(label + Object.values(m.errors).join(' ')); return; }
+        if (m.diff.length) upds.push({ ex, m }); else unchanged++;
+      } else {
+        const c = SOSub.cleanLine(row);
+        if (!c.ok) { problems.push(label + Object.values(c.errors).join(' ')); return; }
+        fresh.push({ ...c.value, created_by: email });
+      }
+    });
+    for (const { ex, m } of upds) {
+      const v: any = { ...m.value, orig: m.orig, updated_at: new Date().toISOString() }; delete v.order_ref;   // the CSV never carries the order ref
+      const u = await sb.from('sc_lines').update(v).eq('id', ex.id);
+      if (u.error) return scDup(u.error) ? dupFail(u.error) : fail('SERVER_ERROR', u.error.message);
+      const fields = m.diff.filter((d: string) => d !== 'ms' && d !== 'exp');
+      const text = 'BPO Tracking import' + (m.changed.length ? ': ' + m.changed.join('; ') : '') + (fields.length ? (m.changed.length ? '; ' : ': ') + 'updated ' + fields.join(', ') : '');
+      await sb.from('sc_updates').insert({ line_id: ex.id, by_user: email, kind: 'CHANGE', text: text.slice(0, 1900) });
+      updated++;
     }
-    if (fresh.length) { const refs = await nextRefs(fresh.length); fresh.forEach((f: any, i: number) => { f.order_ref = refs[i]; }); const ins = await sb.from('sc_lines').insert(fresh); if (ins.error) return fail('SERVER_ERROR', ins.error.message); added = fresh.length; }
-    await scAudit(email, '', 'SUBCON IMPORT', added + ' added, ' + updated + ' updated');
-    return { ok: true, added, updated, problems: problems.slice(0, 20), problemCount: problems.length };
+    if (fresh.length) { const refs = await nextRefs(fresh.length); fresh.forEach((f: any, i: number) => { f.order_ref = refs[i]; }); const ins = await sb.from('sc_lines').insert(fresh); if (ins.error) return scDup(ins.error) ? dupFail(ins.error) : fail('SERVER_ERROR', ins.error.message); added = fresh.length; }
+    await scAudit(email, '', 'SUBCON IMPORT', added + ' added, ' + updated + ' updated, ' + unchanged + ' unchanged');
+    return { ok: true, added, updated, unchanged, problems: problems.slice(0, 20), problemCount: problems.length };
   }
   if (action === 'scImportTemplate') {
     const list = Array.isArray(req.rows) ? req.rows.slice(0, 500) : [];
     if (!list.length) return fail('INVALID', 'The sheet has no rows to import.');
-    const all = must(await sb.from('sc_lines').select('*') as any) as any[];
+    const all = await pagedRows((a, b) => sb.from('sc_lines').select('*').order('id').range(a, b));
     const byRef = new Map<string, any>(), byPo = new Map<string, any>();
     all.forEach((l: any) => { if (l.order_ref) byRef.set(String(l.order_ref).toUpperCase(), l); if (l.po_key) byPo.set(l.po_key, l); });
     const problems: string[] = [], plan: any[] = [], seen = new Set<string>(); const preview: any[] = [];
@@ -626,10 +670,16 @@ async function gunzipB64(b64: unknown, max: number): Promise<string> {
 async function stAction(req: any, email: string, role: string | null) {
   if (!role) return fail('FORBIDDEN', 'You are not allowed to use this app.');
   if (req.action === 'stGet') {
-    const dl = await sb.storage.from(ST_BUCKET).download('latest/so_tracker.html');
-    if (dl.error || !dl.data) return fail('NOT_FOUND', 'The SO Tracker has not been uploaded yet. It is published by the planner\'s PC every day at 7:00 AM.');
+    const notYet = 'The SO Tracker has not been uploaded yet. It is published by the planner\'s PC every day at 7:00 AM.';
     const run = await sb.from('so_tracker_runs').select('run_at,counts,parts,created_at').order('created_at', { ascending: false }).limit(1);
     const r: any = !run.error && run.data && run.data[0] ? run.data[0] : {};
+    if (req.summary === true) {   // dashboard tile: the latest run's numbers only, no HTML download
+      if (run.error) return fail('SERVER_ERROR', run.error.message);
+      if (!run.data || !run.data[0]) return fail('NOT_FOUND', notYet);
+      return { ok: true, run_at: r.run_at || '', uploaded_at: r.created_at || '', counts: r.counts || {}, parts: r.parts ?? null };
+    }
+    const dl = await sb.storage.from(ST_BUCKET).download('latest/so_tracker.html');
+    if (dl.error || !dl.data) return fail('NOT_FOUND', notYet);
     return { ok: true, run_at: r.run_at || '', uploaded_at: r.created_at || '', counts: r.counts || {}, parts: r.parts ?? null, html: await dl.data.text() };
   }
   // stUpload: only accounts flagged can_upload_tracker (column added by supabase/so-tracker.sql)
