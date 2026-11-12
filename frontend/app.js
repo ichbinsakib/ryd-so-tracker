@@ -580,9 +580,12 @@
           dueNode(d, false), dupBtn(r)); })));
     const cnt = state.dash && state.dash.counts ? state.dash.counts : null, all = state.dash ? state.dash.rows : [];
     const METRICS = METRIC_LIST;
-    const tile = ([st, label, sub]) => { const n = cnt ? cnt[st] || 0 : st === '4.CLOSE' ? null : all.filter((r) => norm(r.status).trim() === st).length, closed = st === '4.CLOSE';
-      return el(closed ? 'div' : 'button', { class: 'mtile' + (state.chip === st ? ' on' : ''), type: closed ? undefined : 'button', title: sub, onclick: closed ? undefined : () => { state.chip = state.chip === st ? 'all' : st; applyView(); } },
-        el('b', { text: n === null ? '—' : String(n) }), el('span', { text: label }), sub ? el('small', { text: sub }) : ''); };
+    // open statuses count the open SOs the list shows (SO required = No counts as cancelled, not open); Closed uses the server total
+    const tile = ([st, label, sub]) => { const closed = st === '4.CLOSE', ofSt = all.filter((r) => norm(r.status).trim() === st);
+      const n = closed ? (cnt ? cnt[st] || 0 : null) : ofSt.filter(rowOpen).length, gone = closed ? 0 : ofSt.length - n;
+      const note = [sub, gone ? '+' + gone + ' not required' : ''].filter(Boolean).join(' · ');
+      return el(closed ? 'div' : 'button', { class: 'mtile' + (state.chip === st ? ' on' : ''), type: closed ? undefined : 'button', title: note, onclick: closed ? undefined : () => { state.chip = state.chip === st ? 'all' : st; applyView(); } },
+        el('b', { text: n === null ? '—' : String(n) }), el('span', { text: label }), note ? el('small', { text: note }) : ''); };
     $('board').replaceChildren(el('div', { class: 'metrics' }, ...METRICS.map(tile)), el('div', { class: 'chips' }, scope('all', 'All open', allN), scope('mine', 'Needs my action', mineN)), filterNote, ...(sec.length ? sec : [el('p', { class: 'muted', text: 'No open SOs match.' })]));
   }
   function renderTable() {
