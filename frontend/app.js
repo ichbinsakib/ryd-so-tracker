@@ -438,7 +438,7 @@
   // ---------- inhouse list
   async function loadDashboard(fresh) {
     setDashMode(); show('view-admin'); $('btn-refresh').hidden = false;
-    if (!fresh && state.dash && isFresh(state.dashListAt) && state.dashClosed === $('incl-closed').checked) { applyDashboard(state.dash); return; }
+    if (!fresh && state.dashRaw && isFresh(state.dashListAt) && state.dashClosed === $('incl-closed').checked) { applyDashboard(state.dashRaw); return; }
     $('grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: 'Loading…' })));
     const ls = $('list-status'); ls.className = 'statusline'; ls.textContent = '';
     $('btn-refresh').disabled = true;
@@ -451,8 +451,30 @@
     state.dashListAt = Date.now(); state.dashClosed = $('incl-closed').checked;
     applyDashboard(r);
   }
-  function applyDashboard(r) {
+  // Inhouse is split by customer: each section has its own list, tiles, stages and material totals
+  const SEGMENTS = [['RAYMOND', 'Raymond'], ['IR', 'IR'], ['OTHER', 'Other customers']];
+  const segOf = (cust) => { const c = norm(cust).trim().toUpperCase(); return /^IR\b/.test(c) ? 'IR' : /RAYMOND/.test(c) ? 'RAYMOND' : 'OTHER'; };
+  state.seg = (() => { try { const s = localStorage.getItem('inhouseSeg'); return SEGMENTS.some((x) => x[0] === s) ? s : 'RAYMOND'; } catch (e) { return 'RAYMOND'; } })();
+  function setSeg(s) {
+    state.seg = s; try { localStorage.setItem('inhouseSeg', s); } catch (e) { /* private mode */ }
+    state.chip = 'all'; state.stage = ''; state.mat = ''; $('q').value = '';
+    if (state.dashRaw) applyDashboard(state.dashRaw);
+  }
+  function renderSegTabs(raw) {
+    const n = {}; raw.rows.filter(rowOpen).forEach((r) => { const s = segOf(r.customer); n[s] = (n[s] || 0) + 1; });
+    const has = {}; raw.rows.forEach((r) => { has[segOf(r.customer)] = true; }); Object.keys(raw.custCounts || {}).forEach((c) => { has[segOf(c)] = true; });
+    $('segtabs').replaceChildren(...SEGMENTS.filter(([s]) => s !== 'OTHER' || has.OTHER || state.seg === 'OTHER').map(([s, label]) =>
+      el('button', { class: 'tab', type: 'button', role: 'tab', 'aria-selected': String(state.seg === s), onclick: () => { if (state.seg !== s) setSeg(s); } }, label, el('span', { class: 'tc', text: String(n[s] || 0), title: (n[s] || 0) + ' open' }))));
+  }
+  function applyDashboard(raw) {
+    state.dashRaw = raw;
+    const seg = state.seg, counts = {};
+    if (raw.custCounts) Object.entries(raw.custCounts).forEach(([c, by]) => { if (segOf(c) !== seg) return; Object.entries(by).forEach(([st, k]) => { counts[st] = (counts[st] || 0) + k; }); });
+    const r = Object.assign({}, raw, { rows: raw.rows.filter((x) => segOf(x.customer) === seg), counts: raw.custCounts ? counts : null });
     state.dash = r;
+    navBadge('nb-inhouse', raw.rows.filter((x) => rowOpen(x) && isMine(x)).length);
+    $('dash-title').textContent = 'Inhouse · ' + (SEGMENTS.find((x) => x[0] === seg) || [, ''])[1];
+    renderSegTabs(raw);
     $('refreshed').textContent = 'Updated ' + new Date(r.refreshedAt).toLocaleTimeString();
     renderKpis(r.rows); renderPipeline(r.rows); renderMatReq(r.rows); if (r.stock) renderCards(r); buildChips(); applyView();
   }
@@ -465,7 +487,6 @@
   function renderKpis(rows) {
     const open = rows.filter(rowOpen), mine = open.filter(isMine), waiting = open.filter(isWaiting), risk = open.filter(matRisk), soon = open.filter((r) => dueWithin(r, 14)), late = open.filter((r) => r.lc && r.lc.daysToDue !== null && r.lc.daysToDue < 0);
     const pcs = open.reduce((t, r) => t + (parseFloat(norm(r.qty).replace(/,/g, '')) || 0), 0), plural = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
-    navBadge('nb-inhouse', mine.length);
     $('dash-sub').textContent = open.length ? plural(open.length, 'open SO') + ' · ' + fmtN(pcs, 0) + ' pcs · ' + mine.length + ' need your action' : 'No open SOs.';
     const fc = (tone, n, label, sub, go) => el('button', { class: 'fc ' + tone, type: 'button', onclick: go }, el('span', { class: 'fcn', text: String(n) }), el('span', { class: 'fcl', text: label }), el('small', { text: sub }));
     const go = (c) => () => { state.chip = c; state.stage = ''; state.mat = ''; renderPipeline(state.dash.rows); renderMatReq(state.dash.rows); buildChips(); applyView(); $('grid').scrollIntoView({ behavior: 'smooth', block: 'start' }); };
@@ -663,6 +684,8 @@
     $('new-form').replaceChildren(el('fieldset', {}, el('legend', { text: 'Part check' }), grid(NEW_CHECK)),
       el('details', { class: 'newdetails card' }, el('summary', { text: 'Already have the SO? Add the SO details now (otherwise request the SO after the quote)' }), grid(NEW_SO)));
     banner('new-banner', '', ''); show('view-new');
+    // opened from the IR or Raymond section: start with that customer (it can still be changed)
+    const cust = $('nf-customer'); if (cust && state.seg !== 'OTHER') cust.value = state.seg;
     $('nf-part_no').focus();
   }
   // Duplicate: a new SO with every editable value of the source copied. SO# stays blank (it must be unique) and the
