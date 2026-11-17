@@ -7,14 +7,14 @@ const path = require('path');
 const Service = require('../backend/Service.js');
 const { FakeSheet, makeRow } = require('../tests/fakeSheet.js');
 
-const statuses = ['1. ANALYSIS', '3.OPEN', '4.CLOSE', '5.HOLD'];
+const statuses = ['1. ANALYSIS', '3.OPEN', '4.CLOSE', '5.HOLD', '1.ANR', '2.RFS'];
 const customers = ['ACME', 'GLOBEX', 'INITECH', 'UMBRELLA'];
 const champs = ['ALPHA', 'BRAVO', 'CHARLIE'];
 const iso = (offset) => { const d = new Date(); d.setDate(d.getDate() + offset); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
 const rows = [];
 for (let i = 0; i < 180; i++) {
   rows.push(makeRow(3 + i, 'id-' + (i + 1), {
-    status: statuses[i % 4], champion: champs[i % 3], customer: customers[i % 4],
+    status: statuses[i % 6], champion: champs[i % 3], customer: customers[i % 4],
     part_no: i % 17 === 0 ? '00' + (1000 + i) : '10' + (10000 + i * 7), so_qty: 50 + i * 3,
     due_date: iso((i * 5) % 45 - 15), mat_quote_request_date: i % 4 === 1 ? iso(-5) : '', quote_receive_date: i % 4 === 2 ? iso(-2) : '', quote_received: i % 4 === 2 ? 'yes' : '', mat_receive_date_stockroom: i % 6 === 0 ? iso(-1) : '',
     so_no: i % 25 === 0 ? '' : 25000 + i, so_type: ['STANDARD', 'REPAIR', 'ROUGH'][i % 3], kanban_or_po: i % 2 ? 'PO' : 'KANBAN',
@@ -24,6 +24,9 @@ for (let i = 0; i < 180; i++) {
 }
 for (let n = 183; n <= 195; n++) rows.push(makeRow(n, '', {}));   // pre-formatted free rows, like the real sheet
 const sheet = new FakeSheet(rows);
+// a fake status clock (the database keeps status_since): row n entered its status (n * 7) % 72 hours ago
+const readCols = sheet.readColumns.bind(sheet);
+sheet.readColumns = (idx, disp) => readCols(idx, disp).map((r) => Object.assign(r, { since: new Date(Date.now() - ((r.rowNumber * 7) % 72) * 3600000).toISOString() }));
 const root = path.join(__dirname, '..', 'frontend');
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
 

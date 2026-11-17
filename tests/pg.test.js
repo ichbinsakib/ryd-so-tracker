@@ -205,3 +205,15 @@ test('dashboard lifecycle uses the date the browser sends, not the server clock'
   assert.equal(call(p3, { action: 'dashboard', today: '2026-11-20' }).rows[0].lc.daysToDue, 11);
   assert.equal(call(p3, { action: 'dashboard', today: '2026-12-05', fresh: true }).rows[0].lc.daysToDue, -4);
 });
+
+test('dashboard rows carry the status clock (status_since) from the database', () => {
+  const SOPg = require('../backend/PgAdapter.js');
+  const SOService = require('../backend/Service.js');
+  const since = '2026-11-10T08:00:00.000Z';
+  const pg = SOPg.create({ email: 'a@x.com', config: { admins: 'a@x.com' }, users: [], newId: () => 'n1',
+    rows: [{ rowNumber: 1, id: 'r1', statusSince: since, data: { status: '2.RFS', part_no: 'P1', customer: 'IR', so_qty: 5 } }] });
+  const d = SOService.handle(pg.adapter, { action: 'dashboard', idToken: 't' });
+  assert.equal(d.ok, true, d.error);
+  assert.equal(d.rows[0].statusSince, since);
+  assert.deepEqual(d.custCounts, { IR: { '2.RFS': 1 } });
+});

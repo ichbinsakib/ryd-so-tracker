@@ -557,7 +557,8 @@
   }
   // the status tiles on the Inhouse board: [status, label, explanation]
   const METRIC_LIST = [['1. ANALYSIS', 'Analysis', 'analysis for SO release'], ['1.ANR', 'ANR', 'approved, not released'], ['2.RFS', 'RFS', 'request for SO'], ['3.OPEN', 'Open', 'SO open'], ['5.HOLD', 'On hold', ''], ['4.CLOSE', 'Closed', '']];
-  const METRIC_NAMES = Object.fromEntries(METRIC_LIST.map(([k, l]) => [k, 'status ' + l]));
+  const WAIT_LIMITS = { '1. ANALYSIS': [24], '1.ANR': [24], '2.RFS': [24, 48] };   // hours shown on the status tiles
+  const METRIC_NAMES =Object.fromEntries(METRIC_LIST.map(([k, l]) => [k, 'status ' + l]));
   const CHIPS = [['all', 'All'], ['mine', 'Needs my action'], ['waiting', 'Waiting on others'], ['soon', 'Due in 14 days'], ['late', 'Overdue'], ['risk', 'Material risk'], ['check', 'Part checks'], ['5.HOLD', 'On hold'], ['4.CLOSE', 'Closed']];
   function chipMatch(r, c) {
     if (c === 'all') return true; if (c === 'mine') return rowOpen(r) && isMine(r); if (c === 'waiting') return rowOpen(r) && isWaiting(r);
@@ -605,8 +606,14 @@
     const tile = ([st, label, sub]) => { const closed = st === '4.CLOSE', ofSt = all.filter((r) => norm(r.status).trim() === st);
       const n = closed ? (cnt ? cnt[st] || 0 : null) : ofSt.filter(rowOpen).length, gone = closed ? 0 : ofSt.length - n;
       const note = [sub, gone ? '+' + gone + ' not required' : ''].filter(Boolean).join(' · ');
+      // how many of these open SOs have sat in this status longer than 24 h (and 48 h for RFS), from the status clock
+      const lims = WAIT_LIMITS[st], timed = lims ? ofSt.filter((r) => rowOpen(r) && r.statusSince && !isNaN(Date.parse(r.statusSince))) : [];
+      const hrs = (r) => (Date.now() - Date.parse(r.statusSince)) / 3600000;
+      const waits = lims && timed.length ? lims.map((h) => [h, timed.filter((r) => hrs(r) > h).length]) : null;
+      const waitNode = waits ? el('small', { class: 'mwait' + (waits.some((w) => w[1]) ? ' late' : ''), title: 'Open SOs that have been in this status longer than the time shown' },
+        waits.map(([h, k]) => 'Waiting over ' + h + ' h: ' + k).join(' · ')) : '';
       return el(closed ? 'div' : 'button', { class: 'mtile' + (state.chip === st ? ' on' : ''), type: closed ? undefined : 'button', title: note, onclick: closed ? undefined : () => { state.chip = state.chip === st ? 'all' : st; applyView(); } },
-        el('b', { text: n === null ? '—' : String(n) }), el('span', { text: label }), note ? el('small', { text: note }) : ''); };
+        el('b', { text: n === null ? '—' : String(n) }), el('span', { text: label }), note ? el('small', { text: note }) : '', waitNode); };
     $('board').replaceChildren(el('div', { class: 'metrics' }, ...METRICS.map(tile)), el('div', { class: 'chips' }, scope('all', 'All open', allN), scope('mine', 'Needs my action', mineN)), filterNote, ...(sec.length ? sec : [el('p', { class: 'muted', text: 'No open SOs match.' })]));
   }
   function renderTable() {

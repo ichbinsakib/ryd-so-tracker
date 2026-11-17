@@ -382,7 +382,8 @@ var SOService = (function () {
         stage: lc.stageLabel, lc: { stage: lc.stage, status: lc.status, initial: lc.initial, final: lc.final, next: lc.next, owner: lc.owner, waitingOn: lc.waitingOn, actionDate: lc.actionDate, followup: lc.followup, followupDue: lc.followupDue, matStatus: lc.matStatus, reasons: lc.reasons, section: lc.section, closedOn: lc.closedOn, daysToDue: lc.daysToDue, rank: lc.rank }, steelType: dashText(v[K.steel_type.index]), barType: dashText(v[K.bar_type.index]), barSize: dashText(v[K.router_bar_size.index]),
         qtyPerBar: dashNum(v[K.qty_per_bar.index]), reqBar: dashNum(v[K.req_bar.index]), reqFt: dashNum(v[K.req_ft.index]), reqLbs: dashNum(v[K.req_lbs.index]), availFt: dashNum(v[K.avail_ft.index]),
         champion: dashText(v[K.champion.index]), soType: dashText(v[K.so_type.index]), kanbanOrPo: dashText(v[K.kanban_or_po.index]), poDue: dashText(v[K.po_due_date.index]),
-        matReceived: !blank(v[K.mat_receive_date_stockroom.index]) && v[K.mat_receive_date_stockroom.index] !== '-'
+        matReceived: !blank(v[K.mat_receive_date_stockroom.index]) && v[K.mat_receive_date_stockroom.index] !== '-',
+        statusSince: r.since || null   // when the SO entered its current status (database version only)
       });
     });
     // lowest progress first (unknown bars last)

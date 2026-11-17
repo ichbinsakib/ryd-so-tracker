@@ -1943,7 +1943,8 @@ var SOService = (function () {
         stage: lc.stageLabel, lc: { stage: lc.stage, status: lc.status, initial: lc.initial, final: lc.final, next: lc.next, owner: lc.owner, waitingOn: lc.waitingOn, actionDate: lc.actionDate, followup: lc.followup, followupDue: lc.followupDue, matStatus: lc.matStatus, reasons: lc.reasons, section: lc.section, closedOn: lc.closedOn, daysToDue: lc.daysToDue, rank: lc.rank }, steelType: dashText(v[K.steel_type.index]), barType: dashText(v[K.bar_type.index]), barSize: dashText(v[K.router_bar_size.index]),
         qtyPerBar: dashNum(v[K.qty_per_bar.index]), reqBar: dashNum(v[K.req_bar.index]), reqFt: dashNum(v[K.req_ft.index]), reqLbs: dashNum(v[K.req_lbs.index]), availFt: dashNum(v[K.avail_ft.index]),
         champion: dashText(v[K.champion.index]), soType: dashText(v[K.so_type.index]), kanbanOrPo: dashText(v[K.kanban_or_po.index]), poDue: dashText(v[K.po_due_date.index]),
-        matReceived: !blank(v[K.mat_receive_date_stockroom.index]) && v[K.mat_receive_date_stockroom.index] !== '-'
+        matReceived: !blank(v[K.mat_receive_date_stockroom.index]) && v[K.mat_receive_date_stockroom.index] !== '-',
+        statusSince: r.since || null   // when the SO entered its current status (database version only)
       });
     });
     // lowest progress first (unknown bars last)
@@ -2188,7 +2189,7 @@ var SOPg = (function () {
   function create(opts) {
     bind();
     var ops = [];
-    var rows = (opts.rows || []).map(function (r) { return { rowNumber: r.rowNumber, id: r.id, data: JSON.parse(JSON.stringify(r.data || {})), pending: false }; });
+    var rows = (opts.rows || []).map(function (r) { return { rowNumber: r.rowNumber, id: r.id, data: JSON.parse(JSON.stringify(r.data || {})), statusSince: r.statusSince || null, pending: false }; });
     var users = (opts.users || []).map(function (u) { return Object.assign({}, u); });
     var scans = (opts.scans || []).slice();
     var tempRow = 0;
@@ -2232,7 +2233,7 @@ var SOPg = (function () {
           var table = Calc.rowCalc(row.data, ctx);
           var values = {};
           indexes.forEach(function (i) { var c = cell(row, i, table); values[i] = display ? c.display : c.value; });
-          return { rowNumber: row.rowNumber, values: values };
+          return { rowNumber: row.rowNumber, values: values, since: row.statusSince };   // since: when the SO entered its current status
         });
       },
       readRow: function (n) {
@@ -2479,7 +2480,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 async function allOrderRows() {
   const out: any[] = [];
   for (let from = 0; ; from += 1000) {
-    const page = must(await sb.from('shop_orders').select('row_no,id,data').order('row_no').range(from, from + 999)) as any[];
+    const page = must(await sb.from('shop_orders').select('row_no,id,data,status_since').order('row_no').range(from, from + 999)) as any[];
     out.push(...page);
     if (page.length < 1000) break;
   }
@@ -2496,7 +2497,7 @@ async function pagedRows(page: (from: number, to: number) => PromiseLike<any>): 
   }
   return out;
 }
-const toRow = (r: any) => ({ rowNumber: Number(r.row_no), id: r.id, data: r.data || {} });
+const toRow = (r: any) => ({ rowNumber: Number(r.row_no), id: r.id, data: r.data || {}, statusSince: r.status_since || null });
 
 async function chunkedIn(table: string, cols: string, keyCol: string, keys: string[]) {
   // chunks run in parallel (one round trip of latency instead of one per chunk)

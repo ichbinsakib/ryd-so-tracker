@@ -30,7 +30,7 @@ var SOPg = (function () {
   function create(opts) {
     bind();
     var ops = [];
-    var rows = (opts.rows || []).map(function (r) { return { rowNumber: r.rowNumber, id: r.id, data: JSON.parse(JSON.stringify(r.data || {})), pending: false }; });
+    var rows = (opts.rows || []).map(function (r) { return { rowNumber: r.rowNumber, id: r.id, data: JSON.parse(JSON.stringify(r.data || {})), statusSince: r.statusSince || null, pending: false }; });
     var users = (opts.users || []).map(function (u) { return Object.assign({}, u); });
     var scans = (opts.scans || []).slice();
     var tempRow = 0;
@@ -74,7 +74,7 @@ var SOPg = (function () {
           var table = Calc.rowCalc(row.data, ctx);
           var values = {};
           indexes.forEach(function (i) { var c = cell(row, i, table); values[i] = display ? c.display : c.value; });
-          return { rowNumber: row.rowNumber, values: values };
+          return { rowNumber: row.rowNumber, values: values, since: row.statusSince };   // since: when the SO entered its current status
         });
       },
       readRow: function (n) {

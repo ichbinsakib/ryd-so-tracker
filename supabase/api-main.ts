@@ -116,7 +116,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 async function allOrderRows() {
   const out: any[] = [];
   for (let from = 0; ; from += 1000) {
-    const page = must(await sb.from('shop_orders').select('row_no,id,data').order('row_no').range(from, from + 999)) as any[];
+    const page = must(await sb.from('shop_orders').select('row_no,id,data,status_since').order('row_no').range(from, from + 999)) as any[];
     out.push(...page);
     if (page.length < 1000) break;
   }
@@ -133,7 +133,7 @@ async function pagedRows(page: (from: number, to: number) => PromiseLike<any>): 
   }
   return out;
 }
-const toRow = (r: any) => ({ rowNumber: Number(r.row_no), id: r.id, data: r.data || {} });
+const toRow = (r: any) => ({ rowNumber: Number(r.row_no), id: r.id, data: r.data || {}, statusSince: r.status_since || null });
 
 async function chunkedIn(table: string, cols: string, keyCol: string, keys: string[]) {
   // chunks run in parallel (one round trip of latency instead of one per chunk)
