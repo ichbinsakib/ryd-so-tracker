@@ -386,6 +386,25 @@
       kpi('info', soonIn + soonSc, 'Due or arriving · 14 days', 'SOs ' + soonIn + ' · subcontract ' + soonSc, jump('dash2-coming')),
       kpi(stc && stc['OPEN SO'] ? 'warn' : 'ok', stc ? (stc['OPEN SO'] || 0) : '—', 'SO Tracker: open SO now', stc ? 'Urgent review ' + (stc['URGENT REVIEW REQUIRED'] || 0) + ' · ' + (st.parts || 0) + ' parts checked' : (st === null ? 'not available' : 'loading…'), openSoTracker,
         st && st.run_at ? el('small', { class: 'kpit', text: 'Planner run ' + st.run_at }) : ''));
+    // 1b) how many open SOs sit in Analysis / ANR / RFS, per customer section, and for how long
+    const ageH = (r) => (r.statusSince && !isNaN(Date.parse(r.statusSince)) ? (Date.now() - Date.parse(r.statusSince)) / 3600000 : null);
+    const ageTxt = (h) => { const x = Math.floor(h), d = Math.floor(x / 24); return d ? d + ' d ' + (x % 24) + ' h' : x + ' h'; };
+    const goWait = (seg, st) => () => { state.seg = seg; try { localStorage.setItem('inhouseSeg', seg); } catch (e) { /* private mode */ } state.chip = st; state.stage = ''; state.mat = ''; goHome(); };
+    const segsHere = SEGMENTS.filter(([s]) => s !== 'OTHER' || rows.some((r) => segOf(r.customer) === 'OTHER'));
+    const waitRows = [];
+    Object.keys(WAIT_NAMES).forEach((st) => segsHere.forEach(([seg, segLabel]) => {
+      const list = rows.filter((r) => norm(r.status).trim() === st && segOf(r.customer) === seg), hs = list.map(ageH).filter((h) => h !== null);
+      if (!list.length) return;
+      waitRows.push({ st, seg, segLabel, n: list.length, a: hs.filter((h) => h <= 24).length, b: hs.filter((h) => h > 24 && h <= 48).length, c: hs.filter((h) => h > 48).length, max: hs.length ? Math.max(...hs) : null });
+    }));
+    const wcell = (n, tone) => el('td', { class: 'num' + (n && tone ? ' ' + tone : '') }, n ? String(n) : '–');
+    $('dash2-wait').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Waiting in Analysis, ANR and RFS' }), el('span', { class: 'muted small', text: 'open SOs by time in their current status · click a row to open the list' })),
+      waitRows.length ? el('div', { class: 'tablewrap' }, el('table', { class: 'datatable waittable' },
+        el('thead', {}, el('tr', {}, ['Status', 'Section', 'SOs', 'Under 24 h', '24–48 h', 'Over 48 h', 'Longest'].map((h) => el('th', { text: h })))),
+        el('tbody', {}, ...waitRows.map((w) => el('tr', { tabindex: 0, title: 'Show these SOs in Inhouse · ' + w.segLabel, onclick: goWait(w.seg, w.st), onkeydown: (e) => { if (e.key === 'Enter') goWait(w.seg, w.st)(); } },
+          el('td', {}, el('b', { text: WAIT_NAMES[w.st] })), el('td', { text: w.segLabel }), el('td', { class: 'num' }, el('b', { text: String(w.n) })),
+          wcell(w.a), wcell(w.b, 'warn'), wcell(w.c, 'bad'),
+          el('td', { class: 'num' + (w.max > 48 ? ' bad' : w.max > 24 ? ' warn' : '') , text: w.max === null ? '—' : ageTxt(w.max) })))))) : el('p', { class: 'muted', text: 'No open SOs in Analysis, ANR or RFS.' }));
     // 2) where things are
     const inhStages = STAGE_GROUPS.map((g) => g[0]);
     $('dash2-inh').replaceChildren(el('div', { class: 'sechead' }, el('h3', { text: 'Inhouse SOs by stage' }), el('button', { class: 'btn btn-sm', type: 'button', text: 'Open Inhouse ›', onclick: goIn('all') })),
@@ -439,7 +458,7 @@
   async function loadDashboard(fresh) {
     setDashMode(); show('view-admin'); $('btn-refresh').hidden = false;
     if (!fresh && state.dashRaw && isFresh(state.dashListAt) && state.dashClosed === $('incl-closed').checked) { applyDashboard(state.dashRaw); return; }
-    $('grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: 'Loading…' })));
+    $('grid').tBodies[0].replaceChildren(el('tr', {}, el('td', { colspan: 8, class: 'muted', text: 'Loading…' })));
     const ls = $('list-status'); ls.className = 'statusline'; ls.textContent = '';
     $('btn-refresh').disabled = true;
     const r = await api(canSeeAll() ? 'dashboard' : 'mySOs', { includeClosed: $('incl-closed').checked, fresh: !!fresh, today: today() });
@@ -558,6 +577,16 @@
   // the status tiles on the Inhouse board: [status, label, explanation]
   const METRIC_LIST = [['1. ANALYSIS', 'Analysis', 'analysis for SO release'], ['1.ANR', 'ANR', 'approved, not released'], ['2.RFS', 'RFS', 'request for SO'], ['3.OPEN', 'Open', 'SO open'], ['5.HOLD', 'On hold', ''], ['4.CLOSE', 'Closed', '']];
   const WAIT_LIMITS = { '1. ANALYSIS': [24], '1.ANR': [24], '2.RFS': [24, 48] };   // hours shown on the status tiles
+  const WAIT_NAMES = { '1. ANALYSIS': 'Analysis', '1.ANR': 'ANR', '2.RFS': 'RFS' };
+  // how long an open SO has sat in Analysis / ANR / RFS (from the status clock); '' for other statuses
+  function waitCell(r) {
+    const st = norm(r.status).trim();
+    if (!WAIT_NAMES[st] || !rowOpen(r) || !r.statusSince || isNaN(Date.parse(r.statusSince))) return el('span', { class: 'bwait muted', text: '' });
+    const h = Math.max(0, Math.floor((Date.now() - Date.parse(r.statusSince)) / 3600000)), d = Math.floor(h / 24);
+    const txt = d ? d + ' d ' + (h % 24) + ' h' : h + ' h';
+    return el('span', { class: 'bwait ' + (h > 48 ? 'bad' : h > 24 ? 'warn' : 'ok'), title: 'In ' + WAIT_NAMES[st] + ' since ' + new Date(r.statusSince).toLocaleString() },
+      el('b', { text: txt }), el('small', { text: 'in ' + WAIT_NAMES[st] }));
+  }
   const METRIC_NAMES =Object.fromEntries(METRIC_LIST.map(([k, l]) => [k, 'status ' + l]));
   const CHIPS = [['all', 'All'], ['mine', 'Needs my action'], ['waiting', 'Waiting on others'], ['soon', 'Due in 14 days'], ['late', 'Overdue'], ['risk', 'Material risk'], ['check', 'Part checks'], ['5.HOLD', 'On hold'], ['4.CLOSE', 'Closed']];
   function chipMatch(r, c) {
@@ -599,7 +628,7 @@
         return el('div', { class: 'brow', tabindex: 0, onclick: () => openById(r.id), onkeydown: (e) => { if (e.key === 'Enter') openById(r.id); } },
           el('span', { class: 'bso' }, el('b', { text: norm(r.so_no) || 'Part check' }), el('span', { class: 'muted', text: ' ' + norm(r.part_no) }), el('small', { text: [norm(r.customer), norm(r.qty) ? norm(r.qty) + ' pcs' : ''].filter(Boolean).join(' · ') })),
           el('span', { class: 'bnext' }, el('span', { text: lc && lc.next ? lc.next : '—' }), el('small', { text: lc ? (lc.owner === 'me' ? 'You' + (lc.actionDate ? ' · by ' + dshort(lc.actionDate) : '') : lc.waitingOn ? 'Waiting on ' + lc.waitingOn : '') : '' })),
-          dueNode(d, false), dupBtn(r)); })));
+          waitCell(r), dueNode(d, false), dupBtn(r)); })));
     const cnt = state.dash && state.dash.counts ? state.dash.counts : null, all = state.dash ? state.dash.rows : [];
     const METRICS = METRIC_LIST;
     // open statuses count the open SOs the list shows (SO required = No counts as cancelled, not open); Closed uses the server total
@@ -618,19 +647,20 @@
   }
   function renderTable() {
     if (state.simple) { renderBoard(); const ls = $('list-status'); ls.className = 'statusline'; ls.textContent = ''; return; }
-    $('grid').tHead.replaceChildren(el('tr', {}, ['', 'SO / PART', 'STAGE', 'NEXT ACTION', 'DUE', 'MATERIAL', ''].map((h) => el('th', { text: h }))));
+    $('grid').tHead.replaceChildren(el('tr', {}, ['', 'SO / PART', 'STAGE', 'NEXT ACTION', 'TIME IN STATUS', 'DUE', 'MATERIAL', ''].map((h) => el('th', { text: h }))));
     const pages = Math.max(1, Math.ceil(state.view.length / state.pageSize));
     state.page = Math.min(state.page, pages - 1);
     const slice = state.view.slice(state.page * state.pageSize, (state.page + 1) * state.pageSize);
     const body = $('grid').tBodies[0];
     const mpill = (m) => el('span', { class: 'badge ' + (m === 'Late' ? 'sc-bad' : m === 'At Risk' ? 'sc-warn' : m === 'Unknown' ? 'sc-muted' : 'sc-ok'), text: m });
-    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 7, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : 'No open SOs.' })));
+    if (!slice.length) body.replaceChildren(el('tr', {}, el('td', { colspan: 8, class: 'muted', text: state.dash && state.dash.rows.length ? 'No SOs match your filter.' : 'No open SOs.' })));
     else body.replaceChildren(...slice.map((r) => { const lc = r.lc, att = lc && lc.reasons.some((x) => x.level === 'crit') ? 'crit' : lc && lc.reasons.length ? 'warn' : 'ok';
       return el('tr', { tabindex: 0, onclick: () => openById(r.id), onkeydown: (e) => { if (e.key === 'Enter') openById(r.id); } },
         el('td', {}, el('span', { class: 'dot sc-dot-' + att, title: att === 'crit' ? 'Critical' : att === 'warn' ? 'Needs attention' : 'On track' })),
         el('td', {}, el('div', { class: 'cell2' }, el('span', {}, el('b', { text: norm(r.so_no) || 'Part check' }), el('span', { class: 'muted', text: '  ' + norm(r.part_no) })), el('small', { text: [norm(r.customer), norm(r.qty) ? norm(r.qty) + ' pcs' : ''].filter(Boolean).join(' · ') }))),
         el('td', {}, el('div', { class: 'cell2' }, el('span', { class: 'stagepill', text: r.stage || '—' }), el('small', { text: lc ? lc.status : norm(r.status) }))),
         el('td', {}, el('div', { class: 'cell2' }, el('span', { text: lc && lc.next ? lc.next : '—' }), el('small', { text: lc ? (lc.owner === 'me' ? 'Me' + (lc.actionDate ? ' · by ' + dshort(lc.actionDate) : '') : lc.waitingOn ? 'Waiting on ' + lc.waitingOn + (lc.followup ? ' · follow up ' + dshort(lc.followup) : '') : '') : '' }))),
+        el('td', {}, waitCell(r)),
         el('td', {}, dueNode(rowDue(r), rowClosed(r))),
         el('td', {}, el('div', { class: 'cell2' }, lc && lc.matStatus ? mpill(lc.matStatus) : el('span', { class: 'muted', text: r.steelType ? 'not ordered' : 'no steel data' }), el('small', { text: r.steelType ? [r.steelType, r.reqBar !== null ? fmtN(Math.ceil(r.reqBar), 0) + ' bars' : ''].filter(Boolean).join(' · ') : '' }))),
         el('td', { class: 'chev' }, dupBtn(r), '›')); }));

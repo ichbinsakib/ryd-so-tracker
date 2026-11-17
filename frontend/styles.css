@@ -630,11 +630,13 @@ body { background: var(--bg); color: var(--ink); }
 .bstage h3 b { color: var(--muted); font-weight: 600; }
 .dupbtn { background: none; border: 1px solid transparent; border-radius: 6px; color: var(--muted); font-size: 15px; line-height: 1; padding: 3px 6px; margin-right: 4px; cursor: pointer; vertical-align: middle; }
 .dupbtn:hover, .dupbtn:focus-visible { color: var(--accent); border-color: var(--line); background: var(--card, #fff); }
-.brow { display: grid; grid-template-columns: minmax(180px, 1.1fr) minmax(220px, 2fr) minmax(110px, max-content) auto; gap: 14px; align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.brow { display: grid; grid-template-columns: minmax(180px, 1.1fr) minmax(220px, 2fr) minmax(86px, max-content) minmax(110px, max-content) auto; gap: 14px; align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
 .brow:last-child { border-bottom: 0; } .brow:hover, .brow:focus-visible { background: var(--accent-soft); outline: 0; }
 .brow small { display: block; color: var(--muted); font-size: 12px; }
 .bso b { font-size: 14px; }
 @media (max-width: 720px) { .brow { grid-template-columns: 1fr auto; } .bnext { grid-column: 1 / -1; order: 3; } }
+.bwait { display: grid; text-align: right; } .bwait b { font-size: 13px; } .bwait.warn b { color: var(--warn); } .bwait.bad b { color: var(--err); } .bwait small { font-size: 11px; }
+.datatable .bwait { text-align: left; }
 
 /* compact board: everything visible without scrolling */
 .bkpis { grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 6px; margin-bottom: 8px; }
@@ -759,3 +761,7 @@ button.mtile { cursor: pointer; } button.mtile:hover { border-color: var(--accen
 .titem.sub { border-left-color: #e0a100; } .titem:hover, .titem:focus-visible { border-color: var(--accent); outline: 0; }
 .tdate { font-size: 12px; font-weight: 700; } .tmain { display: grid; min-width: 0; } .tmain b { font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .tmain small { color: var(--muted); font-size: 11px; }
 .tweek { display: flex; flex-direction: column; } .tweek .tmore { order: 3; margin-top: 6px; align-self: flex-start; }
+/* dashboard: waiting in Analysis / ANR / RFS */
+#dash2-wait { margin-bottom: 14px; }
+.waittable td.num, .waittable th:nth-child(n+3) { text-align: right; } .waittable td.warn { color: var(--warn); font-weight: 700; } .waittable td.bad { color: var(--err); font-weight: 700; }
+.waittable tbody tr { cursor: pointer; } .waittable tbody tr:hover, .waittable tbody tr:focus-visible { background: var(--accent-soft); outline: 0; }
