@@ -20,12 +20,11 @@
     ['PO & acknowledgment', [7, 8], ['po_receive_date', 'po_no_1', 'po_mention_bar_size', 'router_vs_po', 'price_on_po', 'quote_vs_po_price', 'po_approve_date', 'ack_status', 'ack_date', 'ack_note']],
     ['Documents & release', [9, 10], ['print_traveller..update_date']],
     ['Material arrival', [11, 11], ['po_no_2', 'po_due_date', 'mat_required_date', 'mat_receive_date_stockroom', 'verify_date', 'qty_in_stockroom']],
-    ['Closure', [12, 13], ['note', 'expected_closure_date', 'so_close_date', 'closure_verified_date', 'closure_note']],
-    ['Follow-up', [], ['owner', 'last_followup_date', 'next_followup_date', 'escalated', 'blocker']]
+    ['Closure', [12, 13], ['note', 'expected_closure_date', 'so_close_date', 'closure_verified_date', 'closure_note']]
   ];
   const ALWAYS_KEYS = ['status', 'notes'];   // shown above the tabs on every stage
-  // not used for now: kept in the database, but not shown on the SO page (invoice checks)
-  const HIDDEN_ITEMS = ['invoice_received_finance..diff_updated_po_invoice', 'invoice_checked_by'];
+  // not used for now: kept in the database, but not shown on the SO page (invoice checks, the follow-up stage)
+  const HIDDEN_ITEMS = ['invoice_received_finance..diff_updated_po_invoice', 'invoice_checked_by', 'owner', 'last_followup_date', 'next_followup_date', 'escalated', 'blocker'];
   let tabCache = null;
   function tabList() {
     if (tabCache && tabCache.n === state.fields.length) return tabCache.list;
@@ -36,7 +35,8 @@
       return [title, stages, take(items), boxes];
     });
     take(HIDDEN_ITEMS);   // marks them used so they do not fall onto the last tab
-    const rest = order.filter((k) => !used.has(k) && k !== 'record_id' && !ALWAYS_KEYS.includes(k)); list[list.length - 1][2].push(...rest);   // anything unlisted lands on the last tab
+    // anything unlisted lands on the last tab, except the two progress bars (already shown in the page header)
+    const rest = order.filter((k) => !used.has(k) && k !== 'record_id' && !ALWAYS_KEYS.includes(k) && !BAR_KEYS.includes(k)); list[list.length - 1][2].push(...rest);
     tabCache = { n: state.fields.length, list }; return list;
   }
   const tabForStage = (n) => { const i = tabList().findIndex((t) => t[1].includes(n)); return i < 0 ? 0 : i; };
