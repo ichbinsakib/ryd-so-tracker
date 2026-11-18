@@ -20,10 +20,12 @@
     ['PO & acknowledgment', [7, 8], ['po_receive_date', 'po_no_1', 'po_mention_bar_size', 'router_vs_po', 'price_on_po', 'quote_vs_po_price', 'po_approve_date', 'ack_status', 'ack_date', 'ack_note']],
     ['Documents & release', [9, 10], ['print_traveller..update_date']],
     ['Material arrival', [11, 11], ['po_no_2', 'po_due_date', 'mat_required_date', 'mat_receive_date_stockroom', 'verify_date', 'qty_in_stockroom']],
-    ['Invoice & closure', [12, 13], ['invoice_received_finance..diff_updated_po_invoice', 'invoice_checked_by', 'note', 'expected_closure_date', 'so_close_date', 'closure_verified_date', 'closure_note']],
+    ['Closure', [12, 13], ['note', 'expected_closure_date', 'so_close_date', 'closure_verified_date', 'closure_note']],
     ['Follow-up', [], ['owner', 'last_followup_date', 'next_followup_date', 'escalated', 'blocker']]
   ];
   const ALWAYS_KEYS = ['status', 'notes'];   // shown above the tabs on every stage
+  // not used for now: kept in the database, but not shown on the SO page (invoice checks)
+  const HIDDEN_ITEMS = ['invoice_received_finance..diff_updated_po_invoice', 'invoice_checked_by'];
   let tabCache = null;
   function tabList() {
     if (tabCache && tabCache.n === state.fields.length) return tabCache.list;
@@ -33,6 +35,7 @@
       const boxes = (pre || []).map(([legend, ks]) => [legend, take(ks)]).filter(([, ks]) => ks.length);
       return [title, stages, take(items), boxes];
     });
+    take(HIDDEN_ITEMS);   // marks them used so they do not fall onto the last tab
     const rest = order.filter((k) => !used.has(k) && k !== 'record_id' && !ALWAYS_KEYS.includes(k)); list[list.length - 1][2].push(...rest);   // anything unlisted lands on the last tab
     tabCache = { n: state.fields.length, list }; return list;
   }
@@ -828,7 +831,6 @@
     S.push({ label: 'PO', raw: has(rec, 'po_approve_date') ? 'done' : (has(rec, 'po_receive_date') || has(rec, 'po_no_1') ? 'part' : 'todo'), date: dateOf(rec, 'po_approve_date') || dateOf(rec, 'po_receive_date') });
     S.push({ label: 'Release', raw: has(rec, 'charllete_jay_release_date') ? 'done' : (has(rec, 'date_of_send') ? 'part' : 'todo'), date: dateOf(rec, 'charllete_jay_release_date') || dateOf(rec, 'date_of_send') });
     S.push({ label: 'Receiving', raw: has(rec, 'mat_receive_date_stockroom') ? 'done' : 'todo', date: dateOf(rec, 'mat_receive_date_stockroom') });
-    S.push({ label: 'Invoice', raw: yes(dv(rec, 'invoice_received_finance')) || has(rec, 'invoice_no') ? 'done' : 'todo', date: null });
     S.push({ label: 'Closed', raw: closed ? 'done' : 'todo', date: dateOf(rec, 'so_close_date') });
     let currentSet = false;
     S.forEach((s) => {
@@ -849,7 +851,7 @@
       else if (parts.some((p) => p.state === 'current')) st = 'current';
       else if (parts.every((p) => p.state === 'done' || p.state === 'skip')) st = 'done';
       const dated = parts.map((p) => p.date).filter(Boolean).pop();
-      const sub = !stages.length ? (lc.reasons.some((x) => x.text === 'Escalated') ? 'escalated' : 'log & owner') : st === 'current' || st === 'issue' ? 'now' : dated ? shortDate(parseDate(dated)) : st === 'done' ? 'done' : '';
+      const sub = !stages.length ? (lc.reasons.some((x) => x.text === 'Escalated') ? 'escalated' : 'owner') : st === 'current' || st === 'issue' ? 'now' : dated ? shortDate(parseDate(dated)) : st === 'done' ? 'done' : '';
       return el('li', { class: 'step st-' + st + (i === state.tab ? ' sel' : ''), role: 'tab', tabindex: 0, 'aria-selected': String(i === state.tab), title: stages.length ? 'Stage' + (stages.length > 1 ? 's ' + stages[0] + '–' + stages[stages.length - 1] : ' ' + stages[0]) + ': ' + stages.map((n) => lc.steps[n - 1].label).join(', ') : 'Follow-ups, owner and issues',
         onclick: () => selectTab(i), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); selectTab(i); } } },
         el('span', { class: 'sc', text: st === 'done' ? '✓' : st === 'issue' ? '!' : !stages.length ? '⚑' : String(i + 1) }),
@@ -874,7 +876,7 @@
       note = ta.value.trim(); if (!note) { toast('Enter the reason.', true); return; }
     }
     const ok = await quickUpdate(rec, needed ? { so_required: 'YES' } : { so_required: 'NO', so_required_note: note }, needed ? 'Marked: SO needed.' : 'Marked: not required.');
-    if (ok) { await addLog(rec, 'DECISION', needed ? 'SO required: yes' : 'SO not required: ' + note); loadLog(); }
+    if (ok) await addLog(rec, 'DECISION', needed ? 'SO required: yes' : 'SO not required: ' + note);   // still recorded in the database log
   }
   function renderNextCard(rec) {
     const lc = lcOf(rec), card = $('nextcard');
@@ -886,7 +888,6 @@
     if (canEdit() && !done) {
       if (lc.status === 'Awaiting Decision') acts.push(el('button', { class: 'btn btn-primary', type: 'button', text: 'SO needed', onclick: () => decideSO(rec, true) }), el('button', { class: 'btn', type: 'button', text: 'Not required', onclick: () => decideSO(rec, false) }));
       if (isCheck(rec) && lc.stage >= 3) acts.push(el('button', { class: 'btn' + (lc.stage === 5 ? ' btn-primary' : ''), type: 'button', text: 'Request SO ›', onclick: () => requestSO(rec, lc.stage >= 5) }));
-      acts.push(el('button', { class: 'btn btn-sm', type: 'button', text: 'Log a follow-up', onclick: () => { $('logbox').scrollIntoView({ block: 'center' }); const t = $('log-text'); if (t) t.focus(); } }));
     }
     const pill = (t, cls) => el('span', { class: 'badge ' + cls, text: t });
     const chip = (label, text) => (text ? el('span', { class: 'nchip' }, el('small', { text: label + ' ' }), el('b', { text: text })) : '');
@@ -906,6 +907,7 @@
     state.log = r.ok ? r.log : []; renderLog(r.ok ? '' : (r.error || 'Could not load the log.'));
   }
   function renderLog(err) {
+    if (!$('log-form')) return;   // the log box is not on the SO page at the moment
     const rec = state.current; if (!rec) return;
     const kind = el('select', { id: 'log-kind' }, [['FOLLOW-UP', 'Follow-up'], ['NOTE', 'Note'], ['DECISION', 'Decision'], ['ESCALATION', 'Escalation'], ['EVIDENCE', 'Evidence']].map(([v, l]) => el('option', { value: v, text: l })));
     const text = el('textarea', { id: 'log-text', rows: 2, placeholder: 'What happened? Who did you contact, what did they say?', 'aria-label': 'What happened' });
@@ -947,9 +949,6 @@
       const n = daysUntil(dateOf(rec, 'po_due_date'));
       if (n !== null && n < 0) add('bad', 'Material is ' + Math.abs(n) + ' day' + (Math.abs(n) === 1 ? '' : 's') + ' past the PO due date', 'PO due ' + shortDate(dateOf(rec, 'po_due_date')) + ', not yet received in the stockroom.');
     }
-    if (!closed && has(rec, 'mat_receive_date_stockroom') && !yes(dv(rec, 'invoice_received_finance')) && !has(rec, 'invoice_no')) add('info', 'Material received — invoice not yet with finance', 'Received ' + shortDate(dateOf(rec, 'mat_receive_date_stockroom')) + '.');
-    const dpo = parseMoney(rec.display.diff_po_invoice);
-    if (dpo !== null && Math.abs(dpo) >= 0.005 && has(rec, 'price_on_invoice')) add('warn', 'Invoice differs from the PO by ' + money(Math.abs(dpo)), has(rec, 'diff_reason') ? 'Reason noted: ' + dv(rec, 'diff_reason') : 'No reason recorded yet.');
     if (!out.length) out.push({ kind: 'ok', title: closed ? 'This SO is closed' : 'On track — nothing needs attention right now', text: '' });
     return out;
   }
@@ -1069,8 +1068,7 @@
       el('div', { class: 'fcard' }, el('h3', { text: 'Pricing' }),
         row('Part price', dv(rec, 'part_price'), null, priceBadge(rec)), row('Traveller mat. price / pc', dv(rec, 'traveller_mat_price_piece')),
         row('Quote price / pc', dv(rec, 'quote_price_piece')), row('Diff (traveller vs quote)', dv(rec, 'diff'), diffTone('diff')),
-        row('Total price in quote', dv(rec, 'total_price_quote')), row('Price on PO', dv(rec, 'price_on_po')), row('Quote vs PO', dv(rec, 'quote_vs_po_price'), diffTone('quote_vs_po_price')),
-        row('Price on invoice', dv(rec, 'price_on_invoice')), row('PO vs invoice', dv(rec, 'diff_po_invoice'), diffTone('diff_po_invoice'))),
+        row('Total price in quote', dv(rec, 'total_price_quote')), row('Price on PO', dv(rec, 'price_on_po')), row('Quote vs PO', dv(rec, 'quote_vs_po_price'), diffTone('quote_vs_po_price'))),
       el('div', { class: 'fcard' }, el('h3', { text: 'Key dates' }),
         dateRow('Due', 'due_date', !/CLOSE/.test(dv(rec, 'status'))), dateRow('SO requested', 'so_req_date'), dateRow('Quote requested', 'mat_quote_request_date'), dateRow('Quote received', 'quote_receive_date'),
         dateRow('PO received', 'po_receive_date'), dateRow('PO due', 'po_due_date', !/CLOSE/.test(dv(rec, 'status')) && !has(rec, 'mat_receive_date_stockroom')), dateRow('Material received', 'mat_receive_date_stockroom'), dateRow('Closed', 'so_close_date')));
@@ -1080,7 +1078,7 @@
   function openRecord(rec, kind, msg) {
     state.current = rec; state.dirty = false; state.scans = []; state.tab = tabForStage(lcOf(rec).stage);
     renderDetail(); show('view-detail'); banner('detail-banner', kind || '', msg || ''); updateDirty();
-    renderScans(); loadScans(); state.log = []; loadLog();
+    renderScans(); loadScans();   // the follow-up log box was removed from the SO page
   }
   function canEdit() { return state.role !== 'viewer' && state.current && state.current.id; }
   function renderDetail() {
