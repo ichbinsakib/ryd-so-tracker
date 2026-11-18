@@ -33,7 +33,7 @@ test('dashboard: slim rows, closed hidden by default, lowest progress first', ()
   const d = call(s, 'tok-admin', { action: 'dashboard' });
   assert.equal(d.ok, true);
   assert.deepEqual(d.rows.map(r => r.so_no), ['2', '1', '4'], 'closed SO 3 hidden; unknown bars last');
-  assert.deepEqual(Object.keys(d.rows[0]).sort(), ['availFt', 'barSize', 'barType', 'champion', 'customer', 'due', 'id', 'kanbanOrPo', 'lc', 'matBar', 'matReceived', 'part_no', 'poDue', 'qty', 'qtyPerBar', 'quoteReceived', 'reqBar', 'reqFt', 'reqLbs', 'reqQuote', 'soBar', 'soType', 'so_no', 'stage', 'status', 'statusSince', 'steelType']);
+  assert.deepEqual(Object.keys(d.rows[0]).sort(), ['availFt', 'barSize', 'barType', 'champion', 'customer', 'due', 'id', 'kanbanOrPo', 'lc', 'matBar', 'matReceived', 'missing', 'part_no', 'poDue', 'qty', 'qtyPerBar', 'quoteReceived', 'reqBar', 'reqFt', 'reqLbs', 'reqQuote', 'soBar', 'soType', 'so_no', 'stage', 'status', 'statusSince', 'steelType']);
   assert.equal(d.rows[0].soBar, 20);
   assert.equal(d.rows[2].soBar, null);
   assert.equal(call(s, 'tok-admin', { action: 'dashboard', includeClosed: true }).rows.length, 4);
@@ -220,4 +220,14 @@ test('a part check needs only part, customer and qty and opens as 1. ANALYSIS; t
   assert.equal(ask.ok, true, JSON.stringify(ask));
   assert.equal(ask.record.values.status, '3.OPEN');
   assert.equal(ask.record.values.so_no, 'R9001');
+});
+
+test('dashboard rows list the blank editable fields the SO release % counts', () => {
+  const s = new FakeSheet([makeRow(3, 'a', { status: '3.OPEN', part_no: 'P1', so_no: 9, so_qty: 10 })]);
+  const d = call(s, 'tok-admin', { action: 'dashboard' });
+  const m = d.rows[0].missing;
+  assert.ok(Array.isArray(m) && m.length > 0);
+  assert.ok(!m.includes('part_no') && !m.includes('so_no') && !m.includes('so_qty'), 'filled fields are not missing');
+  assert.ok(m.includes('due_date') && m.includes('po_no_1'), 'blank fields are listed');
+  assert.ok(!m.includes('steel_type') && !m.includes('so_release_status_bar'), 'calculated fields never count as missing');
 });

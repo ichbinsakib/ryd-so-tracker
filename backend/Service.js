@@ -362,6 +362,9 @@ var SOService = (function () {
       'closure_verified_date', 'next_followup_date', 'escalated', 'blocker', 'owner', 'last_followup_date'];
     var idxs = DASH_KEYS.map(function (k) { return K[k].index; });
     if (idIndex >= 0) idxs.push(idIndex);
+    // the editable cells the SO release % counts (G..BI): a blank one is listed as missing on the row
+    var BAR_FIELDS = Core.FIELDS.filter(function (f) { return !f.calc && f.index >= K.part_no.index && f.index <= K.update_date.index; });
+    BAR_FIELDS.forEach(function (f) { if (idxs.indexOf(f.index) < 0) idxs.push(f.index); });
     var rows = [], counts = {}, custCounts = {}, life = lifecycle(), today = /^\d{4}-\d{2}-\d{2}$/.test(String(req.today || '')) ? req.today : String(adapter.now()).slice(0, 10);
     adapter.readColumns(idxs, true).forEach(function (r) {
       var v = r.values;
@@ -383,7 +386,8 @@ var SOService = (function () {
         qtyPerBar: dashNum(v[K.qty_per_bar.index]), reqBar: dashNum(v[K.req_bar.index]), reqFt: dashNum(v[K.req_ft.index]), reqLbs: dashNum(v[K.req_lbs.index]), availFt: dashNum(v[K.avail_ft.index]),
         champion: dashText(v[K.champion.index]), soType: dashText(v[K.so_type.index]), kanbanOrPo: dashText(v[K.kanban_or_po.index]), poDue: dashText(v[K.po_due_date.index]),
         matReceived: !blank(v[K.mat_receive_date_stockroom.index]) && v[K.mat_receive_date_stockroom.index] !== '-',
-        statusSince: r.since || null   // when the SO entered its current status (database version only)
+        statusSince: r.since || null,   // when the SO entered its current status (database version only)
+        missing: BAR_FIELDS.filter(function (f) { return blank(v[f.index]); }).map(function (f) { return f.key; })
       });
     });
     // lowest progress first (unknown bars last)

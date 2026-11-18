@@ -581,6 +581,28 @@
   const METRIC_LIST = [['1. ANALYSIS', 'Analysis', 'analysis for SO release'], ['1.ANR', 'ANR', 'approved, not released'], ['2.RFS', 'RFS', 'request for SO'], ['3.OPEN', 'Open', 'SO open'], ['5.HOLD', 'On hold', ''], ['4.CLOSE', 'Closed', '']];
   const WAIT_LIMITS = { '1. ANALYSIS': [24], '1.ANR': [24], '2.RFS': [24, 48] };   // hours shown on the status tiles
   const WAIT_NAMES = { '1. ANALYSIS': 'Analysis', '1.ANR': 'ANR', '2.RFS': 'RFS' };
+  // short, readable field name for the Missing fields column ("PO APPROVE DATE" -> "PO approve date")
+  const fieldShort = (k) => { const f = state.byKey[k]; let t = String(f ? f.label : k).replace(/\(.*?\)/g, '').replace(/[?:]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    t = t.replace(/\b(po|so|ft|lbs|qty)\b/g, (m) => m.toUpperCase()); return t.charAt(0).toUpperCase() + t.slice(1); };
+  function pctCell(p) {
+    if (p === null || p === undefined) return el('span', { class: 'muted', text: '—' });
+    const v = Math.max(0, Math.min(100, Math.round(p))), tone = v >= 80 ? 'hi' : v >= 40 ? 'mid' : 'lo';
+    return el('span', { class: 'bpct ' + tone, title: 'SO release ' + v + '% complete' }, el('b', { text: v + '%' }), el('span', { class: 'pbar ' + tone }, el('span', { style: 'width:' + v + '%' })));
+  }
+  // the SO's current stage first (what to fill in now), then the stages before it, then the ones after
+  function missingOrdered(keys, r) {
+    const tabs = tabList(), cur = r && r.lc ? tabForStage(r.lc.stage) : 0, rank = {};
+    tabs.forEach(([, , ks], i) => { const pri = i === cur ? 0 : i < cur ? 1 : 2; ks.forEach((k, j) => { rank[k] = pri * 1000 + i * 100 + j; }); });
+    return (keys || []).slice().sort((x, y) => (rank[x] ?? 9e9) - (rank[y] ?? 9e9));
+  }
+  function missingCell(keys, r) {
+    const list = missingOrdered(keys, r).map(fieldShort);
+    if (!list.length) return el('span', { class: 'bmiss none', text: keys ? 'Nothing missing' : '—' });
+    const SHOW = 3, box = el('span', { class: 'bmiss', title: list.length + ' missing:\n' + list.join('\n') });
+    const draw = (all) => box.replaceChildren(...(all ? list : list.slice(0, SHOW)).map((t) => el('span', { class: 'mchip', text: t })),
+      list.length > SHOW ? el('button', { class: 'mmore', type: 'button', text: all ? 'show less' : '+' + (list.length - SHOW) + ' more', onclick: (e) => { e.stopPropagation(); draw(!all); }, onkeydown: (e) => e.stopPropagation() }) : '');
+    draw(false); return box;
+  }
   const titleCase = (s) => String(s || '').toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
   // how long an open SO has sat in Analysis / ANR / RFS (from the status clock); '' for other statuses
   function waitCell(r) {
@@ -627,7 +649,7 @@
     const groups = STAGE_GROUPS.map(([title]) => [title, rows.filter((r) => groupOf(r) === title)]);
     const other = rows.filter((r) => !groupOf(r)); if (other.length) groups.push(['On hold / other', other]);
     // each stage is a table: one aligned column per fact, so rows read across and the width is used
-    const BCOLS = ['SO #', 'Part', 'Qty', 'Next action', 'Who', 'Do by', 'Material', 'Time in status', 'Due', ''];
+    const BCOLS = ['SO #', 'Part', 'Qty', 'Next action', 'Complete', 'Missing fields', 'Who', 'Do by', 'Material', 'Time in status', 'Due', ''];
     const mpillB = (m) => el('span', { class: 'badge ' + (m === 'Late' ? 'sc-bad' : m === 'At Risk' ? 'sc-warn' : m === 'Unknown' ? 'sc-muted' : 'sc-ok'), text: m });
     const sec = groups.filter(([, g]) => g.length).map(([title, g]) => el('section', { class: 'bstage' },
       el('h3', {}, title, el('b', { text: String(g.length) }), g.some(isMine) ? el('span', { class: 'badge sc-warn', text: g.filter(isMine).length + ' need you' }) : ''),
@@ -638,12 +660,14 @@
           el('span', { class: 'bc1 bpart' }, el('span', { text: norm(r.part_no) || '—' }), el('small', { text: norm(r.customer) })),
           el('span', { class: 'bc2 bnum', text: norm(r.qty) ? Number(norm(r.qty).replace(/,/g, '')).toLocaleString() : '—' }),
           el('span', { class: 'bc3 bnext', text: lc && lc.next ? lc.next : '—' }),
-          el('span', { class: 'bc4 bwho' + (mine ? ' me' : '') }, mine ? 'You' : lc && lc.waitingOn ? el('span', {}, el('small', { text: 'Waiting on' }), titleCase(lc.waitingOn)) : '—'),
-          el('span', { class: 'bc5 bby' + (by && by < today() ? ' late' : ''), text: by ? dshort(by) : '—' }),
-          el('span', { class: 'bc6' }, lc && lc.matStatus ? mpillB(lc.matStatus) : el('span', { class: 'muted', text: '—' })),
-          el('span', { class: 'bc7' }, waitCell(r)),
-          el('span', { class: 'bc8' }, dueNode(d, false)),
-          el('span', { class: 'bc9' }, dupBtn(r))); })));
+          el('span', { class: 'bc4' }, pctCell(r.soBar)),
+          el('span', { class: 'bc5' }, missingCell(r.missing, r)),
+          el('span', { class: 'bc6 bwho' + (mine ? ' me' : '') }, mine ? 'You' : lc && lc.waitingOn ? el('span', {}, el('small', { text: 'Waiting on' }), titleCase(lc.waitingOn)) : '—'),
+          el('span', { class: 'bc7 bby' + (by && by < today() ? ' late' : ''), text: by ? dshort(by) : '—' }),
+          el('span', { class: 'bc8' }, lc && lc.matStatus ? mpillB(lc.matStatus) : el('span', { class: 'muted', text: '—' })),
+          el('span', { class: 'bc9' }, waitCell(r)),
+          el('span', { class: 'bc10' }, dueNode(d, false)),
+          el('span', { class: 'bc11' }, dupBtn(r))); })));
     const cnt = state.dash && state.dash.counts ? state.dash.counts : null, all = state.dash ? state.dash.rows : [];
     const METRICS = METRIC_LIST;
     // open statuses count the open SOs the list shows (SO required = No counts as cancelled, not open); Closed uses the server total

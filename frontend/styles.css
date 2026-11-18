@@ -630,7 +630,7 @@ body { background: var(--bg); color: var(--ink); }
 .bstage h3 b { color: var(--muted); font-weight: 600; }
 .dupbtn { background: none; border: 1px solid transparent; border-radius: 6px; color: var(--muted); font-size: 15px; line-height: 1; padding: 3px 6px; margin-right: 4px; cursor: pointer; vertical-align: middle; }
 .dupbtn:hover, .dupbtn:focus-visible { color: var(--accent); border-color: var(--line); background: var(--card, #fff); }
-.brow { display: grid; grid-template-columns: 78px minmax(120px, 1.1fr) 56px minmax(210px, 2.4fr) minmax(110px, 1fr) 78px 82px 84px 150px 30px; column-gap: 14px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13px; }
+.brow { display: grid; grid-template-columns: 74px minmax(110px, 1fr) 52px minmax(170px, 1.6fr) 70px minmax(200px, 2.1fr) minmax(90px, .8fr) 76px 80px 84px 140px 28px; column-gap: 14px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13px; }
 .brow:last-child { border-bottom: 0; } .brow:hover, .brow:focus-visible { background: var(--accent-soft); outline: 0; }
 .brow:nth-child(odd):not(.bhead):not(:hover) { background: var(--panel-2); }
 .brow.crit { box-shadow: inset 3px 0 0 var(--err); }
@@ -640,9 +640,14 @@ body { background: var(--bg); color: var(--ink); }
 .brow .bso b { font-size: 14px; } .brow .bpart span { font-weight: 600; overflow-wrap: anywhere; } .brow .bnum { text-align: right; font-variant-numeric: tabular-nums; } .brow.bhead .bc2 { text-align: right; }
 .brow .bnext { line-height: 1.35; border-top: 0; padding-top: 0; font-size: 13px; } .brow .bwho { font-weight: 600; line-height: 1.25; } .brow .bwho.me { color: var(--accent); } .brow .bwho small { font-weight: 400; }
 .brow .bby { white-space: nowrap; } .brow .bby.late { color: var(--err); font-weight: 600; }
-.brow .bwait { text-align: left; } .brow .bc9 { text-align: right; }
-@media (max-width: 1100px) { .brow { grid-template-columns: 70px minmax(110px, 1fr) 50px minmax(180px, 2fr) minmax(100px, 1fr) 84px 140px 30px; } .brow .bc5, .brow .bc6 { display: none; } }
-@media (max-width: 760px) { .brow { grid-template-columns: 1fr auto; row-gap: 4px; } .brow.bhead { display: none; } .brow .bc2, .brow .bc4, .brow .bc5, .brow .bc6, .brow .bc9 { display: none; } .brow .bc3 { grid-column: 1 / -1; } }
+.brow .bwait { text-align: left; } .brow .bc11 { text-align: right; }
+.brow .bpct { display: grid; gap: 3px; } .brow .bpct b { font-size: 13px; } .brow .bpct.hi b { color: var(--ok); } .brow .bpct.mid b { color: var(--warn); } .brow .bpct.lo b { color: var(--err); }
+.brow .bpct .pbar { display: block; height: 4px; border-radius: 999px; background: var(--line); overflow: hidden; } .brow .bpct .pbar > span { display: block; height: 100%; background: currentColor; }
+.brow .bpct.hi .pbar { color: var(--ok); } .brow .bpct.mid .pbar { color: var(--warn); } .brow .bpct.lo .pbar { color: var(--err); }
+.brow .bmiss { display: flex; flex-wrap: wrap; gap: 3px 4px; align-items: center; } .brow .bmiss.none { color: var(--ok); font-weight: 600; font-size: 12px; }
+.brow .mchip { font-size: 11px; line-height: 1.5; padding: 0 7px; border-radius: 999px; background: var(--warn-bg); color: var(--warn); white-space: nowrap; } .brow .mmore { font: inherit; font-size: 11px; color: var(--accent); font-weight: 600; background: none; border: 0; padding: 0 2px; cursor: pointer; } .brow .mmore:hover { text-decoration: underline; }
+@media (max-width: 1350px) { .brow { grid-template-columns: 70px minmax(100px, 1fr) 48px minmax(150px, 1.5fr) 64px minmax(170px, 1.8fr) minmax(80px, .8fr) 80px 136px 28px; } .brow .bc7, .brow .bc8 { display: none; } }
+@media (max-width: 760px) { .brow { grid-template-columns: 1fr auto; row-gap: 4px; } .brow.bhead { display: none; } .brow .bc2, .brow .bc6, .brow .bc7, .brow .bc8, .brow .bc9, .brow .bc11 { display: none; } .brow .bc3, .brow .bc5 { grid-column: 1 / -1; } }
 .bwait { display: grid; text-align: right; } .bwait b { font-size: 13px; } .bwait.warn b { color: var(--warn); } .bwait.bad b { color: var(--err); } .bwait small { font-size: 11px; }
 .datatable .bwait { text-align: left; }
 
