@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Shop Order Tracking Details</title>
-<link rel="stylesheet" href="styles.css?v=3fde302d">
+<link rel="stylesheet" href="styles.css?v=e7b2b821">
 </head>
 <body>
 <aside id="sidenav" class="sidenav" aria-label="Sections" hidden>
@@ -312,6 +312,7 @@
 <!-- One SO: workflow, facts, edit, print, scan -->
 <main id="view-detail" hidden>
   <div id="detail-banner" role="alert"></div>
+  <div class="dsticky">
   <div class="dhead">
     <button id="btn-back" class="btn btn-ghost">← Back</button>
     <div class="dtitle">
@@ -322,13 +323,14 @@
     <div class="head-actions"><button id="btn-print" class="btn">🖨 Print details</button> <button id="btn-dup" class="btn" type="button" title="Create a new SO with all of this SO's details copied (SO# left blank)" hidden>⧉ Duplicate</button> <button id="btn-delete" class="btn btn-danger" type="button" hidden>🗑 Delete SO</button></div>
   </div>
   <section class="card stepper-card"><ol id="stepper" class="stepper" role="tablist" aria-label="Lifecycle stages: pick one to see and edit its fields"></ol></section>
+  </div>
   <section id="nextcard" class="card nextcard"></section>
   <section id="callouts" class="callouts"></section>
-  <details id="summarybox" class="card summarybox"><summary><b>Checklist &amp; summary</b> <span id="summary-sub" class="muted small"></span></summary>
-    <section id="facts" class="facts"></section>
-  </details>
   <div class="dmain">
     <form id="detail-form" autocomplete="off"></form>
+    <details id="summarybox" class="card summarybox"><summary><b>Checklist &amp; summary</b> <span id="summary-sub" class="muted small"></span></summary>
+      <section id="facts" class="facts"></section>
+    </details>
     <section class="card logbox" id="logbox">
       <h3>Follow-up log</h3>
       <p class="muted small">Decisions, follow-ups, escalations and where the evidence is (email subject, document link).</p>
@@ -410,6 +412,6 @@
 <script src="subcon.js?v=1e77d70d"></script>
 <script src="priceupdates.js?v=f2503fb6"></script>
 <script src="lifecycle.js?v=40c4f277"></script>
-<script src="app.js?v=8e4b0679"></script>
+<script src="app.js?v=c5ce2128"></script>
 </body>
 </html>

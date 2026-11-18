@@ -13,7 +13,7 @@
   // Editable sections of an SO, grouped the way a buyer works through it.
   // Tabs mirror the lifecycle stepper: [title, stages covered, fields (a..b = a field range in column order)]
   const TAB_DEFS = [
-    ['Decide & quantity', [1, 2], ['notes', 'so_required', 'so_required_note', 'champion', 'customer', 'part_no', 'part_rev', 'part_price', 'so_qty', 'due_date']],
+    ['Decide & quantity', [1, 2], ['so_required', 'so_required_note', 'champion', 'customer', 'part_no', 'part_rev', 'part_price', 'so_qty', 'due_date']],
     ['Quote', [3, 4], ['steel_type..update_mat_cost_date', 'supplier', 'quote_expected_date', 'quote_valid_until', 'quote_analysis']],
     // a 4th element adds boxes shown above the tab's own fields: [[legend, keys], ...]
     ['SO request & number', [5, 6], ['kanban_or_po', 'so_type', 'so_req_date', 'req_by', 'appr_date', 'gap', 'so_no', 'so_no_received_date'], [['Quote approval', ['quote_approve_date', 'quote_approved_by', 'quote_approve_note']]]],
@@ -23,7 +23,7 @@
     ['Invoice & closure', [12, 13], ['invoice_received_finance..diff_updated_po_invoice', 'invoice_checked_by', 'note', 'expected_closure_date', 'so_close_date', 'closure_verified_date', 'closure_note']],
     ['Follow-up', [], ['owner', 'last_followup_date', 'next_followup_date', 'escalated', 'blocker']]
   ];
-  const ALWAYS_KEYS = ['status'];   // shown above the tabs on every stage
+  const ALWAYS_KEYS = ['status', 'notes'];   // shown above the tabs on every stage
   let tabCache = null;
   function tabList() {
     if (tabCache && tabCache.n === state.fields.length) return tabCache.list;
@@ -578,6 +578,7 @@
   const METRIC_LIST = [['1. ANALYSIS', 'Analysis', 'analysis for SO release'], ['1.ANR', 'ANR', 'approved, not released'], ['2.RFS', 'RFS', 'request for SO'], ['3.OPEN', 'Open', 'SO open'], ['5.HOLD', 'On hold', ''], ['4.CLOSE', 'Closed', '']];
   const WAIT_LIMITS = { '1. ANALYSIS': [24], '1.ANR': [24], '2.RFS': [24, 48] };   // hours shown on the status tiles
   const WAIT_NAMES = { '1. ANALYSIS': 'Analysis', '1.ANR': 'ANR', '2.RFS': 'RFS' };
+  const titleCase = (s) => String(s || '').toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
   // how long an open SO has sat in Analysis / ANR / RFS (from the status clock); '' for other statuses
   function waitCell(r) {
     const st = norm(r.status).trim();
@@ -622,13 +623,24 @@
     const filterNote = active.length ? el('p', { class: 'filternote' }, 'Showing only: ' + active.join(' and ') + ' ', el('button', { class: 'btn btn-sm', type: 'button', text: 'Clear filter', onclick: () => { state.chip = 'all'; state.stage = ''; state.mat = ''; applyView(); } })) : '';
     const groups = STAGE_GROUPS.map(([title]) => [title, rows.filter((r) => groupOf(r) === title)]);
     const other = rows.filter((r) => !groupOf(r)); if (other.length) groups.push(['On hold / other', other]);
+    // each stage is a table: one aligned column per fact, so rows read across and the width is used
+    const BCOLS = ['SO #', 'Part', 'Qty', 'Next action', 'Who', 'Do by', 'Material', 'Time in status', 'Due', ''];
+    const mpillB = (m) => el('span', { class: 'badge ' + (m === 'Late' ? 'sc-bad' : m === 'At Risk' ? 'sc-warn' : m === 'Unknown' ? 'sc-muted' : 'sc-ok'), text: m });
     const sec = groups.filter(([, g]) => g.length).map(([title, g]) => el('section', { class: 'bstage' },
       el('h3', {}, title, el('b', { text: String(g.length) }), g.some(isMine) ? el('span', { class: 'badge sc-warn', text: g.filter(isMine).length + ' need you' }) : ''),
-      ...g.map((r) => { const lc = r.lc, d = rowDue(r);
-        return el('div', { class: 'brow', tabindex: 0, onclick: () => openById(r.id), onkeydown: (e) => { if (e.key === 'Enter') openById(r.id); } },
-          el('span', { class: 'bso' }, el('b', { text: norm(r.so_no) || 'Part check' }), el('span', { class: 'muted', text: ' ' + norm(r.part_no) }), el('small', { text: [norm(r.customer), norm(r.qty) ? norm(r.qty) + ' pcs' : ''].filter(Boolean).join(' · ') })),
-          el('span', { class: 'bnext' }, el('span', { text: lc && lc.next ? lc.next : '—' }), el('small', { text: lc ? (lc.owner === 'me' ? 'You' + (lc.actionDate ? ' · by ' + dshort(lc.actionDate) : '') : lc.waitingOn ? 'Waiting on ' + lc.waitingOn : '') : '' })),
-          waitCell(r), dueNode(d, false), dupBtn(r)); })));
+      el('div', { class: 'brow bhead', 'aria-hidden': 'true' }, ...BCOLS.map((h, i) => el('span', { class: 'bc' + i, text: h }))),
+      ...g.map((r) => { const lc = r.lc, d = rowDue(r), mine = lc && lc.owner === 'me', by = lc ? (mine ? lc.actionDate : lc.followup) : '';
+        return el('div', { class: 'brow' + (lc && lc.reasons.some((x) => x.level === 'crit') ? ' crit' : ''), tabindex: 0, onclick: () => openById(r.id), onkeydown: (e) => { if (e.key === 'Enter') openById(r.id); } },
+          el('span', { class: 'bc0 bso' }, el('b', { text: norm(r.so_no) || 'Part check' })),
+          el('span', { class: 'bc1 bpart' }, el('span', { text: norm(r.part_no) || '—' }), el('small', { text: norm(r.customer) })),
+          el('span', { class: 'bc2 bnum', text: norm(r.qty) ? Number(norm(r.qty).replace(/,/g, '')).toLocaleString() : '—' }),
+          el('span', { class: 'bc3 bnext', text: lc && lc.next ? lc.next : '—' }),
+          el('span', { class: 'bc4 bwho' + (mine ? ' me' : '') }, mine ? 'You' : lc && lc.waitingOn ? el('span', {}, el('small', { text: 'Waiting on' }), titleCase(lc.waitingOn)) : '—'),
+          el('span', { class: 'bc5 bby' + (by && by < today() ? ' late' : ''), text: by ? dshort(by) : '—' }),
+          el('span', { class: 'bc6' }, lc && lc.matStatus ? mpillB(lc.matStatus) : el('span', { class: 'muted', text: '—' })),
+          el('span', { class: 'bc7' }, waitCell(r)),
+          el('span', { class: 'bc8' }, dueNode(d, false)),
+          el('span', { class: 'bc9' }, dupBtn(r))); })));
     const cnt = state.dash && state.dash.counts ? state.dash.counts : null, all = state.dash ? state.dash.rows : [];
     const METRICS = METRIC_LIST;
     // open statuses count the open SOs the list shows (SO required = No counts as cancelled, not open); Closed uses the server total
@@ -1042,7 +1054,7 @@
   function afterFacts(rec) {
     const c = $('facts').querySelector('.fcard.ready'), box = $('summarybox');
     $('summary-sub').textContent = c ? '· ' + c.querySelector('.readyhead').textContent : '';
-    if (state.sumFor !== rec.id) { state.sumFor = rec.id; box.open = !!c && /(bad|warn)/.test(c.className); }
+    if (state.sumFor !== rec.id) { state.sumFor = rec.id; box.open = false; }   // starts collapsed below the form; open it when needed
   }
   function renderFacts(rec) {
     const row = (label, value, tone, badge) => el('div', { class: 'frow' }, el('span', { text: label }), el('span', { class: tone ? 'tone-' + tone : '' }, value === '' || value === '-' ? '—' : value, badge || ''));
@@ -1082,7 +1094,7 @@
     $('btn-dup').hidden = !canEdit();
     renderStepper(rec); renderNextCard(rec); renderCallouts(rec); renderFacts(rec); afterFacts(rec);
     const form = $('detail-form'); form.replaceChildren();
-    form.append(el('fieldset', { class: 'alwaysbar' }, el('legend', { text: 'Status (every stage)' }), el('div', { class: 'grid' }, ALWAYS_KEYS.filter((k) => state.byKey[k]).map((k) => fieldNode(state.byKey[k], rec)))));
+    form.append(el('fieldset', { class: 'alwaysbar' }, el('legend', { text: 'Status & notes (every stage)' }), el('div', { class: 'grid' }, ALWAYS_KEYS.filter((k) => state.byKey[k]).map((k) => fieldNode(state.byKey[k], rec)))));
     tabList().forEach(([title, , keys, boxes], i) => {
       form.append(el('div', { class: 'tabpanel', id: 'panel-' + i, role: 'tabpanel', hidden: i !== state.tab },
         ...(boxes || []).map(([legend, ks]) => el('fieldset', { class: 'prebox' }, el('legend', { text: legend }), el('div', { class: 'grid' }, ks.map((k) => fieldNode(state.byKey[k], rec))))),

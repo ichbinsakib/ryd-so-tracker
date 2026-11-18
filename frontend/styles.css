@@ -383,7 +383,7 @@ dialog table { width: 100%; border-collapse: collapse; } dialog th { text-align:
 
 /* no side column: checklist & summary is one collapsible panel; the form takes the full width */
 .dlayout, .dside { display: block; }
-.summarybox { margin-bottom: 8px; padding: 8px 14px; } .summarybox summary { cursor: pointer; } .summarybox[open] summary { margin-bottom: 8px; }
+.summarybox { margin: 10px 0 8px; padding: 8px 14px; } .summarybox summary { cursor: pointer; } .summarybox[open] summary { margin-bottom: 8px; }
 .summarybox .facts { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-items: start; }
 .dmain .logbox, .dmain .scanbox { margin-top: 10px; }
 .grid { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
@@ -630,11 +630,19 @@ body { background: var(--bg); color: var(--ink); }
 .bstage h3 b { color: var(--muted); font-weight: 600; }
 .dupbtn { background: none; border: 1px solid transparent; border-radius: 6px; color: var(--muted); font-size: 15px; line-height: 1; padding: 3px 6px; margin-right: 4px; cursor: pointer; vertical-align: middle; }
 .dupbtn:hover, .dupbtn:focus-visible { color: var(--accent); border-color: var(--line); background: var(--card, #fff); }
-.brow { display: grid; grid-template-columns: minmax(180px, 1.1fr) minmax(220px, 2fr) minmax(86px, max-content) minmax(110px, max-content) auto; gap: 14px; align-items: center; padding: 9px 14px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.brow { display: grid; grid-template-columns: 78px minmax(120px, 1.1fr) 56px minmax(210px, 2.4fr) minmax(110px, 1fr) 78px 82px 84px 150px 30px; column-gap: 14px; align-items: center; padding: 8px 14px; border-bottom: 1px solid var(--line); cursor: pointer; font-size: 13px; }
 .brow:last-child { border-bottom: 0; } .brow:hover, .brow:focus-visible { background: var(--accent-soft); outline: 0; }
-.brow small { display: block; color: var(--muted); font-size: 12px; }
-.bso b { font-size: 14px; }
-@media (max-width: 720px) { .brow { grid-template-columns: 1fr auto; } .bnext { grid-column: 1 / -1; order: 3; } }
+.brow:nth-child(odd):not(.bhead):not(:hover) { background: var(--panel-2); }
+.brow.crit { box-shadow: inset 3px 0 0 var(--err); }
+.brow small { display: block; color: var(--muted); font-size: 11.5px; }
+.brow.bhead { cursor: default; padding-top: 6px; padding-bottom: 6px; background: var(--panel); font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.brow.bhead:hover { background: var(--panel); }
+.brow .bso b { font-size: 14px; } .brow .bpart span { font-weight: 600; overflow-wrap: anywhere; } .brow .bnum { text-align: right; font-variant-numeric: tabular-nums; } .brow.bhead .bc2 { text-align: right; }
+.brow .bnext { line-height: 1.35; border-top: 0; padding-top: 0; font-size: 13px; } .brow .bwho { font-weight: 600; line-height: 1.25; } .brow .bwho.me { color: var(--accent); } .brow .bwho small { font-weight: 400; }
+.brow .bby { white-space: nowrap; } .brow .bby.late { color: var(--err); font-weight: 600; }
+.brow .bwait { text-align: left; } .brow .bc9 { text-align: right; }
+@media (max-width: 1100px) { .brow { grid-template-columns: 70px minmax(110px, 1fr) 50px minmax(180px, 2fr) minmax(100px, 1fr) 84px 140px 30px; } .brow .bc5, .brow .bc6 { display: none; } }
+@media (max-width: 760px) { .brow { grid-template-columns: 1fr auto; row-gap: 4px; } .brow.bhead { display: none; } .brow .bc2, .brow .bc4, .brow .bc5, .brow .bc6, .brow .bc9 { display: none; } .brow .bc3 { grid-column: 1 / -1; } }
 .bwait { display: grid; text-align: right; } .bwait b { font-size: 13px; } .bwait.warn b { color: var(--warn); } .bwait.bad b { color: var(--err); } .bwait small { font-size: 11px; }
 .datatable .bwait { text-align: left; }
 
@@ -696,7 +704,8 @@ button.mtile { cursor: pointer; } button.mtile:hover { border-color: var(--accen
 .stframe { display: block; width: 100%; height: calc(100vh - 170px); min-height: 480px; border: 1px solid var(--line); border-radius: var(--radius); background: #fff; }
 
 /* status box shown above the stage tabs on the SO page */
-#detail-form .alwaysbar { margin-bottom: 10px; } #detail-form .alwaysbar .grid { grid-template-columns: minmax(200px, 260px); }
+#detail-form .alwaysbar { margin-bottom: 10px; } #detail-form .alwaysbar .grid { grid-template-columns: minmax(200px, 260px) 1fr; align-items: start; } #detail-form .alwaysbar .field.wide { grid-column: auto; }
+@media (max-width: 720px) { #detail-form .alwaysbar .grid { grid-template-columns: 1fr; } }
 #detail-form .prebox { margin-bottom: 10px; }
 #board .filternote { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: -4px 0 12px; padding: 6px 10px; border-radius: var(--radius); background: var(--accent-soft); font-size: 13px; }
 /* phones: the top bar keeps only the menu, Refresh, the user and Sign out, so the page never scrolls sideways */
@@ -765,3 +774,8 @@ button.mtile { cursor: pointer; } button.mtile:hover { border-color: var(--accen
 #dash2-wait { margin-bottom: 14px; }
 .waittable td.num, .waittable th:nth-child(n+3) { text-align: right; } .waittable td.warn { color: var(--warn); font-weight: 700; } .waittable td.bad { color: var(--err); font-weight: 700; }
 .waittable tbody tr { cursor: pointer; } .waittable tbody tr:hover, .waittable tbody tr:focus-visible { background: var(--accent-soft); outline: 0; }
+/* SO page: the title row and the stage bar stay in view while the form scrolls */
+.dsticky { position: sticky; top: 54px; z-index: 15; background: var(--bg); padding-top: 6px; margin-top: -6px; box-shadow: 0 6px 8px -8px rgba(16,30,54,.25); }
+.dsticky .stepper-card { margin-bottom: 10px; }
+@media (max-width: 1000px) { .dsticky { position: static; box-shadow: none; } }
+@media print { .dsticky { position: static; box-shadow: none; } }
