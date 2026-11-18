@@ -1197,16 +1197,16 @@
     const rec = state.current; if (!rec) return 'mailto:';
     const v = (k) => { const i = $('fld-' + k); return (i ? i.value : norm(rec.values[k])).trim(); };
     const d = (k) => norm(rec.display[k]).trim();
-    const code = v('material_code') || d('steel_type'), qty = v('qty_requested'), part = v('part_no');
+    const code = v('material_code') || d('steel_type'), qty = v('qty_requested'), part = v('part_no'), cust = v('customer');
     const ok = (x) => x && x !== '-' && !/^#/.test(x) && parseFloat(x) > 0;
     const lbs = d('req_lbs'), bars = ok(d('req_bar')) ? Math.ceil(parseFloat(d('req_bar'))) + ' bars' + (ok(d('req_ft')) ? ', ' + d('req_ft') + ' ft' : '') : '';
     const quantity = ok(lbs) ? lbs + ' lbs' + (bars ? ' (' + bars + ')' : '') : (qty || bars || '—');
-    const lines = ['Hello,', '', 'Please send a quote for the following material:', '', 'Part number: ' + (part || '—'),
+    const lines = ['Hello,', '', 'Please send a quote for the following material:', '', 'Customer: ' + (cust || '—'), 'Part number: ' + (part || '—'),
       'Material: ' + code + (d('steel_type') && d('steel_type') !== code ? ' (' + d('steel_type') + ')' : ''),
       'Bar type: ' + (v('bar_type') || '—') + (d('router_bar_size') && d('router_bar_size') !== '-' ? ', ' + d('router_bar_size') : ''),
       'Quantity: ' + quantity,
       '', 'Please reply with the price and lead time.', '', 'Thank you.'];
-    return 'mailto:?subject=' + encodeURIComponent('Material quote request - Part ' + (part || '—') + ' - ' + code) + '&body=' + encodeURIComponent(lines.join('\n'));
+    return 'mailto:?subject=' + encodeURIComponent('Material quote request - ' + (cust ? cust + ' - ' : '') + 'Part ' + (part || '—') + ' - ' + code) + '&body=' + encodeURIComponent(lines.join('\n'));
   }
   function onEdit(e) {
     if (e.target.dataset.key === 'bar_type' || e.target.dataset.key === 'material_code') liveLbs();
