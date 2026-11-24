@@ -519,7 +519,8 @@ var SOCore = (function () {
     }
     if (Object.keys(errors).length) return { ok: false, code: 'INVALID', error: 'Please fix the highlighted fields.', fieldErrors: errors };
     var given = {}; writes.forEach(function (w) { given[w.key] = true; });
-    var complete = INTAKE_REQUIRED.every(function (k) { return given[k]; });
+    // it opens as a real SO (3.OPEN) only with every SO detail AND an SO#: an SO cannot be OPEN without its number
+    var complete = !!given.so_no && INTAKE_REQUIRED.every(function (k) { return given[k]; });
     writes.push({ key: 'status', field: BY_KEY.status, value: complete ? NEW_SO_STATUS : CHECK_STATUS });
     return { ok: true, writes: writes };
   }
@@ -1426,7 +1427,9 @@ var SOLife = (function () {
       else r.matStatus = 'On Time';
     }
 
-    var followDate = date(d, 'next_followup_date');
+    // The follow-up stage (next follow-up, escalated, outstanding issue) is hidden on the SO page, so those fields can no longer
+    // be edited: they must not drive any flag, or a stale value could never be cleared. Follow-ups come from the stage dates only.
+    var followDate = null;
     function followupBy(def) { return followDate || def; }
 
     var closedStatus = /CLOSE/.test(status), held = /HOLD/.test(status);
@@ -1503,8 +1506,6 @@ var SOLife = (function () {
     var live = r.status !== 'Closed — Verified' && r.status !== 'Cancelled / Not Required';
     if (onHold) {
       why('info', 'On hold');
-      if (yes(d, 'escalated')) why('crit', 'Escalated');
-      if (has(d, 'blocker')) why('warn', 'Issue: ' + txt(d, 'blocker'));
     } else if (live) {
       if (due && r.stage < 13 && diff(due, today) < 0) why('crit', 'Overdue ' + plural(-diff(due, today), 'day') + ', not closed');
       else if (due && diff(due, today) <= CFG.dueSoonDays && r.stage < 13) why(diff(due, today) <= 7 ? 'warn' : 'info', 'Due in ' + plural(diff(due, today), 'day') + ' (' + iso(due) + ')');
@@ -1513,8 +1514,6 @@ var SOLife = (function () {
       else if (r.matStatus === 'At Risk') why('warn', 'Material delivery at risk' + (promised && required && diff(promised, required) > 0 ? ': promised ' + plural(diff(promised, required), 'day') + ' after it is needed' : ''));
       else if (r.matStatus === 'Unknown' && r.stage >= 8) why('warn', 'No promised material delivery date');
       if (r.followup && diff(r.followup, today) <= 0) why(diff(r.followup, today) < 0 ? 'warn' : 'info', 'Follow-up ' + (diff(r.followup, today) < 0 ? 'overdue by ' + plural(-diff(r.followup, today), 'day') : 'due today'));
-      if (yes(d, 'escalated')) why('crit', 'Escalated');
-      if (has(d, 'blocker')) why('warn', 'Issue: ' + txt(d, 'blocker'));
       if (released && poNeeded && !matReceived && !poApproved) why('warn', poCreated ? 'PO approval not recorded' : 'Material PO not recorded');
       if (released && poNeeded && poApproved && !ackDone) why('info', 'Supplier acknowledgment not recorded');
       if (progressed && !soNo) why('warn', 'SO number not recorded');
@@ -1529,7 +1528,7 @@ var SOLife = (function () {
     else if (onHold) sec = 'B';
     else if (r.final === 'Overdue') sec = 'E';
     else if (r.matStatus === 'Late' || r.matStatus === 'At Risk') sec = 'C';
-    else if (r.owner === 'me' || yes(d, 'escalated') || (followDue && r.owner !== 'none')) sec = 'A';
+    else if (r.owner === 'me' || (followDue && r.owner !== 'none')) sec = 'A';
     else if (r.owner && r.owner !== 'none' && r.owner !== 'me') sec = 'B';
     else if (r.stage === 12 && due && diff(due, today) <= CFG.dueSoonDays) sec = 'D';
 
@@ -2193,7 +2192,7 @@ var SOPg = (function () {
   function create(opts) {
     bind();
     var ops = [];
-    var rows = (opts.rows || []).map(function (r) { return { rowNumber: r.rowNumber, id: r.id, data: JSON.parse(JSON.stringify(r.data || {})), statusSince: r.statusSince || null, pending: false }; });
+    var rows = (opts.rows || []).map(function (r) { return { rowNumber: r.rowNumber, id: r.id, data: JSON.parse(JSON.stringify(r.data || {})), statusSince: r.statusSince || null, updatedAt: r.updatedAt || null, pending: false }; });
     var users = (opts.users || []).map(function (u) { return Object.assign({}, u); });
     var scans = (opts.scans || []).slice();
     var tempRow = 0;
@@ -2264,7 +2263,8 @@ var SOPg = (function () {
           if (c.value === '' || c.value === null || c.value === undefined) { delete row.data[f.key]; patch[f.key] = null; }
           else { row.data[f.key] = c.value; patch[f.key] = c.value; }
         });
-        if (!row.pending) ops.push({ type: 'update', id: row.id, patch: patch });
+        // expect: the row's updated_at as it was read; the database refuses the write if it changed since (no lost update)
+        if (!row.pending) ops.push({ type: 'update', id: row.id, patch: patch, expect: row.updatedAt });
         else { var ins = ops.filter(function (o) { return o.type === 'insert' && o.id === row.id; })[0]; if (ins) Object.keys(patch).forEach(function (k) { if (patch[k] === null) delete ins.data[k]; else ins.data[k] = patch[k]; }); }
       },
       insertRow: function (cells, id) {
@@ -2292,7 +2292,16 @@ var SOPg = (function () {
       auditAll: function (list) { var self = this; list.forEach(function (e) { self.audit(e); }); },
 
       readUsers: function () { return users.map(function (u) { return Object.assign({}, u); }); },
-      writeUsers: function (list) { users = list.map(function (u) { return Object.assign({}, u); }); ops.push({ type: 'users', list: users.map(function (u) { return Object.assign({}, u); }) }); },
+      writeUsers: function (list) {
+        // only what this request changed is written: the users it edited or added, and the ones it removed
+        var before = {}; users.forEach(function (u) { before[String(u.email).toLowerCase()] = JSON.stringify(u); });
+        var after = list.map(function (u) { return Object.assign({}, u); }), keep = {};
+        after.forEach(function (u) { keep[String(u.email).toLowerCase()] = true; });
+        var changed = after.filter(function (u) { return before[String(u.email).toLowerCase()] !== JSON.stringify(u); });
+        var removed = Object.keys(before).filter(function (e) { return !keep[e]; });
+        users = after;
+        ops.push({ type: 'users', list: after.map(function (u) { return Object.assign({}, u); }), changed: changed, removed: removed });
+      },
 
       readStock: function () {
         var s = opts.stock || { rows: [], count: 0, meta: null };
@@ -2484,7 +2493,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 async function allOrderRows() {
   const out: any[] = [];
   for (let from = 0; ; from += 1000) {
-    const page = must(await sb.from('shop_orders').select('row_no,id,data,status_since').order('row_no').range(from, from + 999)) as any[];
+    const page = must(await sb.from('shop_orders').select('row_no,id,data,status_since,updated_at').order('row_no').range(from, from + 999)) as any[];
     out.push(...page);
     if (page.length < 1000) break;
   }
@@ -2501,7 +2510,7 @@ async function pagedRows(page: (from: number, to: number) => PromiseLike<any>): 
   }
   return out;
 }
-const toRow = (r: any) => ({ rowNumber: Number(r.row_no), id: r.id, data: r.data || {}, statusSince: r.status_since || null });
+const toRow = (r: any) => ({ rowNumber: Number(r.row_no), id: r.id, data: r.data || {}, statusSince: r.status_since || null, updatedAt: r.updated_at || null });
 
 async function chunkedIn(table: string, cols: string, keyCol: string, keys: string[]) {
   // chunks run in parallel (one round trip of latency instead of one per chunk)
@@ -2540,7 +2549,7 @@ async function prefetch(req: any, email: string, role: string | null, users: any
     const want = SOCore.normSo(req.so_no);
     if (want) rows = must(await sb.from('shop_orders').select('row_no,id,data').eq('so_key', want).order('row_no').limit(5)) as any[];
   } else if (BY_ID.has(action) && typeof req.id === 'string' && UUID.test(req.id)) {
-    rows = must(await sb.from('shop_orders').select('row_no,id,data').eq('id', req.id).limit(1)) as any[];
+    rows = must(await sb.from('shop_orders').select('row_no,id,data,updated_at').eq('id', req.id).limit(1)) as any[];
   } else if (action === 'createSO' && req.changes && typeof req.changes === 'object') {
     const want = SOCore.normSo(req.changes.so_no);
     if (want) rows = must(await sb.from('shop_orders').select('row_no,id,data').eq('so_key', want).limit(1)) as any[];
@@ -2602,31 +2611,30 @@ async function prefetch(req: any, email: string, role: string | null, users: any
 }
 
 async function flush(ops: any[]) {
-  // merge consecutive patches to the same row into one write
-  const patches = new Map<string, Record<string, unknown>>();
-  for (const o of ops) if (o.type === 'update') patches.set(o.id, Object.assign(patches.get(o.id) || {}, o.patch));
+  // Shop-order writes and every audit line go to apply_order_ops in ONE transaction (atomic-writes.sql): all of a save
+  // lands or none of it, and an update whose row changed since it was read is refused (CONFLICT) instead of overwriting.
+  // Consecutive patches to the same row are merged into one write that keeps the first version check.
+  const patches = new Map<string, Record<string, unknown>>(), expects = new Map<string, string | null>();
+  for (const o of ops) if (o.type === 'update') { patches.set(o.id, Object.assign(patches.get(o.id) || {}, o.patch)); if (!expects.has(o.id)) expects.set(o.id, o.expect || null); }
   const doneUpdate = new Set<string>();
-  const audits: any[] = [];
+  const orderOps: any[] = [];
   for (const o of ops) {
     if (o.type === 'update') {
       if (doneUpdate.has(o.id)) continue;
       doneUpdate.add(o.id);
-      const r = await sb.rpc('patch_order', { p_id: o.id, p_patch: patches.get(o.id) });
-      if (r.error) { if (r.error.code === '23505') throw { duplicate: true }; throw new Error(r.error.message); }   // so_no changed to one that exists (shop_orders_so_key_uq)
+      orderOps.push({ type: 'update', id: o.id, patch: patches.get(o.id), expect: expects.get(o.id) });
     } else if (o.type === 'insert') {
-      const r = await sb.from('shop_orders').insert({ id: o.id, data: o.data, created_by: String(o.createdBy || '').toLowerCase() });
-      if (r.error) { if (r.error.code === '23505') throw { duplicate: true }; throw new Error(r.error.message); }
+      orderOps.push({ type: 'insert', id: o.id, data: o.data, createdBy: String(o.createdBy || '').toLowerCase() });
     } else if (o.type === 'delete') {
-      const r = await sb.from('shop_orders').delete().eq('id', o.id);
-      if (r.error) throw new Error(r.error.message);
+      orderOps.push({ type: 'delete', id: o.id, expect: o.expect || null });
     } else if (o.type === 'audit') {
-      audits.push({ at: o.entry.at, user_email: o.entry.user, record_id: String(o.entry.recordId || ''), row_no: o.entry.row, field: o.entry.field, old_value: o.entry.oldValue, new_value: o.entry.newValue });
+      orderOps.push({ type: 'audit', at: o.entry.at, user: o.entry.user, recordId: String(o.entry.recordId || ''), row: o.entry.row, field: o.entry.field, oldValue: o.entry.oldValue, newValue: o.entry.newValue });
     } else if (o.type === 'users') {
-      const rows = o.list.map((u: any) => ({ email: String(u.email).toLowerCase(), name: u.name || '', employee_id: u.employeeId || '', role: u.role, active: !!u.active, added_by: u.addedBy || '', added_at: u.addedAt || '', updated_by: u.updatedBy || '', updated_at: u.updatedAt || '' }));
+      // only the users this request changed are written, and only the ones it removed are deleted: a concurrent
+      // edit by another admin (someone added or changed meanwhile) is never undone
+      const rows = (o.changed || o.list).map((u: any) => ({ email: String(u.email).toLowerCase(), name: u.name || '', employee_id: u.employeeId || '', role: u.role, active: !!u.active, added_by: u.addedBy || '', added_at: u.addedAt || '', updated_by: u.updatedBy || '', updated_at: u.updatedAt || '' }));
       if (rows.length) { const r = await sb.from('app_users').upsert(rows, { onConflict: 'email' }); if (r.error) throw new Error(r.error.message); }
-      const existing = must(await sb.from('app_users').select('email')) as any[];
-      const keep = new Set(rows.map((x: any) => x.email));
-      const gone = existing.map((x) => x.email).filter((e) => !keep.has(e));
+      const gone = (o.removed || []).map((e: string) => String(e).toLowerCase());
       if (gone.length) { const r = await sb.from('app_users').delete().in('email', gone); if (r.error) throw new Error(r.error.message); }
     } else if (o.type === 'stock') {
       const r = await sb.rpc('replace_stockroom_prices', { p_rows: o.rows });
@@ -2651,10 +2659,17 @@ async function flush(ops: any[]) {
       const up = await sb.storage.from('scans').upload(path, bytes, { contentType: s.mime, upsert: false });
       if (up.error) throw new Error(up.error.message);
       const r = await sb.from('so_scans').insert({ id: s.fileId, record_id: s.recordId, so_no: String(s.soNo || ''), name: s.name, mime: s.mime, path, by_user: s.by, at: s.at });
-      if (r.error) throw new Error(r.error.message);
+      if (r.error) { await sb.storage.from('scans').remove([path]); throw new Error(r.error.message); }   // no orphaned file without its record
     }
   }
-  if (audits.length) { const r = await sb.from('app_audit').insert(audits); if (r.error) throw new Error(r.error.message); }
+  if (orderOps.length) {
+    const r = await sb.rpc('apply_order_ops', { p_ops: orderOps });
+    if (r.error) {
+      if (r.error.code === '23505') throw { duplicate: true };   // so_no set to one that exists (shop_orders_so_key_uq)
+      if (r.error.code === 'P0409') throw { conflict: true };    // the row changed since it was read
+      throw new Error(r.error.message);
+    }
+  }
 }
 
 async function loadUsersAndConfig() {
@@ -2886,8 +2901,12 @@ async function subconAction(req: any, email: string, role: string | null) {
       SOSub.MILESTONES.forEach((x: any) => track(x.key, x.label, (prev.ms || {})[x.key], (c.value.ms as any)[x.key]));
       SOSub.EXPECTED.forEach((x: any) => track(x.key, x.label, (prev.exp || {})[x.key], (c.value.exp as any)[x.key]));
       const upd: any = { ...c.value, orig, updated_at: new Date().toISOString() }; if (!upd.order_ref) delete upd.order_ref;   // a blank ref never wipes the existing one
-      const r = await sb.from('sc_lines').update(upd).eq('id', id).select('id').single();
+      // refuse the save when the line changed after this form was loaded (no silent overwrite of another person's dates)
+      let q = sb.from('sc_lines').update(upd).eq('id', id);
+      if (req.line.updated_at) q = q.eq('updated_at', String(req.line.updated_at));
+      const r = await q.select('id');
       if (r.error) return scDup(r.error) ? dupFail(r.error) : fail('SERVER_ERROR', r.error.message);
+      if (!(r.data as any[]).length) return fail('CONFLICT', 'This order was changed by someone else since you opened it. Reload it, then make your change again.');
       if (changed.length) await sb.from('sc_updates').insert({ line_id: id, by_user: email, kind: 'CHANGE', text: changed.join('; ').slice(0, 1900) });
     } else {
       const ins: any = { ...c.value, created_by: email }; if (!ins.order_ref) ins.order_ref = (await nextRefs(1))[0];
@@ -2921,7 +2940,7 @@ async function subconAction(req: any, email: string, role: string | null) {
     if (revised && !SOSub.isDate(revised)) errors.revised_date = 'Use a valid date.';
     if (Object.keys(errors).length) return bad(errors);
     if (!Object.keys(patchMs).length && !blocker && !b.clear_blocker && !note && !revised) return fail('INVALID', 'Nothing to apply: enter a date, note, blocker or revised date.');
-    const sel = await sb.from('sc_lines').select('id,ms,po_no').eq('bpo_no', String(b.bpo_no || '')).eq('batch', String(b.batch || '')).eq('closed', false).limit(300);
+    const sel = await sb.from('sc_lines').select('id,ms,po_no,note').eq('bpo_no', String(b.bpo_no || '')).eq('batch', String(b.batch || '')).eq('closed', false).limit(300);
     const rows = must(sel as any); if (!rows.length) return fail('NOT_FOUND', 'No open lines in that batch.');
     const summary: string[] = [];
     Object.keys(patchMs).forEach((k) => summary.push(SOSub.MILESTONES.find((m: any) => m.key === k).label + ' ' + patchMs[k]));
@@ -2933,7 +2952,7 @@ async function subconAction(req: any, email: string, role: string | null) {
       const patch: any = { ms, last_update: today, updated_at: new Date().toISOString() };
       if (b.clear_blocker) { patch.blocker = ''; patch.blocker_type = ''; } else if (blocker) { patch.blocker = blocker; patch.blocker_type = blockerType; }
       if (revised) { patch.revised_date = revised; if (b.delay_reason) patch.delay_reason = String(b.delay_reason).trim().slice(0, 500); }
-      if (note) patch.note = note;
+      if (note) { const own = String(r.note || '').trim(); patch.note = (own ? own + '\n' + today + ': ' + note : note).slice(0, 2000); }   // added to each part's own note, never replacing it
       const u = await sb.from('sc_lines').update(patch).eq('id', r.id); if (u.error) return fail('SERVER_ERROR', u.error.message);
     }
     const ins = await sb.from('sc_updates').insert((rows as any[]).map((r) => ({ line_id: r.id, by_user: email, kind: 'CHANGE', text: 'Batch update: ' + text })));
@@ -3138,6 +3157,16 @@ async function handleRequest(req: any) {
     try { await flush(snap.ops); }
     catch (e: any) {
       if (e && e.duplicate) return fail('INVALID', 'Please fix the highlighted fields.', { fieldErrors: { so_no: 'That SO# already exists.' } });
+      if (e && e.conflict) {
+        // hand back the record as it is now, so the page can show what changed and let the user re-apply their edits
+        let current: any = null;
+        if (typeof req.id === 'string' && UUID.test(req.id)) {
+          const fresh = SOPg.create(await prefetch({ action: 'get', id: req.id }, email, role, users, cfg));
+          const g = SOService.handle(fresh.adapter, { action: 'get', id: req.id, idToken: req.idToken });
+          if (g && g.ok) current = g.record;
+        }
+        return fail('CONFLICT', 'This record was changed by someone else since you opened it. Your changes were not saved.', current ? { current } : {});
+      }
       throw e;
     }
   }

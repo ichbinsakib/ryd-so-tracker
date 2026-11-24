@@ -516,7 +516,8 @@ var SOCore = (function () {
     }
     if (Object.keys(errors).length) return { ok: false, code: 'INVALID', error: 'Please fix the highlighted fields.', fieldErrors: errors };
     var given = {}; writes.forEach(function (w) { given[w.key] = true; });
-    var complete = INTAKE_REQUIRED.every(function (k) { return given[k]; });
+    // it opens as a real SO (3.OPEN) only with every SO detail AND an SO#: an SO cannot be OPEN without its number
+    var complete = !!given.so_no && INTAKE_REQUIRED.every(function (k) { return given[k]; });
     writes.push({ key: 'status', field: BY_KEY.status, value: complete ? NEW_SO_STATUS : CHECK_STATUS });
     return { ok: true, writes: writes };
   }

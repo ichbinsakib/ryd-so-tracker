@@ -102,7 +102,7 @@ test('service on the database adapter: create inserts, duplicate SO# refused, pe
   const form = { part_no: 'P9', customer: 'ACME', champion: 'Bob', so_qty: '5', due_date: '2026-12-01', so_type: 'standard', kanban_or_po: 'po', req_by: 'bob', so_req_date: '2026-10-16' };
   assert.equal(call(p, { action: 'createSO', changes: { ...form, so_no: '100' } }).code, 'INVALID');
   assert.equal(call(p, { action: 'createSO', changes: { ...form, champion: 'Nobody' } }).code, 'INVALID');
-  const r = call(p, { action: 'createSO', changes: form });
+  const r = call(p, { action: 'createSO', changes: { ...form, so_no: '200' } });
   assert.equal(r.ok, true);
   assert.equal(r.record.values.status, '3.OPEN');
   assert.equal(r.record.values.req_by, 'Bob');
@@ -216,4 +216,24 @@ test('dashboard rows carry the status clock (status_since) from the database', (
   assert.equal(d.ok, true, d.error);
   assert.equal(d.rows[0].statusSince, since);
   assert.deepEqual(d.custCounts, { IR: { '2.RFS': 1 } });
+});
+
+test('a save carries the row version it was based on, so the database can refuse a lost update', () => {
+  const p = make({ rows: [{ rowNumber: 1, id: 'id-1', updatedAt: '2026-11-20T10:00:00.123456+00:00', data: { part_no: 'P1', so_no: '100', status: '2.RFS' } }] });
+  const g = call(p, { action: 'get', id: 'id-1' });
+  assert.equal(call(p, { action: 'update', id: 'id-1', baseVersion: g.record.version, changes: { notes: 'x' } }).ok, true);
+  assert.equal(p.ops.find((o) => o.type === 'update').expect, '2026-11-20T10:00:00.123456+00:00');
+});
+
+test('saving users writes only what changed and deletes only who was removed', () => {
+  const users = [
+    { email: 'a@x.com', name: 'A', role: 'admin', active: true },
+    { email: 'b@x.com', name: 'B', role: 'editor', active: true },
+    { email: 'c@x.com', name: 'C', role: 'viewer', active: true }
+  ];
+  const p = Pg.create({ email: 'a@x.com', config: { admins: 'a@x.com' }, users, newId: () => 'n' });
+  p.adapter.writeUsers([users[0], Object.assign({}, users[1], { role: 'viewer' })]);   // B changed, C removed, A untouched
+  const op = p.ops.find((o) => o.type === 'users');
+  assert.deepEqual(op.changed.map((u) => u.email), ['b@x.com']);
+  assert.deepEqual(op.removed, ['c@x.com']);
 });

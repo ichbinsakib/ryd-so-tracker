@@ -1101,6 +1101,8 @@
   // ---------- one SO: page, tabs, editing
   function openRecord(rec, kind, msg) {
     state.current = rec; state.dirty = false; state.scans = []; state.tab = tabForStage(lcOf(rec).stage);
+    // a file picked on the previous SO must never be uploaded to this one
+    $('scan-file').value = ''; $('scan-go').disabled = true; $('scan-msg').textContent = '';
     renderDetail(); show('view-detail'); banner('detail-banner', kind || '', msg || ''); updateDirty();
     renderScans(); loadScans();   // the follow-up log box was removed from the SO page
   }
@@ -2135,7 +2137,8 @@
   function scTouch() { state.dirty = true; $('scd-savebar').hidden = false; scRender(); }
   function scCollect() {
     const { o, f, mf, ef } = SCD;
-    return { line: Object.assign({ id: o.id }, Object.fromEntries(Object.keys(f).filter((k) => !['escalated', 'closed'].includes(k)).map((k) => [k, f[k].value])), { escalated: f.escalated.checked, closed: f.closed.checked,
+    // updated_at: the version this form was loaded from; the server refuses the save if the line changed since
+    return { line: Object.assign({ id: o.id, updated_at: o.updated_at || '' }, Object.fromEntries(Object.keys(f).filter((k) => !['escalated', 'closed'].includes(k)).map((k) => [k, f[k].value])), { escalated: f.escalated.checked, closed: f.closed.checked,
       ms: Object.fromEntries(Object.keys(mf).map((k) => [k, mf[k].value])), exp: Object.fromEntries(Object.keys(ef).map((k) => [k, ef[k].value])) }) };
   }
   // the same rules as the server (subcon.js), run on what is typed so the stage bar and next action stay current

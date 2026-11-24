@@ -30,7 +30,7 @@ var SOPg = (function () {
   function create(opts) {
     bind();
     var ops = [];
-    var rows = (opts.rows || []).map(function (r) { return { rowNumber: r.rowNumber, id: r.id, data: JSON.parse(JSON.stringify(r.data || {})), statusSince: r.statusSince || null, pending: false }; });
+    var rows = (opts.rows || []).map(function (r) { return { rowNumber: r.rowNumber, id: r.id, data: JSON.parse(JSON.stringify(r.data || {})), statusSince: r.statusSince || null, updatedAt: r.updatedAt || null, pending: false }; });
     var users = (opts.users || []).map(function (u) { return Object.assign({}, u); });
     var scans = (opts.scans || []).slice();
     var tempRow = 0;
@@ -101,7 +101,8 @@ var SOPg = (function () {
           if (c.value === '' || c.value === null || c.value === undefined) { delete row.data[f.key]; patch[f.key] = null; }
           else { row.data[f.key] = c.value; patch[f.key] = c.value; }
         });
-        if (!row.pending) ops.push({ type: 'update', id: row.id, patch: patch });
+        // expect: the row's updated_at as it was read; the database refuses the write if it changed since (no lost update)
+        if (!row.pending) ops.push({ type: 'update', id: row.id, patch: patch, expect: row.updatedAt });
         else { var ins = ops.filter(function (o) { return o.type === 'insert' && o.id === row.id; })[0]; if (ins) Object.keys(patch).forEach(function (k) { if (patch[k] === null) delete ins.data[k]; else ins.data[k] = patch[k]; }); }
       },
       insertRow: function (cells, id) {
@@ -129,7 +130,16 @@ var SOPg = (function () {
       auditAll: function (list) { var self = this; list.forEach(function (e) { self.audit(e); }); },
 
       readUsers: function () { return users.map(function (u) { return Object.assign({}, u); }); },
-      writeUsers: function (list) { users = list.map(function (u) { return Object.assign({}, u); }); ops.push({ type: 'users', list: users.map(function (u) { return Object.assign({}, u); }) }); },
+      writeUsers: function (list) {
+        // only what this request changed is written: the users it edited or added, and the ones it removed
+        var before = {}; users.forEach(function (u) { before[String(u.email).toLowerCase()] = JSON.stringify(u); });
+        var after = list.map(function (u) { return Object.assign({}, u); }), keep = {};
+        after.forEach(function (u) { keep[String(u.email).toLowerCase()] = true; });
+        var changed = after.filter(function (u) { return before[String(u.email).toLowerCase()] !== JSON.stringify(u); });
+        var removed = Object.keys(before).filter(function (e) { return !keep[e]; });
+        users = after;
+        ops.push({ type: 'users', list: after.map(function (u) { return Object.assign({}, u); }), changed: changed, removed: removed });
+      },
 
       readStock: function () {
         var s = opts.stock || { rows: [], count: 0, meta: null };

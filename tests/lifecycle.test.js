@@ -58,13 +58,12 @@ test('SOs already past an early stage are not sent backwards; not required SOs a
   assert.equal(d({ ...base, so_required: 'NO' }).status, 'Cancelled / Not Required');
 });
 
-test('follow-ups, escalation and issues raise reasons and put the SO in my actions', () => {
+test('hidden follow-up fields (next follow-up, escalated, outstanding issue) never raise flags: they cannot be edited any more', () => {
   const r = d({ ...released, po_due_date: '2026-11-15', mat_receive_date_stockroom: '2026-10-28', escalated: 'YES', blocker: 'Drawing rev unclear' });
-  assert.ok(r.reasons.some((x) => x.text === 'Escalated' && x.level === 'crit'));
-  assert.ok(r.reasons.some((x) => /Issue: Drawing/.test(x.text)));
-  assert.equal(r.section, 'A');
+  assert.ok(!r.reasons.some((x) => x.text === 'Escalated' || /^Issue:/.test(x.text)));
+  assert.notEqual(r.section, 'A');
   const f = d({ ...base, so_no: '1', po_approve_date: '2026-10-27', next_followup_date: '2026-10-25' });
-  assert.ok(f.reasons.some((x) => /Follow-up overdue by 4 days/.test(x.text)));
+  assert.ok(!f.reasons.some((x) => /Follow-up overdue by 4 days/.test(x.text)), 'a stale stored follow-up date is ignored');
 });
 
 // ---- review fixes (today 2026-11-12)
@@ -92,5 +91,5 @@ test('5.HOLD: on hold, nobody owes anything, never overdue, kept visible in sect
   assert.equal(h.section, 'B'); assert.equal(h.final, 'Open'); assert.equal(h.followup, ''); assert.equal(h.followupDue, false);
   assert.deepEqual(h.reasons.map((x) => x.text), ['On hold']);
   assert.ok(L.STATUSES.includes('On hold'));
-  assert.ok(L.describe({ ...po, status: '5.HOLD', escalated: 'YES' }, T2).reasons.some((x) => x.text === 'Escalated'));
+  assert.ok(!L.describe({ ...po, status: '5.HOLD', escalated: 'YES' }, T2).reasons.some((x) => x.text === 'Escalated'));
 });

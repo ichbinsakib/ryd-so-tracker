@@ -181,6 +181,8 @@ test('SO# is optional when opening an SO; people list comes from active users', 
   const p = Core.planCreate(f, ['x']);
   assert.equal(p.ok, true);
   assert.ok(!p.writes.some(w => w.key === 'so_no'));
+  assert.equal(p.writes.find(w => w.key === 'status').value, '1. ANALYSIS', 'every detail but no SO#: a part check, never 3.OPEN');
+  assert.equal(Core.planCreate(goodForm(), ['x']).writes.find(w => w.key === 'status').value, '3.OPEN', 'with the SO# it opens as a real SO');
   const s = new FakeSheet(); s.users = [
     { email: 'b@x.com', name: 'Bravo', role: 'editor', active: true },
     { email: 'al@x.com', name: 'ALPHA', role: 'editor', active: true },

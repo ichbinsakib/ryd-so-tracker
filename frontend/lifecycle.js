@@ -82,7 +82,9 @@ var SOLife = (function () {
       else r.matStatus = 'On Time';
     }
 
-    var followDate = date(d, 'next_followup_date');
+    // The follow-up stage (next follow-up, escalated, outstanding issue) is hidden on the SO page, so those fields can no longer
+    // be edited: they must not drive any flag, or a stale value could never be cleared. Follow-ups come from the stage dates only.
+    var followDate = null;
     function followupBy(def) { return followDate || def; }
 
     var closedStatus = /CLOSE/.test(status), held = /HOLD/.test(status);
@@ -159,8 +161,6 @@ var SOLife = (function () {
     var live = r.status !== 'Closed — Verified' && r.status !== 'Cancelled / Not Required';
     if (onHold) {
       why('info', 'On hold');
-      if (yes(d, 'escalated')) why('crit', 'Escalated');
-      if (has(d, 'blocker')) why('warn', 'Issue: ' + txt(d, 'blocker'));
     } else if (live) {
       if (due && r.stage < 13 && diff(due, today) < 0) why('crit', 'Overdue ' + plural(-diff(due, today), 'day') + ', not closed');
       else if (due && diff(due, today) <= CFG.dueSoonDays && r.stage < 13) why(diff(due, today) <= 7 ? 'warn' : 'info', 'Due in ' + plural(diff(due, today), 'day') + ' (' + iso(due) + ')');
@@ -169,8 +169,6 @@ var SOLife = (function () {
       else if (r.matStatus === 'At Risk') why('warn', 'Material delivery at risk' + (promised && required && diff(promised, required) > 0 ? ': promised ' + plural(diff(promised, required), 'day') + ' after it is needed' : ''));
       else if (r.matStatus === 'Unknown' && r.stage >= 8) why('warn', 'No promised material delivery date');
       if (r.followup && diff(r.followup, today) <= 0) why(diff(r.followup, today) < 0 ? 'warn' : 'info', 'Follow-up ' + (diff(r.followup, today) < 0 ? 'overdue by ' + plural(-diff(r.followup, today), 'day') : 'due today'));
-      if (yes(d, 'escalated')) why('crit', 'Escalated');
-      if (has(d, 'blocker')) why('warn', 'Issue: ' + txt(d, 'blocker'));
       if (released && poNeeded && !matReceived && !poApproved) why('warn', poCreated ? 'PO approval not recorded' : 'Material PO not recorded');
       if (released && poNeeded && poApproved && !ackDone) why('info', 'Supplier acknowledgment not recorded');
       if (progressed && !soNo) why('warn', 'SO number not recorded');
@@ -185,7 +183,7 @@ var SOLife = (function () {
     else if (onHold) sec = 'B';
     else if (r.final === 'Overdue') sec = 'E';
     else if (r.matStatus === 'Late' || r.matStatus === 'At Risk') sec = 'C';
-    else if (r.owner === 'me' || yes(d, 'escalated') || (followDue && r.owner !== 'none')) sec = 'A';
+    else if (r.owner === 'me' || (followDue && r.owner !== 'none')) sec = 'A';
     else if (r.owner && r.owner !== 'none' && r.owner !== 'me') sec = 'B';
     else if (r.stage === 12 && due && diff(due, today) <= CFG.dueSoonDays) sec = 'D';
 
