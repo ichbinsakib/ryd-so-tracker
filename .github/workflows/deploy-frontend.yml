@@ -33,5 +33,9 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: frontend
+      # the uploaded artifact can take a few seconds to become visible; deploying at once fails with
+      # "No artifacts named github-pages were found" (seen 2026-11-18 and 2026-11-24)
+      - name: Wait for the artifact to be listed
+        run: sleep 20
       - id: deployment
         uses: actions/deploy-pages@v4
