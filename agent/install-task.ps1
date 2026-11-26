@@ -13,8 +13,8 @@ if ($drive.DisplayRoot) { $agentDir = $agentDir -replace ('^' + [regex]::Escape(
 $node = (Get-Command node).Source
 $log = Join-Path $env:LOCALAPPDATA 'so-review-agent\agent.log'
 New-Item -ItemType Directory -Force (Split-Path $log) | Out-Null
-$cmd = '/c ""' + $node + '" "' + (Join-Path $agentDir 'so-review-agent.js') + '" --auto >> "' + $log + '" 2>&1"'
-$action = New-ScheduledTaskAction -Execute 'cmd.exe' -Argument $cmd -WorkingDirectory $agentDir
+# node runs directly (cmd.exe cannot start in a network folder); the agent writes its own log with --log
+$action = New-ScheduledTaskAction -Execute ('"' + $node + '"') -Argument ('"' + (Join-Path $agentDir 'so-review-agent.js') + '" --auto --log') -WorkingDirectory (Split-Path $log)
 $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 2)
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Hours 2) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -Hidden
 $principal = New-ScheduledTaskPrincipal -UserId "$env:USERDOMAIN\$env:USERNAME" -LogonType Interactive -RunLevel Limited

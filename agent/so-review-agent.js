@@ -34,7 +34,12 @@ if (opt('--root')) CFG.root = opt('--root');
 const DRY = flag('--dry-run') || CFG.moveFolders === false, NO_SUBMIT = flag('--no-submit');
 const STATE_DIR = process.env.SO_REVIEW_STATE || path.join(process.env.LOCALAPPDATA || os.tmpdir(), 'so-review-agent');   // lock, last run, mail export
 fs.mkdirSync(STATE_DIR, { recursive: true });
-const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
+// --log: append to %LOCALAPPDATA%\so-review-agent\agent.log (the scheduled task has no console)
+const LOG_FILE = flag('--log') ? path.join(STATE_DIR, 'agent.log') : null;
+const log = (...a) => {
+  const line = [new Date().toISOString().replace('T', ' ').slice(0, 19)].concat(a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x)))).join(' ');
+  if (LOG_FILE) { try { fs.appendFileSync(LOG_FILE, line + '\n'); } catch (_e) { /* log is best effort */ } } else console.log(line);
+};
 
 // ---------- app API
 async function api(action, body) {
@@ -223,7 +228,8 @@ async function fullRun(requests) {
     if (!NO_SUBMIT && !opt('--records')) { try { requests = (await api('srAgentPoll')).requests || []; } catch (e) { log('poll failed:', e.message); } }
     if (flag('--auto')) {
       let last = 0; try { last = +fs.readFileSync(path.join(STATE_DIR, 'last-full-run.txt'), 'utf8') || 0; } catch (_e) { /* never */ }
-      if (!requests.length && Date.now() - last < CFG.fullEveryMinutes * 60e3) { log('nothing to do'); return; }
+      if (!requests.length && Date.now() - last < CFG.fullEveryMinutes * 60e3) { log('nothing to do (last full review ' + Math.round((Date.now() - last) / 60e3) + ' min ago)'); return; }
+      log('full review: ' + (requests.length ? requests.length + ' request(s)' : 'last one ' + (last ? Math.round((Date.now() - last) / 60e3) + ' min ago' : 'never')) + ' · state ' + STATE_DIR);
     }
     await fullRun(requests);
   } catch (e) {
