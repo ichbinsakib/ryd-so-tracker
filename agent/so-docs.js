@@ -277,7 +277,7 @@ function reviewSo(soNo, files, rec) {
   const summary = {
     so_no: so, part_no: app('part_no') || (R && R.part) || (T && T.part) || '', description: (T && T.description) || (R && R.description) || '',
     customer: app('customer') || (T && T.customer) || '', qty: app('so_qty') ?? (T && T.qty), part_price: appD('part_price') || (T && T.partPrice), material: appD('steel_type') || (R && R.steel) || '',
-    material_cost: app('traveller_mat_price_piece') ?? (T && T.materialCost), due_date: app('due_date') || (T && T.due) || '', status: app('status') || ''
+    material_cost: appD('quote_price_piece') || app('traveller_mat_price_piece') || (T && T.materialCost), due_date: app('due_date') || (T && T.due) || '', status: app('status') || ''
   };
   return { result, docs_found: required.filter((d) => d.present && d.readable).length, docs_required: required.length, summary, documents, checks, discrepancies, missing, errors };
 }

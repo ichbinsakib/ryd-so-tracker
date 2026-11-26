@@ -19,7 +19,7 @@
 const fs = require('fs'), path = require('path'), os = require('os'), crypto = require('crypto');
 const { execFileSync, execFile } = require('child_process');
 const D = require('./so-docs.js');
-const VERSION = 'so-review-agent 1.0';
+const VERSION = 'so-review-agent 1.1';   // part of every review's fingerprint: a new version re-reviews all SOs once
 
 const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(n);
