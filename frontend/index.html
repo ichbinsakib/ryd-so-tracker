@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <title>Shop Order Tracking Details</title>
-<link rel="stylesheet" href="styles.css?v=b98e5511">
+<link rel="stylesheet" href="styles.css?v=ead957ea">
 </head>
 <body>
 <aside id="sidenav" class="sidenav" aria-label="Sections" hidden>
@@ -22,6 +22,7 @@
     <button id="nav-lead" class="navitem" type="button" title="Lead time calculation"><svg class="navsvg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span class="navlabel">Lead Time Calculation</span></button>
     <button id="nav-sotracker" class="navitem" type="button" title="SO Tracker: the planner's daily SO recommendations"><svg class="navsvg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h6v3H9z"/><path d="M15 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/><path d="M9 13l2 2 4-4"/></svg><span class="navlabel">SO Tracker</span></button>
     <button id="nav-price" class="navitem" type="button" title="Price increase tracking (admin only)" hidden><svg class="navsvg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg><span class="navlabel">Price Increase Tracking</span></button>
+    <button id="nav-soreview" class="navitem" type="button" title="SO Review: release documents checked against the app (admin only)" hidden><svg class="navsvg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l2 2 4-4"/><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></svg><span class="navlabel">SO Review</span><span id="nb-soreview" class="navbadge" hidden></span></button>
   </div>
   <div class="navfoot"><button id="nav-toggle" class="navitem" type="button" title="Collapse the menu"><svg class="navsvg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg><span class="navlabel">Collapse</span></button></div>
 </aside>
@@ -252,6 +253,14 @@
 </main>
 
 <!-- SO Tracker: the planner's daily SO recommendations, published from the planner's PC (shown in a sandboxed frame) -->
+<main id="view-soreview" hidden>
+  <div class="pagehead">
+    <div><h1>SO Review</h1><p class="muted" id="sr-sub">Release documents in NEED TO RELEASE checked against the app, and release confirmations from email.</p></div>
+    <div class="head-actions"><button id="sr-reload" class="btn" type="button">↻ Reload</button> <button id="sr-run" class="btn btn-primary" type="button" title="Ask the review PC to run a full review now">Run review now</button></div>
+  </div>
+  <div id="sr-body"></div>
+</main>
+
 <main id="view-sotracker" hidden>
   <div class="pagehead">
     <div><h1>SO Tracker</h1><p class="muted" id="st-sub">Daily SO recommendations from the planner's SO Tracker.</p></div>
@@ -406,6 +415,6 @@
 <script src="subcon.js?v=1e77d70d"></script>
 <script src="priceupdates.js?v=f2503fb6"></script>
 <script src="lifecycle.js?v=82c03778"></script>
-<script src="app.js?v=9776f95b"></script>
+<script src="app.js?v=d3a9ed59"></script>
 </body>
 </html>

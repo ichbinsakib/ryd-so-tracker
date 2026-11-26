@@ -41,7 +41,7 @@
   }
   const tabForStage = (n) => { const i = tabList().findIndex((t) => t[1].includes(n)); return i < 0 ? 0 : i; };
   const PEOPLE_KEYS = ['champion', 'req_by', 'owner', 'quote_approved_by'];
-  const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail', 'view-subcon', 'view-dash', 'view-scdetail', 'view-bpo', 'view-sotracker'];
+  const VIEWS = ['view-loading', 'view-users', 'view-login', 'view-home', 'view-admin', 'view-new', 'view-detail', 'view-subcon', 'view-dash', 'view-scdetail', 'view-bpo', 'view-sotracker', 'view-soreview'];
 
   // ---------- helpers
   function el(tag, attrs, ...kids) {
@@ -84,8 +84,8 @@
     const hide = id === 'view-login' || id === 'view-loading';
     $('sidenav').hidden = hide; document.body.classList.toggle('has-nav', !hide); $('nav-burger').hidden = hide; document.body.classList.remove('nav-open');
     $('crumb').textContent = hide ? '' : id === 'view-subcon' ? (SC.section === 'leads' ? 'Planning › Lead Time Calculation' : SC.section === 'price' ? 'Planning › Price Increase Tracking' : 'Subcontractor') : (CRUMBS[id] || '');
-    const on = id === 'view-scdetail' || id === 'view-bpo' ? 'nav-subcon' : id === 'view-subcon' ? (SC.section === 'leads' ? 'nav-lead' : SC.section === 'price' ? 'nav-price' : 'nav-subcon') : id === 'view-dash' ? 'nav-dash' : id === 'view-sotracker' ? 'nav-sotracker' : 'nav-inhouse';
-    ['nav-dash', 'nav-inhouse', 'nav-subcon', 'nav-lead', 'nav-sotracker', 'nav-price'].forEach((n) => { $(n).classList.toggle('on', n === on); if (n === on) $(n).setAttribute('aria-current', 'page'); else $(n).removeAttribute('aria-current'); });
+    const on = id === 'view-scdetail' || id === 'view-bpo' ? 'nav-subcon' : id === 'view-subcon' ? (SC.section === 'leads' ? 'nav-lead' : SC.section === 'price' ? 'nav-price' : 'nav-subcon') : id === 'view-dash' ? 'nav-dash' : id === 'view-sotracker' ? 'nav-sotracker' : id === 'view-soreview' ? 'nav-soreview' : 'nav-inhouse';
+    ['nav-dash', 'nav-inhouse', 'nav-subcon', 'nav-lead', 'nav-sotracker', 'nav-price', 'nav-soreview'].forEach((n) => { $(n).classList.toggle('on', n === on); if (n === on) $(n).setAttribute('aria-current', 'page'); else $(n).removeAttribute('aria-current'); });
   }
   function toast(msg, isErr) {
     const t = $('toast'); t.textContent = msg; t.className = 'toast' + (isErr ? ' err' : ''); t.hidden = false;
@@ -234,7 +234,7 @@
     const admin = isAdmin();
     $('dash-title').textContent = 'Inhouse';
     $('dash-sub').textContent = 'Progress of every sales order that is not closed.';
-    $('fresh-cards').hidden = state.role === 'viewer'; $('admin-users').hidden = !admin; $('nav-price').hidden = !admin; $('admin-new').hidden = state.role === 'viewer';
+    $('fresh-cards').hidden = state.role === 'viewer'; $('admin-users').hidden = !admin; $('nav-price').hidden = !admin; $('nav-soreview').hidden = !admin; $('admin-new').hidden = state.role === 'viewer';
   }
   function goHome() {
     state.dirty = false; state.current = null; updateSaveBar();
@@ -2525,6 +2525,138 @@
     frame.srcdoc = r.html || '';
     box.replaceChildren(frame);
   }
+  // ---------- SO Review (admins only): release documents checked against the app by the review PC (agent/so-review-agent.js)
+  const SR = { data: null, filter: 'all', folder: 'need', q: '', open: new Set() };
+  const SR_TONE = { PASS: 'sc-ok', FAIL: 'sc-bad', 'MISSING DOCUMENT': 'sc-warn', 'PENDING REVIEW': 'sc-muted' };
+  const SR_REL = { RELEASED: ['Released', 'sc-ok'], POSSIBLE: ['Possible release', 'sc-warn'], 'NOT FOUND': ['Not released', 'sc-muted'], ERROR: ['Email unavailable', 'sc-bad'] };
+  const srVal = (v) => (v === null || v === undefined || v === '' ? '—' : String(v));
+  const srMoney = (v) => { const n = typeof v === 'number' ? v : parseFloat(String(v || '').replace(/[$,\s]/g, '')); return isNaN(n) ? srVal(v) : '$' + n.toFixed(2); };
+  const srWhen = (iso) => (iso ? new Date(iso).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—');
+  async function openSoReview() {
+    if (!state.token || state.role !== 'admin') return;
+    if (!(await leaveGuard())) return;
+    show('view-soreview');
+    $('sr-body').replaceChildren(el('div', { class: 'card muted', text: 'Loading the SO reviews…' }));
+    await loadSoReview();
+  }
+  async function loadSoReview() {
+    const r = await api('srList');
+    if ($('view-soreview').hidden) return;
+    if (!r.ok) { if (r.code === 'UNAUTHENTICATED') return showLogin(r.error); $('sr-body').replaceChildren(el('div', { class: 'card', text: r.error || 'Could not load the SO reviews.' })); return; }
+    SR.data = r; renderSoReview();
+  }
+  function srCounts(items) {
+    const need = items.filter((x) => x.folder_state === 'NEED TO RELEASE');
+    const by = (k) => need.filter((x) => x.result === k).length;
+    return { total: need.length, pass: by('PASS'), fail: by('FAIL'), missing: by('MISSING DOCUMENT'), pending: by('PENDING REVIEW'),
+      possible: need.filter((x) => x.release_status === 'POSSIBLE').length, attention: items.filter((x) => x.needs_attention).length, released: items.filter((x) => x.folder_state === 'RELEASED').length };
+  }
+  function srMatch(x) {
+    if (SR.folder === 'need' && x.folder_state !== 'NEED TO RELEASE') return false;
+    if (SR.folder === 'released' && x.folder_state !== 'RELEASED') return false;
+    const f = SR.filter;
+    if (f === 'possible' && x.release_status !== 'POSSIBLE') return false;
+    if (f === 'attention' && !x.needs_attention) return false;
+    if (['PASS', 'FAIL', 'MISSING DOCUMENT', 'PENDING REVIEW'].includes(f) && x.result !== f) return false;
+    const q = SR.q.trim().toLowerCase();
+    if (q) { const s = x.review && x.review.summary || {}; if (![x.so_no, s.part_no, s.customer, s.description, x.customer_folder].some((v) => String(v || '').toLowerCase().includes(q))) return false; }
+    return true;
+  }
+  function renderSoReview() {
+    const d = SR.data, items = d.items || [], c = srCounts(items), ag = d.agent || null;
+    navBadge('nb-soreview', c.fail + c.missing + c.attention, c.attention ? 'bad' : 'warn');
+    const last = ag && ag.at ? 'Last review ' + srWhen(ag.at) + (ag.durationSec ? ' (' + ag.durationSec + ' s)' : '') + (ag.agent ? ' on ' + String(ag.agent).split('@').pop().trim() : '') : 'The review PC has not reported yet';
+    const queued = (d.requests || []).filter((q) => q.status === 'QUEUED' || q.status === 'RUNNING');
+    $('sr-sub').textContent = last + ' · runs every 30 minutes on the review PC' + (queued.length ? ' · ' + queued.length + ' request' + (queued.length === 1 ? '' : 's') + ' waiting for the review PC' : '');
+    const kids = [];
+    // agent / source errors, always visible
+    const errs = (ag && ag.errors || []).concat(ag && ag.error ? [ag.error] : []);
+    if (errs.length) kids.push(el('div', { class: 'card srerr' }, el('b', { text: 'Problems in the last review' }), el('ul', {}, ...errs.slice(0, 12).map((e) => el('li', { text: e })))));
+    if (ag && ag.dryRun) kids.push(el('div', { class: 'card srnote', text: 'The last review was a dry run: folders were not moved.' }));
+    // summary tiles
+    const tile = (n, label, tone, f) => el('button', { class: 'kpi ' + tone + (SR.filter === f ? ' on' : ''), type: 'button', onclick: () => { SR.filter = SR.filter === f ? 'all' : f; SR.folder = f === 'attention' ? 'all' : 'need'; renderSoReview(); } },
+      el('span', { class: 'kpil', text: label }), el('span', { class: 'kpin', text: String(n) }));
+    kids.push(el('section', { class: 'dbkpis srkpis' }, tile(c.total, 'SOs reviewed (in NEED TO RELEASE)', 'info', 'all'), tile(c.pass, 'Passed', 'ok', 'PASS'), tile(c.fail, 'Failed', c.fail ? 'bad' : 'ok', 'FAIL'),
+      tile(c.missing, 'Missing documents', c.missing ? 'warn' : 'ok', 'MISSING DOCUMENT'), tile(c.pending, 'Pending review', 'info', 'PENDING REVIEW'), tile(c.possible, 'Possible release (confirm)', c.possible ? 'warn' : 'ok', 'possible'),
+      tile(c.attention, 'Released with problems', c.attention ? 'bad' : 'ok', 'attention')));
+    // filters
+    const fchip = (k, label) => el('button', { class: 'chip' + (SR.folder === k ? ' on' : ''), type: 'button', onclick: () => { SR.folder = k; renderSoReview(); } }, label);
+    const q = el('input', { type: 'search', placeholder: 'Search SO#, part, customer…', value: SR.q, 'aria-label': 'Search SO reviews' });
+    q.addEventListener('input', () => { SR.q = q.value; clearTimeout(SR.t); SR.t = setTimeout(() => { renderSoReview(); const n = $('sr-body').querySelector('input[type=search]'); if (n) { n.focus(); n.setSelectionRange(n.value.length, n.value.length); } }, 250); });
+    kids.push(el('div', { class: 'listhead' }, el('div', { class: 'chips' }, fchip('need', 'In NEED TO RELEASE'), fchip('released', 'Released'), fchip('all', 'All')), el('div', { class: 'listtools' }, q)));
+    const list = items.filter(srMatch).sort((a, b) => ({ FAIL: 0, 'MISSING DOCUMENT': 1, 'PENDING REVIEW': 2, PASS: 3 }[a.result] - { FAIL: 0, 'MISSING DOCUMENT': 1, 'PENDING REVIEW': 2, PASS: 3 }[b.result]) || String(b.so_no).localeCompare(String(a.so_no)));
+    kids.push(list.length ? el('div', { class: 'tablewrap card' }, el('table', { class: 'datatable srtable' },
+      el('thead', {}, el('tr', {}, ['SO #', 'Part', 'Description', 'Customer', 'Qty', 'Part price', 'Material', 'Mat. cost', 'Due', 'Docs', 'Data check', 'Release', 'Reviewed', 'Result'].map((h) => el('th', { text: h })))),
+      el('tbody', {}, ...list.flatMap(srRow)))) : el('p', { class: 'muted', text: items.length ? 'No SOs match.' : 'No reviews yet. Click Run review now; the review PC picks it up within a few minutes.' }));
+    // folder moves
+    const mv = d.moves || [];
+    kids.push(el('details', { class: 'card srmoves' }, el('summary', {}, el('b', { text: 'Folder moves' }), ' ', el('span', { class: 'muted small', text: mv.length + ' recorded' })),
+      mv.length ? el('div', { class: 'tablewrap' }, el('table', { class: 'datatable' }, el('thead', {}, el('tr', {}, ['When', 'SO #', 'Moved to', 'By', 'Reason'].map((h) => el('th', { text: h })))),
+        el('tbody', {}, ...mv.map((m) => el('tr', {}, el('td', { text: srWhen(m.moved_at) }), el('td', { text: m.so_no }), el('td', { text: m.to_path }), el('td', { text: m.moved_by }), el('td', { text: m.reason })))))) : el('p', { class: 'muted', text: 'No folders moved yet.' })));
+    $('sr-body').replaceChildren(...kids);
+  }
+  function srRow(x) {
+    const r = x.review || {}, s = r.summary || {}, dis = r.discrepancies || [], open = SR.open.has(x.so_no);
+    const rel = SR_REL[x.release_status] || [x.release_status, 'sc-muted'];
+    const tr = el('tr', { class: 'srrow' + (open ? ' open' : '') + (x.needs_attention ? ' attn' : ''), tabindex: 0, title: 'Show every check for SO ' + x.so_no,
+      onclick: () => { if (SR.open.has(x.so_no)) SR.open.delete(x.so_no); else SR.open.add(x.so_no); renderSoReview(); }, onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.currentTarget.click(); } } },
+      el('td', {}, el('b', { text: x.so_no }), el('small', { class: 'muted', text: ' ' + (x.customer_folder || '') })), el('td', { text: srVal(s.part_no) }), el('td', { class: 'srdesc', text: srVal(s.description) }), el('td', { text: srVal(s.customer) }),
+      el('td', { class: 'num', text: srVal(s.qty) }), el('td', { class: 'num', text: srMoney(s.part_price) }), el('td', { text: srVal(s.material) }), el('td', { class: 'num', text: srMoney(s.material_cost) }), el('td', { text: s.due_date ? dshort(s.due_date) : '—' }),
+      el('td', {}, el('span', { class: 'badge ' + (r.docs_found >= r.docs_required ? 'sc-ok' : 'sc-warn'), text: (r.docs_found ?? '—') + '/' + (r.docs_required ?? 5) })),
+      el('td', {}, dis.length ? el('span', { class: 'badge sc-bad', text: dis.length + ' mismatch' + (dis.length === 1 ? '' : 'es') }) : r.checks ? el('span', { class: 'badge sc-ok', text: 'All match' }) : el('span', { class: 'muted', text: '—' })),
+      el('td', {}, el('span', { class: 'badge ' + rel[1], text: x.folder_state === 'RELEASED' ? 'Released · moved' : rel[0] }), x.needs_attention ? el('span', { class: 'badge sc-bad', text: 'Needs attention' }) : ''),
+      el('td', { text: srWhen(x.reviewed_at) }),
+      el('td', {}, el('span', { class: 'badge ' + (SR_TONE[x.result] || 'sc-muted'), text: x.result })));
+    return open ? [tr, el('tr', { class: 'srdetail' }, el('td', { colspan: 14 }, srDetail(x)))] : [tr];
+  }
+  function srDetail(x) {
+    const r = x.review || {}, rel = r.release || {}, out = [];
+    // discrepancies first
+    const dis = r.discrepancies || [];
+    out.push(el('h4', { text: dis.length ? 'Discrepancies (' + dis.length + ')' : 'No discrepancies' }));
+    if (dis.length) out.push(el('table', { class: 'datatable srchecks' }, el('thead', {}, el('tr', {}, ['Field', 'Severity', 'App value', 'Document value', 'Correction needed'].map((h) => el('th', { text: h })))),
+      el('tbody', {}, ...dis.map((c) => el('tr', {}, el('td', {}, el('b', { text: c.field })), el('td', { text: c.severity }), el('td', { text: srVal(c.app) }), el('td', { text: (c.docs || []).map((dd) => dd.doc + ': ' + srVal(dd.value)).join(' · ') || '—' }), el('td', { text: c.problem + (c.fix ? '. ' + c.fix : '') }))))));
+    if ((r.missing || []).length) out.push(el('p', {}, el('b', { text: 'Missing or unreadable documents: ' }), r.missing.join(', ')));
+    // documents
+    out.push(el('h4', { text: 'Required documents (' + srVal(r.docs_found) + '/' + srVal(r.docs_required) + ')' }));
+    out.push(el('ul', { class: 'srdocs' }, ...(r.documents || []).map((dd) => el('li', { class: dd.present && dd.readable ? 'ok' : dd.required ? 'bad' : 'na' },
+      el('b', { text: dd.label }), ' · ', dd.present ? dd.file : (dd.required ? 'missing' : 'not needed'), dd.present && !dd.readable ? ' (unreadable)' : '', (dd.notes || []).length ? el('small', { class: 'muted', text: ' ' + dd.notes.join('; ') }) : ''))));
+    // every check
+    out.push(el('details', {}, el('summary', { text: 'All ' + (r.checks || []).length + ' checks' }), el('table', { class: 'datatable srchecks' },
+      el('thead', {}, el('tr', {}, ['Field', 'App', 'Documents', 'Result'].map((h) => el('th', { text: h })))),
+      el('tbody', {}, ...(r.checks || []).map((c) => el('tr', {}, el('td', { text: c.field }), el('td', { text: srVal(c.app) }), el('td', { text: (c.docs || []).map((dd) => dd.doc + ': ' + srVal(dd.value)).join(' · ') || '—' }),
+        el('td', {}, el('span', { class: 'badge ' + (c.ok === true ? 'sc-ok' : c.ok === false ? 'sc-bad' : 'sc-muted'), text: c.ok === true ? 'Match' : c.ok === false ? 'Mismatch' : 'Not checked' }), c.problem && c.ok !== true ? el('small', { class: 'muted', text: ' ' + c.problem }) : '')))))));
+    // release evidence
+    out.push(el('h4', { text: 'Release confirmation' }));
+    out.push(el('div', { class: 'srrel' }, el('p', {}, el('span', { class: 'badge ' + (SR_REL[x.release_status] || ['', 'sc-muted'])[1], text: (SR_REL[x.release_status] || [x.release_status])[0] }),
+      rel.subject ? ' ' + rel.subject : '', rel.sender ? ' · from ' + rel.sender : '', rel.date ? ' · ' + srWhen(rel.date) : ''),
+      rel.evidence ? el('blockquote', { text: rel.evidence }) : '', rel.ref ? el('small', { class: 'muted', text: 'Email reference: ' + String(rel.ref).slice(0, 60) + '…' }) : ''));
+    if (x.folder_state === 'NEED TO RELEASE' && x.release_status !== 'RELEASED') out.push(el('button', { class: 'btn' + (x.release_status === 'POSSIBLE' ? ' btn-primary' : ''), type: 'button', text: 'Confirm release and move the folder', onclick: (e) => { e.stopPropagation(); srConfirm(x); } }));
+    if ((r.errors || []).length) out.push(el('p', { class: 'tone-bad', text: 'Errors: ' + r.errors.join('; ') }));
+    out.push(el('p', { class: 'muted small', text: 'Folder: ' + srVal(x.folder_path) }));
+    const hist = el('div', { class: 'srhist' }, el('button', { class: 'btn btn-sm', type: 'button', text: 'Show review history', onclick: async (e) => { e.stopPropagation(); const h = await api('srHistory', { so_no: x.so_no });
+      hist.replaceChildren(h.ok ? el('table', { class: 'datatable' }, el('thead', {}, el('tr', {}, ['Reviewed', 'Result', 'Docs', 'Mismatches', 'Release'].map((t) => el('th', { text: t })))),
+        el('tbody', {}, ...h.history.map((v) => el('tr', {}, el('td', { text: srWhen(v.reviewed_at) }), el('td', { text: v.result }), el('td', { text: v.docs_found + '/' + v.docs_required }), el('td', { text: String((v.discrepancies || []).length) }), el('td', { text: (v.release && v.release.status) || '—' }))))) : el('p', { class: 'tone-bad', text: h.error || 'Could not load the history.' })); } }));
+    out.push(hist);
+    return el('div', { class: 'srdetailbox', onclick: (e) => e.stopPropagation() }, ...out);
+  }
+  async function srConfirm(x) {
+    const note = el('textarea', { rows: 2, placeholder: 'How do you know it is released? (optional, kept with the move)', 'aria-label': 'Release note' });
+    const body = el('div', {}, el('p', { text: 'SO ' + x.so_no + ' will be marked released and its folder moved from NEED TO RELEASE to the customer\'s RELEASED folder on the next run of the review PC. Files are not changed.' }),
+      x.result !== 'PASS' ? el('p', { class: 'tone-bad', text: 'Its documents did not pass the review (' + x.result + '): it will stay flagged for attention.' }) : '', note);
+    if (!(await confirmDialog('Confirm release of SO ' + x.so_no + '?', body, 'Confirm release', false))) return;
+    const r = await api('srConfirm', { so_no: x.so_no, note: note.value.trim() });
+    toast(r.ok ? (r.message || 'Confirmed: the folder moves on the next run of the review PC.') : (r.error || 'Could not confirm.'), !r.ok);
+    if (r.ok) loadSoReview();
+  }
+  $('nav-soreview').onclick = openSoReview;
+  $('sr-reload').onclick = loadSoReview;
+  $('sr-run').onclick = async () => {
+    const r = await api('srRun');
+    toast(r.ok ? (r.queued ? 'Review requested: the review PC starts it within a few minutes.' : r.message) : (r.error || 'Could not request a review.'), !r.ok);
+    if (r.ok) loadSoReview();
+  };
+
   $('nav-sotracker').onclick = openSoTracker;
   $('st-reload').onclick = openSoTracker;
 

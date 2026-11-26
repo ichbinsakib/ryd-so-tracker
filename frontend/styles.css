@@ -784,3 +784,14 @@ button.mtile { cursor: pointer; } button.mtile:hover { border-color: var(--accen
 .dsticky .stepper-card { margin-bottom: 10px; }
 @media (max-width: 1000px) { .dsticky { position: static; box-shadow: none; } }
 @media print { .dsticky { position: static; box-shadow: none; } }
+/* SO Review (admin) */
+.srkpis .kpi.on { outline: 2px solid var(--accent); }
+.srerr { border-left: 3px solid var(--err); } .srerr ul { margin: 6px 0 0 18px; padding: 0; } .srnote { border-left: 3px solid var(--warn); }
+.srtable td { vertical-align: top; white-space: nowrap; } .srtable td.srdesc { white-space: normal; } .srtable td.num, .srtable th:nth-child(5), .srtable th:nth-child(6), .srtable th:nth-child(8) { text-align: right; }
+.srtable .srdesc { max-width: 200px; } .srtable td .badge { display: inline-block; margin: 0 4px 2px 0; }
+.srrow { cursor: pointer; } .srrow:hover, .srrow:focus-visible, .srrow.open { background: var(--accent-soft); outline: 0; } .srrow.attn { box-shadow: inset 3px 0 0 var(--err); }
+.srdetail > td { background: var(--panel-2); padding: 0 !important; } .srdetailbox { padding: 12px 16px; cursor: default; }
+.srdetailbox h4 { margin: 12px 0 6px; } .srdetailbox h4:first-child { margin-top: 0; }
+.srchecks td { white-space: normal; font-size: 12.5px; } .srdocs { margin: 0; padding-left: 18px; } .srdocs li.ok::marker { content: '✓  '; color: var(--ok); } .srdocs li.bad::marker { content: '✗  '; color: var(--err); } .srdocs li.na::marker { content: '–  '; color: var(--muted); }
+.srrel blockquote { margin: 6px 0; padding: 6px 10px; border-left: 3px solid var(--line-2); background: var(--panel); white-space: pre-wrap; }
+.srmoves { margin-top: 14px; } .srmoves summary { cursor: pointer; }

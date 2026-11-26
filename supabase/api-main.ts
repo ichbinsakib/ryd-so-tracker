@@ -755,9 +755,117 @@ async function statusReminders(req: any) {
   return { ok: true, watching: rows.length, sent: items.length };
 }
 
+// ---------- SO Review: release-document checks (admin only). The checks themselves run on an office PC (agent/so-review-agent.js),
+// which can reach the network share and Outlook; it reads the SO data and submits results with its own key (SO_REVIEW_AGENT_KEY).
+const SR_RESULTS = ['PASS', 'FAIL', 'MISSING DOCUMENT', 'PENDING REVIEW'];
+const SR_RELEASE = ['RELEASED', 'POSSIBLE', 'NOT FOUND', 'ERROR'];
+const SR_FOLDER = ['NEED TO RELEASE', 'RELEASED', 'GONE'];
+const srSo = (s: unknown) => String(s ?? '').trim().toUpperCase().slice(0, 30);
+const srText = (s: unknown, n: number) => String(s ?? '').slice(0, n);
+async function srAgentOk(req: any) {
+  const key = Deno.env.get('SO_REVIEW_AGENT_KEY') || '';
+  return key.length >= 32 && typeof req.agentKey === 'string' && (await sha256hex(req.agentKey)) === (await sha256hex(key));
+}
+
+async function srAgentAction(req: any) {
+  if (!(await srAgentOk(req))) return fail('UNAUTHENTICATED', 'Not allowed.');
+  const action = String(req.action);
+  if (action === 'srAgentRecords') {
+    // every shop order with its calculated columns (price, steel, bar size...), exactly as an admin sees it in the app
+    const { users, cfg } = await loadUsersAndConfig();
+    const admin = (users.find((u: any) => u.active !== false && u.role === 'admin') || {} as any).email || SOCore.parseEmailList(cfg.admins)[0];
+    if (!admin) return fail('NOT_READY', 'No admin account to read the SO list as.');
+    const r = SOService.handle(SOPg.create(await prefetch({ action: 'list' }, admin, 'admin', users, cfg)).adapter, { action: 'list', idToken: 'agent' });
+    if (!r || !r.ok) return r || fail('SERVER_ERROR', 'Could not read the SO list.');
+    const known = must(await sb.from('so_review_sos').select('so_no,fingerprint,folder_state,folder_path,result,release_status') as any) as any[];
+    return { ok: true, now: new Date().toISOString(), records: r.records.map((x: any) => ({ id: x.id, values: x.values, display: x.display })), known };
+  }
+  if (action === 'srAgentPoll') {
+    const q = must(await sb.from('so_review_requests').select('*').eq('status', 'QUEUED').order('id').limit(50) as any) as any[];
+    if (q.length) { const u = await sb.from('so_review_requests').update({ status: 'RUNNING', picked_at: new Date().toISOString() }).in('id', q.map((x) => x.id)); if (u.error) return fail('SERVER_ERROR', u.error.message); }
+    return { ok: true, requests: q };
+  }
+  if (action === 'srAgentSubmit') {
+    const now = new Date().toISOString(), agent = srText(req.agent, 80);
+    const reviews = Array.isArray(req.reviews) ? req.reviews.slice(0, 400) : [];
+    for (const it of reviews) {
+      const so = srSo(it.so_no); if (!so) continue;
+      if (!SR_RESULTS.includes(it.result) || !SR_RELEASE.includes(it.release_status) || !SR_FOLDER.includes(it.folder_state)) return fail('INVALID', 'Bad review values for SO ' + so + '.');
+      const row: any = { so_no: so, customer_folder: srText(it.customer_folder, 60), folder_path: srText(it.folder_path, 500), folder_state: it.folder_state, result: it.result,
+        release_status: it.release_status, needs_attention: !!it.needs_attention, fingerprint: srText(it.fingerprint, 200), updated_at: now };
+      if (it.review && typeof it.review === 'object') {
+        const rv = it.review;
+        const ins = await sb.from('so_reviews').insert({ so_no: so, reviewed_at: now, result: it.result, docs_found: Number(rv.docs_found) || 0, docs_required: Number(rv.docs_required) || 5,
+          summary: rv.summary || {}, documents: rv.documents || [], checks: rv.checks || [], discrepancies: rv.discrepancies || [], missing: rv.missing || [], release: rv.release || {},
+          errors: rv.errors || [], fingerprint: row.fingerprint, agent }).select('id').single();
+        if (ins.error) return fail('SERVER_ERROR', ins.error.message);
+        row.latest_review_id = (ins.data as any).id; row.reviewed_at = now;
+      }
+      const up = await sb.from('so_review_sos').upsert(row, { onConflict: 'so_no' });
+      if (up.error) return fail('SERVER_ERROR', up.error.message);
+    }
+    const moves = Array.isArray(req.moves) ? req.moves.slice(0, 400) : [];
+    for (const m of moves) {
+      const rec = { so_no: srSo(m.so_no), from_path: srText(m.from_path, 500), to_path: srText(m.to_path, 500), moved_at: m.moved_at || now, reason: srText(m.reason, 500), email_ref: srText(m.email_ref, 1000), moved_by: srText(m.moved_by || 'agent', 120) };
+      const r = await sb.from('so_folder_moves').upsert(rec, { onConflict: 'so_no,to_path', ignoreDuplicates: true });
+      if (r.error) return fail('SERVER_ERROR', r.error.message);
+      await sb.from('app_audit').insert({ user_email: 'so-review-agent', field: 'SO FOLDER MOVED', old_value: rec.from_path, new_value: rec.so_no + ' -> ' + rec.to_path + ' (' + rec.reason + ')' });
+    }
+    for (const d of (Array.isArray(req.requestsDone) ? req.requestsDone : [])) {
+      await sb.from('so_review_requests').update({ status: d.status === 'ERROR' ? 'ERROR' : 'DONE', done_at: now, message: srText(d.message, 1000) }).eq('id', Number(d.id));
+    }
+    if (req.status && typeof req.status === 'object') {
+      const m = await sb.from('app_meta').upsert({ key: 'so_review_agent', value: { ...req.status, at: now, agent } }); if (m.error) return fail('SERVER_ERROR', m.error.message);
+      if (req.status.final) await sb.from('app_audit').insert({ user_email: 'so-review-agent', field: 'SO REVIEW RUN', new_value: srText(JSON.stringify(req.status.counts || {}) + (req.status.error ? ' ERROR: ' + req.status.error : ''), 1000) });
+    }
+    return { ok: true, saved: reviews.length, moves: moves.length };
+  }
+  return fail('BAD_REQUEST', 'Unknown action.');
+}
+
+async function srAction(req: any, email: string, role: string | null) {
+  if (role !== 'admin') return fail('FORBIDDEN', 'SO Review is for administrators only.');
+  const action = String(req.action);
+  if (action === 'srList') {
+    const sos = await pagedRows((a, b) => sb.from('so_review_sos').select('*').order('so_no').range(a, b));
+    const ids = sos.map((s: any) => s.latest_review_id).filter(Boolean);
+    const reviews: any[] = [];
+    for (let i = 0; i < ids.length; i += 100) reviews.push(...(must(await sb.from('so_reviews').select('*').in('id', ids.slice(i, i + 100)) as any) as any[]));
+    const byId = new Map(reviews.map((r) => [r.id, r]));
+    const moves = must(await sb.from('so_folder_moves').select('*').order('moved_at', { ascending: false }).limit(200) as any);
+    const requests = must(await sb.from('so_review_requests').select('*').order('id', { ascending: false }).limit(30) as any);
+    return { ok: true, items: sos.map((s: any) => ({ ...s, review: byId.get(s.latest_review_id) || null })), moves, requests, agent: await metaValue('so_review_agent') };
+  }
+  if (action === 'srHistory') {
+    const so = srSo(req.so_no); if (!so) return fail('BAD_REQUEST', 'Missing SO number.');
+    const h = must(await sb.from('so_reviews').select('id,reviewed_at,result,docs_found,docs_required,discrepancies,missing,release,errors').eq('so_no', so).order('reviewed_at', { ascending: false }).limit(30) as any);
+    return { ok: true, history: h };
+  }
+  if (action === 'srRun') {
+    const open = must(await sb.from('so_review_requests').select('id').eq('kind', 'RUN').in('status', ['QUEUED', 'RUNNING']).limit(1) as any) as any[];
+    if (open.length) return { ok: true, queued: false, message: 'A review is already queued or running.' };
+    const r = await sb.from('so_review_requests').insert({ kind: 'RUN', requested_by: email }); if (r.error) return fail('SERVER_ERROR', r.error.message);
+    await sb.from('app_audit').insert({ user_email: email, field: 'SO REVIEW REQUESTED', new_value: 'manual run' });
+    return { ok: true, queued: true };
+  }
+  if (action === 'srConfirm') {
+    const so = srSo(req.so_no); if (!so) return fail('BAD_REQUEST', 'Missing SO number.');
+    const s = must(await sb.from('so_review_sos').select('so_no,folder_state').eq('so_no', so).limit(1) as any) as any[];
+    if (!s.length) return fail('NOT_FOUND', 'SO ' + so + ' has not been reviewed.');
+    if (s[0].folder_state !== 'NEED TO RELEASE') return fail('INVALID', 'SO ' + so + ' is not in NEED TO RELEASE any more.');
+    const open = must(await sb.from('so_review_requests').select('id').eq('kind', 'CONFIRM_RELEASE').eq('so_no', so).in('status', ['QUEUED', 'RUNNING']).limit(1) as any) as any[];
+    if (open.length) return { ok: true, queued: false, message: 'Already confirmed; the folder moves on the next run.' };
+    const r = await sb.from('so_review_requests').insert({ kind: 'CONFIRM_RELEASE', so_no: so, note: srText(req.note, 500), requested_by: email }); if (r.error) return fail('SERVER_ERROR', r.error.message);
+    await sb.from('app_audit').insert({ user_email: email, field: 'SO RELEASE CONFIRMED', new_value: so + (req.note ? ': ' + srText(req.note, 300) : '') });
+    return { ok: true, queued: true };
+  }
+  return fail('BAD_REQUEST', 'Unknown action.');
+}
+
 async function handleRequest(req: any) {
   if (req && req.action === 'statusReminders') return await statusReminders(req);
   if (req && req.action === 'login') return await login(req);
+  if (req && typeof req.action === 'string' && req.action.startsWith('srAgent')) return await srAgentAction(req);   // the SO Review agent, own key
   const auth = await verifyToken(req && req.idToken);
   if (!auth.ok) return fail('UNAUTHENTICATED', (auth as any).error || 'Please sign in.');
   const email = (auth as any).email as string;
@@ -770,6 +878,7 @@ async function handleRequest(req: any) {
   if (typeof req.action === 'string' && req.action.startsWith('sc')) return await subconAction(req, email, role);
   if (typeof req.action === 'string' && req.action.startsWith('lg')) return await logAction(req, email, role);
   if (req.action === 'ltLookup') return await ltAction(req, role);
+  if (typeof req.action === 'string' && req.action.startsWith('sr')) return await srAction(req, email, role);
   if (req.action === 'stGet' || req.action === 'stUpload') return await stAction(req, email, role);
   if (typeof req.action === 'string' && req.action.startsWith('pu')) return await puAction(req, email, role);
 
@@ -806,7 +915,7 @@ Deno.serve(async (request: Request) => {
     if (!body || body.length > 14_000_000) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
     req = JSON.parse(body);
     const big = body.length > 100_000;
-    if (big && !['uploadStock', 'uploadStockItems', 'uploadSteelUsage', 'uploadScan', 'scImport', 'scImportTemplate', 'stUpload'].includes(req && req.action)) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
+    if (big && !['uploadStock', 'uploadStockItems', 'uploadSteelUsage', 'uploadScan', 'scImport', 'scImportTemplate', 'stUpload', 'srAgentSubmit'].includes(req && req.action)) return reply(fail('BAD_REQUEST', 'Bad request size.'), origin);
   } catch (_e) {
     return reply(fail('BAD_REQUEST', 'Request is not valid JSON.'), origin);
   }

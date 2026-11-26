@@ -45,6 +45,10 @@ const puRows = require('./price-updates-seed.json').map((r, i) => Object.assign(
 function puMock(rq) {
   if (rq.idToken !== 'tok-admin') return { ok: false, code: 'FORBIDDEN', error: 'Only an admin can use Price Increase Tracking.' };
   if (rq.action === 'puList') return { ok: true, rows: puRows };
+  // SO Review: reviews built from the made-up test documents (agent/test/fixtures.js), no PDFs or network needed
+  if (rq.action === 'srList') return srMock();
+  if (rq.action === 'srHistory') { const it = srMock().items.find((x) => x.so_no === rq.so_no); return { ok: true, history: it && it.review ? [Object.assign({ reviewed_at: it.reviewed_at }, it.review)] : [] }; }
+  if (rq.action === 'srRun' || rq.action === 'srConfirm') return { ok: true, queued: true };
   if (rq.action === 'puAdd') { if (!rq.part_no) return { ok: false, code: 'INVALID', error: 'Please fix the highlighted fields.', fieldErrors: { part_no: 'Enter the part number.' } }; const row = { id: '00000000-0000-4000-8000-' + String(puRows.length + 100).padStart(12, '0'), orig_new_price: null, revised_date: null, reply_date: null, implemented: null, source_date: null, history: [] }; ['part_no', 'sent_by', 'sent_date', 'effective_date', 'reply', 'reply_date', 'source_subject', 'notes'].forEach((k) => { row[k] = rq[k] === '' || rq[k] === undefined ? (k === 'reply' ? 'none' : null) : rq[k]; }); ['prev_price', 'new_price'].forEach((k) => { row[k] = rq[k] === '' || rq[k] === undefined ? null : Number(rq[k]); }); puRows.push(row); return { ok: true, id: row.id }; }
   if (rq.action === 'puDelete') { const i = puRows.findIndex((x) => x.id === rq.id); if (i >= 0) puRows.splice(i, 1); return { ok: true }; }
   if (rq.action === 'puSet') { const r = puRows.find((x) => x.id === rq.id); if (!r) return { ok: false, code: 'BAD_REQUEST', error: 'Missing record.' }; ['part_no', 'sent_by', 'sent_date', 'effective_date', 'reply', 'reply_date', 'source_subject', 'notes', 'implemented'].forEach((k) => { if (rq[k] !== undefined) r[k] = rq[k] === '' ? null : rq[k]; }); ['prev_price', 'new_price'].forEach((k) => { if (rq[k] !== undefined) r[k] = rq[k] === '' ? null : Number(rq[k]); }); return { ok: true }; }
@@ -101,7 +105,7 @@ http.createServer((req, res) => {
       let out;
       try {
         const rq = JSON.parse(body);
-        out = rq.action === 'stGet' || rq.action === 'stUpload' ? stMock(rq) : String(rq.action || '').startsWith('pu') ? puMock(rq) : String(rq.action || '').startsWith('sc') ? scMock(rq) : Service.handle(sheet, rq);
+        out = rq.action === 'stGet' || rq.action === 'stUpload' ? stMock(rq) : (String(rq.action || '').startsWith('pu') || String(rq.action || '').startsWith('sr')) ? puMock(rq) : String(rq.action || '').startsWith('sc') ? scMock(rq) : Service.handle(sheet, rq);
       } catch (e) { out = { ok: false, code: 'BAD_REQUEST', error: 'Bad JSON' }; }
       res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(out));
     });
@@ -111,3 +115,18 @@ http.createServer((req, res) => {
   if (!f.startsWith(root) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end('Not found'); }
   res.writeHead(200, { 'Content-Type': types[path.extname(f)] || 'application/octet-stream' }); fs.createReadStream(f).pipe(res);
 }).listen(Number(process.env.PORT) || 5173, '127.0.0.1', () => console.log('DEV MOCK (synthetic data) on http://127.0.0.1:' + (Number(process.env.PORT) || 5173)));
+
+// ---- SO Review mock data
+function srMock() {
+  const D = require('../agent/so-docs.js'), F = require('../agent/test/fixtures.js');
+  const cases = [['90001', {}], ['90002', { cost: '1.95' }], ['90003', { steel: '1 RD 1018 CF', grade: '1018' }], ['90004', {}, ['router']], ['90005', { due: '01/15/2027' }], ['90007', {}]];
+  const now = new Date().toISOString();
+  const items = cases.map(([so, chg, drop]) => {
+    const v = Object.assign({}, F.BASE, { so }, chg);
+    const files = [['router', F.router], ['traveler', F.traveler], ['materialPo', F.materialPo], ['supplier', F.supplier], ['print', () => '']].filter(([k]) => !(drop || []).includes(k)).map(([k, fn]) => ({ name: so + ' ' + k + '.pdf', kind: k, text: fn(v), readable: true }));
+    const r = D.reviewSo(so, files, F.record(Object.assign({}, F.BASE, { so })));
+    r.release = so === '90007' ? { status: 'POSSIBLE', subject: 'Re: RELEASE SO#' + so, sender: 'Charlotte Hamblin', date: now, evidence: 'yes', ref: 'mock' } : { status: 'NOT FOUND', evidence: 'Release requested; no reply from Charlotte or Jay yet' };
+    return { so_no: so, customer_folder: 'RAYMOND', folder_path: '//server/SO RELEASE STATUS/RAYMOND/NEED TO RELEASE/' + so, folder_state: 'NEED TO RELEASE', result: r.result, release_status: r.release.status, needs_attention: false, reviewed_at: now, review: r };
+  });
+  return { ok: true, items, moves: [{ moved_at: now, so_no: '90006', to_path: '//server/SO RELEASE STATUS/RAYMOND/RELEASED/90006', moved_by: 'agent', reason: 'Release email from Charlotte Hamblin: Released.' }], requests: [], agent: { at: now, durationSec: 42, agent: 'so-review-agent 1.0 @ MOCK-PC', errors: [] } };
+}
